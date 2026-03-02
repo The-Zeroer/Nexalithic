@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
+public class AcceptorLoop extends AbstractLoop {
     public static final NexalithicOption<Integer> FiltrationContextPool_Capacity = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Capacity", 1024);
     public static final NexalithicOption<Integer> FiltrationContextPool_Limit = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Limit", (int) (FiltrationContextPool_Capacity.defaultValue() * 1.5));
     public static final NexalithicOption<Double> FiltrationContextPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_PrefillRatio", 0.5);
@@ -42,6 +42,7 @@ public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
 
     public AcceptorLoop(OptionMap options, LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
+        super(options);
         this.handshakeLoopBalancer = handshakeLoopBalancer;
         filtrationContextPool = new BlockedMpscWrapperPool<>(
                 options.value(FiltrationContextPool_Capacity),
@@ -58,32 +59,29 @@ public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
         ).warmUp(options.value(PendingChannelPool_PrefillRatio));
     }
 
-    @Override
-    public void dispatch(DispatchWrapper wrapper) {
+    public void dispatch(AbstractPacket.TYPE type, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
         eventQueue.add(() -> {
             SocketAddress address = null;
             try {
-                address = wrapper.serverSocketChannel.getLocalAddress();
-                wrapper.serverSocketChannel
-                        .configureBlocking(false)
-                        .register(selector, SelectionKey.OP_ACCEPT, wrapper.type)
-                        .attach(wrapper.strategy.setType(wrapper.type));
+                address = serverSocketChannel.getLocalAddress();
+                serverSocketChannel.configureBlocking(false).register(selector, SelectionKey.OP_ACCEPT, type).attach(strategy.setType(type));
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", wrapper.type, address, wrapper.strategy.getClass().getSimpleName());
+                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", type, address, strategy.getClass().getSimpleName());
                 }
                 loadScore.increment();
             } catch (Exception e) {
-                logger.error("Failed to register [{}] channel [{}]", wrapper.type, address, e);
+                logger.error("Failed to register [{}] channel [{}]", type, address, e);
             }
         });
         wakeupIfNeeded();
     }
 
     @Override
-    protected void onAsyncEvent() {
+    protected boolean onAsyncEvent() {
         while (!eventQueue.isEmpty()) {
             eventQueue.poll().run();
         }
+        return true;
     }
 
     @Override
@@ -96,6 +94,9 @@ public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
             return;
         }
         FiltrationStrategy filtrationStrategy = (FiltrationStrategy) selectionKey.attachment();
+        if (logger.isDebugEnabled()) {
+            logger.debug("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
+        }
         if (filtrationStrategy == FiltrationStrategy.BYPASS) {
             handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel).unwrap());
         } else {
@@ -104,7 +105,11 @@ public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
     }
 
     @Override
-    protected void onShutdown() {}
-
-    public record DispatchWrapper(AbstractPacket.TYPE type, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {}
+    protected void onShuttingDown() {
+        for (SelectionKey key : selector.keys()) {
+            try {
+                key.channel().close();
+            } catch (IOException ignored) {}
+        }
+    }
 }

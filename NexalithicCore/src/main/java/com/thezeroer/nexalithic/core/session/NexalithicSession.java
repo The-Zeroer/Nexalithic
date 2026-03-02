@@ -16,12 +16,12 @@ import java.util.EnumMap;
  */
 public class NexalithicSession extends SecuritySession {
     public static final int SESSION_ID_LENGTH = 32;
+    private final SessionId sessionId;
     private final EnumMap<AbstractPacket.TYPE, SessionChannel<?>> channels;
     private final long creationTime;
-    private String sessionId;
     private String sessionName;
 
-    public NexalithicSession(String sessionId, SessionSecretKey sessionSecretKey) {
+    public NexalithicSession(SessionId sessionId, SessionSecretKey sessionSecretKey) {
         super(sessionSecretKey);
         this.sessionId = sessionId;
         this.channels = new EnumMap<>(AbstractPacket.TYPE.class);
@@ -43,7 +43,7 @@ public class NexalithicSession extends SecuritySession {
         return sessionName;
     }
 
-    public String getSessionId() {
+    public SessionId getSessionId() {
         return sessionId;
     }
     public long getCreationTime() {

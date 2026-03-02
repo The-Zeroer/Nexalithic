@@ -28,6 +28,7 @@ import java.util.Map;
  * @since 2026/02/02
  * @version 1.0.0
  */
+@SuppressWarnings("UnusedReturnValue")
 public class NexalithicClient {
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
     private final GeneralLoop generalLoop;
@@ -51,10 +52,10 @@ public class NexalithicClient {
         generalLoop.shutdown();
     }
 
-    public void link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+    public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
-        generalLoop.dispatch(new GeneralLoop.DispatchWrapper(AbstractPacket.TYPE.SIGNALING, socketChannel));
+        return generalLoop.dispatch(AbstractPacket.TYPE.SIGNALING, socketChannel);
     }
 
     public static class Builder  {

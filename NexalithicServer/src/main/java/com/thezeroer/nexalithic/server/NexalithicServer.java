@@ -6,11 +6,13 @@ import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
+import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
+import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,9 +38,11 @@ import java.util.concurrent.TimeUnit;
 public class NexalithicServer {
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
     private final LifecycleManager lifecycleManager;
+    private final SessionsManager sessionsManager;
 
-    private NexalithicServer(LifecycleManager lifecycleManager) {
+    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager) {
         this.lifecycleManager = lifecycleManager;
+        this.sessionsManager = sessionsManager;
     }
 
     public static Builder builder() {
@@ -51,10 +55,10 @@ public class NexalithicServer {
      * <p><b>核心流程：</b>
      * <ol>
      * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.STATE#NEW}状态时允许启动，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.STATE#STARTING}。</li>
+     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#NEW}状态时允许启动，否则抛出异常。</li>
+     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#STARTING}。</li>
      * <li>组件启动：按特定顺序启动各个核心组件</li>
-     * <li>启动成功：将服务器状态更新为{@link LifecycleManager.STATE#RUNNING}。</li>
+     * <li>启动成功：将服务器状态更新为{@link LifecycleManager.State#RUNNING}。</li>
      * </ol>
      * </p>
      *
@@ -62,12 +66,12 @@ public class NexalithicServer {
      * 若启动过程中任一组件抛出异常，将执行以下操作：
      * <ul>
      * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.STATE#ERROR}</li>
+     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
      * <li>将原始异常重新抛出给调用者</li>
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.STATE#NEW}状态时抛出
+     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#NEW}状态时抛出
      * @throws Exception 当任一核心组件启动失败时抛出
      */
     public void start() throws Exception {
@@ -78,10 +82,10 @@ public class NexalithicServer {
      * <p><b>核心流程：</b>
      * <ol>
      * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.STATE#RUNNING}状态时允许停止，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.STATE#STOPPING}。</li>
+     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#RUNNING}状态时允许停止，否则抛出异常。</li>
+     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#STOPPING}。</li>
      * <li>组件停止：按特定顺序停止各个核心组件（与启动顺序相反）</li>
-     * <li>停止成功：将服务器状态更新为{@link LifecycleManager.STATE#TERMINATED}。</li>
+     * <li>停止成功：将服务器状态更新为{@link LifecycleManager.State#TERMINATED}。</li>
      * </ol>
      * </p>
      *
@@ -89,12 +93,12 @@ public class NexalithicServer {
      * 若停止过程中任一组件抛出异常，将执行以下操作：
      * <ul>
      * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.STATE#ERROR}</li>
+     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
      * <li>将原始异常重新抛出给调用者</li>
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.STATE#RUNNING}状态时抛出
+     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#RUNNING}状态时抛出
      * @throws Exception 当任一核心组件停止失败时抛出
      */
     public void stop() throws Exception {
@@ -105,10 +109,10 @@ public class NexalithicServer {
      * <p><b>核心流程：</b>
      * <ol>
      * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.STATE#RUNNING}状态时允许关闭，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.STATE#SHUTTING_DOWN}。</li>
+     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#RUNNING}状态时允许关闭，否则抛出异常。</li>
+     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#SHUTTING_DOWN}。</li>
      * <li>组件优雅关闭：按特定顺序关闭各个核心组件（与启动顺序相反）</li>
-     * <li>关闭成功：将服务器状态更新为{@link LifecycleManager.STATE#TERMINATED}。</li>
+     * <li>关闭成功：将服务器状态更新为{@link LifecycleManager.State#TERMINATED}。</li>
      * </ol>
      * </p>
      *
@@ -120,12 +124,12 @@ public class NexalithicServer {
      * 若关闭过程中任一组件抛出异常，将执行以下操作：
      * <ul>
      * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.STATE#ERROR}</li>
+     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
      * <li>将原始异常重新抛出给调用者</li>
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.STATE#RUNNING}状态时抛出
+     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#RUNNING}状态时抛出
      * @throws Exception 当任一核心组件关闭失败时抛出
      */
     public void shutdown() throws Exception {
@@ -136,11 +140,11 @@ public class NexalithicServer {
      * <p>此方法提供了线程安全的状态查询机制，允许外部调用者监控服务器的生命周期状态。</p>
      *
      * @return 服务器当前的运行状态，可能为以下值之一：
-     *         {@link LifecycleManager.STATE#NEW}、{@link LifecycleManager.STATE#STARTING}、{@link LifecycleManager.STATE#RUNNING}、
-     *         {@link LifecycleManager.STATE#STOPPING}、{@link LifecycleManager.STATE#SHUTTING_DOWN}、{@link LifecycleManager.STATE#TERMINATED}、
-     *         {@link LifecycleManager.STATE#ERROR}
+     *         {@link LifecycleManager.State#NEW}、{@link LifecycleManager.State#STARTING}、{@link LifecycleManager.State#RUNNING}、
+     *         {@link LifecycleManager.State#STOPPING}、{@link LifecycleManager.State#SHUTTING_DOWN}、{@link LifecycleManager.State#TERMINATED}、
+     *         {@link LifecycleManager.State#ERROR}
      */
-    public LifecycleManager.STATE getState() {
+    public LifecycleManager.State getState() {
         return lifecycleManager.getState();
     }
 
@@ -190,7 +194,7 @@ public class NexalithicServer {
             int bindPort = serverSocketChannel.bind(local, 2048).socket().getLocalPort();
             logger.info("Successfully bound server to [{}:{}] with type [{}] and strategy [{}]",
                     local.getHostString(), bindPort, type, strategy.getClass().getSimpleName());
-            lifecycleManager.getAcceptorLoop().dispatch(new AcceptorLoop.DispatchWrapper(type, serverSocketChannel, strategy));
+            lifecycleManager.getAcceptorLoop().dispatch(type, serverSocketChannel, strategy);
             return bindPort;
         } catch (IOException e) {
             logger.error("Failed to bind to local [{}]. type [{}], Strategy [{}]",
@@ -226,12 +230,13 @@ public class NexalithicServer {
 
         public NexalithicServer build() throws Exception {
             OptionMap options = OptionMap.of(this.options);
+            SessionsManager sessionsManager = new SessionsManager(options);
 
             ServiceUnit[] serviceUnits = new ServiceUnit[options.value(ServiceUnit.Count)];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(options).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(options, sessionsManager).addIdToLoopName(String.valueOf(i));
             }
-            LoadBalancer<String, ServiceUnit> serviceUnitLoadBalancer = new ConsistentHashBalancer<>(serviceUnits, 160);
+            LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer = new ConsistentHashBalancer<>(serviceUnits, 160);
 
             HandshakeLoop[] handshakeLoops = new HandshakeLoop[options.value(HandshakeLoop.Count)];
             for (int i = 0; i < handshakeLoops.length; i++) {
@@ -241,7 +246,7 @@ public class NexalithicServer {
 
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(options, handshakeLoopBalancer).addIdToName("0");
 
-            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer));
+            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager);
         }
     }
 

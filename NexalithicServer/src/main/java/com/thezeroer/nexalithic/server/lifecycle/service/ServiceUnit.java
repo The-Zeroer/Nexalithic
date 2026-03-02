@@ -5,6 +5,7 @@ import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
+import com.thezeroer.nexalithic.server.manager.SessionsManager;
 
 /**
  * 服务单元
@@ -20,11 +21,11 @@ public class ServiceUnit implements LoadBalanceable {
     private final WorkerLoop[] workerLoops;
     private final LoadBalancer<Void, WorkerLoop> workerLoopBalancer;
 
-    public ServiceUnit(OptionMap options) throws Exception {
-        stewardLoop = new StewardLoop(options);
+    public ServiceUnit(OptionMap options, SessionsManager sessionsManager) throws Exception {
+        stewardLoop = new StewardLoop(options, sessionsManager);
         workerLoops = new WorkerLoop[options.value(WorkerLoop_Count)];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(options);
+            workerLoops[i] = new WorkerLoop(options, sessionsManager);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }

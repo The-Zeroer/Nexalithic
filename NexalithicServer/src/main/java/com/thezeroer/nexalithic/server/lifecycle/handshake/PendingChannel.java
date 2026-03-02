@@ -5,6 +5,7 @@ import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
 import com.thezeroer.nexalithic.core.pool.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.session.SessionId;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -29,12 +30,12 @@ public class PendingChannel {
     private AbstractPacket.TYPE type;
     private SocketChannel socketChannel;
     private STATE state;
-    private final ByteBuffer readBuffer = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
     private final ByteBuffer[] readBuffers = new ByteBuffer[2];
     private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
     private PrivateKey privateKey;
-    private SessionSecretKey sessionSecretKey;
     private MessageDigest transcriptHash;
+    private SessionSecretKey sessionSecretKey;
+    private SessionId sessionId;
 
     private Recyclable recyclable;
 
@@ -70,17 +71,23 @@ public class PendingChannel {
     public PrivateKey getPrivateKey() {
         return privateKey;
     }
+    public void setTranscriptHash(MessageDigest transcriptHash) {
+        this.transcriptHash = transcriptHash;
+    }
+    public MessageDigest getTranscriptHash() {
+        return transcriptHash;
+    }
     public void setSessionSecretKey(SessionSecretKey sessionSecretKey) {
         this.sessionSecretKey = sessionSecretKey;
     }
     public SessionSecretKey getSessionSecretKey() {
         return sessionSecretKey;
     }
-    public void setTranscriptHash(MessageDigest transcriptHash) {
-        this.transcriptHash = transcriptHash;
+    public void setSessionId(SessionId sessionId) {
+        this.sessionId = sessionId;
     }
-    public MessageDigest getTranscriptHash() {
-        return transcriptHash;
+    public SessionId getSessionId() {
+        return sessionId;
     }
 
     public void recycle() {
@@ -104,11 +111,14 @@ public class PendingChannel {
         protected void onRecycle(PendingChannel target) {
             target.type = null;
             target.socketChannel = null;
-            target.readBuffer.clear();
+            target.readBuffers[0] = null;
+            target.readBuffers[1] = null;
             target.writeBuffers[0] = null;
             target.writeBuffers[1] = null;
             target.privateKey = null;
+            target.transcriptHash = null;
             target.sessionSecretKey = null;
+            target.sessionId = null;
         }
 
         @Override

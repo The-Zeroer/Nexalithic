@@ -8,6 +8,7 @@ import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.jctools.queues.MpscArrayQueue;
@@ -21,7 +22,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.util.HexFormat;
@@ -34,18 +34,19 @@ import java.util.concurrent.ExecutorService;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class HandshakeLoop extends AbstractLoop<PendingChannel> {
+public class HandshakeLoop extends AbstractLoop {
     public static final NexalithicOption<Integer> Count = NexalithicOption.create("HandshakeLoop_Count", 4);
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("HandshakeLoop_DispatchQueue_Capacity", 1024);
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
     private static final int MAX_DRAIN_LIMIT = 64;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
-    private final LoadBalancer<String, ServiceUnit> serviceUnitLoadBalancer;
+    private final LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer;
     private final ServerSecurityPolicy securityPolicy;
     private final ExecutorService threadPool;
     private final ByteBuffer certificateBuffer;
 
-    public HandshakeLoop(OptionMap options, LoadBalancer<String, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy, ExecutorService threadPool) throws IOException {
+    public HandshakeLoop(OptionMap options, LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy, ExecutorService threadPool) throws IOException {
+        super(options);
         this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;
         this.securityPolicy = securityPolicy;
         this.threadPool = threadPool;
@@ -60,7 +61,6 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
         certificateBuffer.flip();
     }
 
-    @Override
     public void dispatch(PendingChannel pendingChannel) {
         if (dispatchQueue.offer(pendingChannel)) {
             loadScore.increment();
@@ -82,7 +82,7 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
                     pendingChannel.setState(PendingChannel.STATE.STEP_1);
                     wakeupIfNeeded();
                 } catch (Exception e) {
-                    throw new RuntimeException(e);
+                    logger.error(e.getMessage(), e);
                 }
             });
         } else {
@@ -94,12 +94,13 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
     }
 
     @Override
-    public void onAsyncEvent() {
+    public boolean onAsyncEvent() {
         dispatchQueue.drain(pendingChannel -> {
             try {
                 pendingChannel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_WRITE).attach(pendingChannel);
             } catch (IOException ignored) {}
         }, MAX_DRAIN_LIMIT);
+        return dispatchQueue.isEmpty();
     }
 
     @Override
@@ -111,7 +112,6 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
                 switch (pendingChannel.getState()) {
                     case STEP_0 -> {
                         closeSelectionKey(selectionKey);
-                        loadScore.decrement();
                         return;
                     }
                     case STEP_1 -> {
@@ -127,52 +127,51 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
                         if (!writeBuffers[1].hasRemaining()) {
                             selectionKey.cancel();
                             loadScore.decrement();
-                            serviceUnitLoadBalancer.select("").getStewardLoop().dispatch(pendingChannel);
+                            serviceUnitLoadBalancer.select(pendingChannel.getSessionId()).getStewardLoop().dispatch(pendingChannel);
                             return;
                         }
                     }
                 }
             }
             if (selectionKey.isReadable()) {
-                switch (pendingChannel.getState()) {
-                    case STEP_1 -> {
-                        ByteBuffer[] readBuffers = pendingChannel.getReadBuffers();
-                        if (socketChannel.read(readBuffers) == -1) {
+                ByteBuffer[] readBuffers = pendingChannel.getReadBuffers();
+                if (socketChannel.read(readBuffers) == -1) {
+                    closeSelectionKey(selectionKey);
+                    return;
+                }
+                if (!readBuffers[1].hasRemaining()) {
+                    MessageDigest transcriptHash = pendingChannel.getTranscriptHash();
+                    transcriptHash.update(readBuffers[0].flip());
+                    try {
+                        byte[] secret = SecretKeyUtils.compactSecret(pendingChannel.getPrivateKey(), readBuffers[0].array());
+                        byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
+                        SessionSecretKey sessionSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER, SecretKeyUtils.LABEL_CLIENT);
+                        byte[] remoteFinished = sessionSecretKey.decrypt(readBuffers[1].array());
+                        if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
                             closeSelectionKey(selectionKey);
-                            loadScore.decrement();
+                            logger.warn("Finished verification failed");
                             return;
                         }
-                        if (!readBuffers[1].hasRemaining()) {
-                            MessageDigest transcriptHash = pendingChannel.getTranscriptHash();
-                            transcriptHash.update(readBuffers[0].flip());
-                            try {
-                                byte[] secret = SecretKeyUtils.compactSecret(pendingChannel.getPrivateKey(), readBuffers[0].array());
-                                byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
-                                SessionSecretKey sessionSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER, SecretKeyUtils.LABEL_CLIENT);
-                                byte[] remoteFinished = sessionSecretKey.decrypt(readBuffers[1].array());
-                                if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
-                                    closeSelectionKey(selectionKey);
-                                    loadScore.decrement();
-                                    logger.warn("finished verify failed");
-                                    return;
-                                }
-                                ByteBuffer[] writeBuffers = pendingChannel.getWriteBuffers();
-                                writeBuffers[0] = ByteBuffer.wrap(sessionSecretKey.encrypt(localFinished));
-                                SecureRandom random = new SecureRandom();
-                                byte[] sessionIdBytes = new byte[NexalithicSession.SESSION_ID_LENGTH];
-                                random.nextBytes(sessionIdBytes);
-                                writeBuffers[1] = ByteBuffer.wrap(sessionSecretKey.encrypt(sessionIdBytes));
-                                String sessionId = HexFormat.of().formatHex(sessionIdBytes);
-                                System.out.println(sessionId);
-                                pendingChannel.setSessionSecretKey(sessionSecretKey);
-                                pendingChannel.setState(PendingChannel.STATE.STEP_2);
-                                selectionKey.interestOps(SelectionKey.OP_WRITE);
-                            } catch (NoSuchAlgorithmException | InvalidKeyException | InvalidKeySpecException |
-                                     NoSuchPaddingException | InvalidAlgorithmParameterException |
-                                     IllegalBlockSizeException | BadPaddingException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
+                        ByteBuffer[] writeBuffers = pendingChannel.getWriteBuffers();
+                        writeBuffers[0] = ByteBuffer.wrap(sessionSecretKey.encrypt(localFinished));
+                        SecureRandom random = new SecureRandom();
+                        byte[] sessionIdBytes = new byte[NexalithicSession.SESSION_ID_LENGTH];
+                        random.nextBytes(sessionIdBytes);
+                        writeBuffers[1] = ByteBuffer.wrap(sessionSecretKey.encrypt(sessionIdBytes));
+                        pendingChannel.setSessionId(new SessionId.Immutable(sessionIdBytes));
+                        pendingChannel.setSessionSecretKey(sessionSecretKey);
+                        pendingChannel.setState(PendingChannel.STATE.STEP_2);
+                        selectionKey.interestOps(SelectionKey.OP_WRITE);
+                    } catch (BadPaddingException | IllegalBlockSizeException e) {
+                        String remoteAddress = socketChannel.getRemoteAddress().toString();
+                        closeSelectionKey(selectionKey);
+                        logger.warn("Security verification failed: [reason: {}] [remote: {}]", e.getMessage(), remoteAddress);
+                    } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeySpecException e) {
+                        closeSelectionKey(selectionKey);
+                        logger.error("Cryptographic environment fatal error: ensure JCE provider (e.g., BouncyCastle) is correctly configured", e);
+                    } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+                        closeSelectionKey(selectionKey);
+                        logger.error("Invalid cryptographic parameters detected : {}", e.getMessage(), e);
                     }
                 }
             }
@@ -182,7 +181,16 @@ public class HandshakeLoop extends AbstractLoop<PendingChannel> {
     }
 
     @Override
-    public void onShutdown() {
+    protected void onShuttingDown() {
+        for (SelectionKey key : selector.keys()) {
+            try {
+                key.channel().close();
+            } catch (IOException ignored) {}
+        }
+    }
 
+    protected void closeSelectionKey(SelectionKey key) {
+        super.closeSelectionKey(key);
+        loadScore.decrement();
     }
 }
