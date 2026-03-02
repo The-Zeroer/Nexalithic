@@ -7,6 +7,7 @@ import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
 import com.thezeroer.nexalithic.client.manager.SessionManager;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
+import java.util.HexFormat;
 
 /**
  * 通用选择器
@@ -47,7 +49,7 @@ public class GeneralLoop extends AbstractLoop<GeneralLoop.DispatchWrapper> {
             ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength());
             if (socketChannel.read(new ByteBuffer[]{buffer1, buffer2}) == -1) {
                 return;
-            };
+            }
             transcriptHash.update(buffer1.flip());
             transcriptHash.update(buffer2.flip());
             securityPolicy.CertificatesFormBuffer(buffer1.flip());
@@ -59,11 +61,20 @@ public class GeneralLoop extends AbstractLoop<GeneralLoop.DispatchWrapper> {
             socketChannel.write(buffer3.flip());
             transcriptHash.update(buffer3.flip());
             byte[] secret = SecretKeyUtils.compactSecret(keyPair.getPrivate(), buffer2.array());
-            byte[] finished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
+            byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
             SessionSecretKey sessionSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT, SecretKeyUtils.LABEL_SERVER);
-            ByteBuffer buffer4 = ByteBuffer.wrap(sessionSecretKey.encrypt(finished));
+            ByteBuffer buffer4 = ByteBuffer.wrap(sessionSecretKey.encrypt(localFinished));
+            ByteBuffer buffer5 = ByteBuffer.allocate(NexalithicSession.SESSION_ID_LENGTH + SessionSecretKey.TAG_LENGTH);
             socketChannel.write(buffer4);
-
+            if (socketChannel.read(new ByteBuffer[]{buffer4.clear(), buffer5}) == -1) {
+                return;
+            }
+            byte[] remoteFinished = sessionSecretKey.decrypt(buffer4.array());
+            if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
+                return;
+            }
+            String sessionId = HexFormat.of().formatHex(sessionSecretKey.decrypt(buffer5.array()));
+            System.out.println(sessionId);
         } else {
 
         }

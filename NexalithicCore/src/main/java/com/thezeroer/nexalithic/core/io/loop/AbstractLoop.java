@@ -161,6 +161,12 @@ public abstract class AbstractLoop<T> implements LoadBalanceable, Runnable {
         }
     }
 
+    protected void closeSelectionKey(SelectionKey key) {
+        try {
+            key.cancel();
+            key.channel().close();
+        } catch (IOException ignored) {}
+    }
     private Selector rebuildSelector() throws IOException {
         try {
             Selector newSelector = Selector.open();

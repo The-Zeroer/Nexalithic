@@ -30,12 +30,18 @@ public class PendingChannel {
     private SocketChannel socketChannel;
     private STATE state;
     private final ByteBuffer readBuffer = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
+    private final ByteBuffer[] readBuffers = new ByteBuffer[2];
     private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
     private PrivateKey privateKey;
     private SessionSecretKey sessionSecretKey;
     private MessageDigest transcriptHash;
 
     private Recyclable recyclable;
+
+    public PendingChannel() {
+        readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
+        readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SessionSecretKey.TAG_LENGTH);
+    }
 
     public AbstractPacket.TYPE getType() {
         return type;
@@ -51,12 +57,8 @@ public class PendingChannel {
         return state;
     }
 
-    public ByteBuffer getReadBuffer() {
-        return readBuffer;
-    }
-    public void setWriteBuffers(ByteBuffer[] writeBuffers) {
-        this.writeBuffers[0] = writeBuffers[0].flip();
-        this.writeBuffers[1] = writeBuffers[1].flip();
+    public ByteBuffer[] getReadBuffers() {
+        return readBuffers;
     }
     public ByteBuffer[] getWriteBuffers() {
         return writeBuffers;

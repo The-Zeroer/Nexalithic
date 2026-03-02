@@ -72,6 +72,7 @@ public class SecretKeyUtils {
                 Arrays.copyOfRange(readMaterial, 32, 44)
         );
     }
+
     public static byte[] generateFinished(byte[] secret, byte[] handshakeHash) throws NoSuchAlgorithmException, InvalidKeyException {
         byte[] finishedKey = HKDF.expand(secret, "finished", 32);
         Mac mac = Mac.getInstance("HmacSHA256");

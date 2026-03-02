@@ -15,6 +15,7 @@ import java.util.EnumMap;
  * @version 1.0.0
  */
 public class NexalithicSession extends SecuritySession {
+    public static final int SESSION_ID_LENGTH = 32;
     private final EnumMap<AbstractPacket.TYPE, SessionChannel<?>> channels;
     private final long creationTime;
     private String sessionId;
