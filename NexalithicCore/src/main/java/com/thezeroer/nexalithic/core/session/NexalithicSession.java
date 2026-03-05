@@ -17,23 +17,31 @@ import java.util.EnumMap;
 public class NexalithicSession extends SecuritySession {
     public static final int SESSION_ID_LENGTH = 32;
     private final SessionId sessionId;
-    private final EnumMap<AbstractPacket.TYPE, SessionChannel<?>> channels;
+    private final EnumMap<AbstractPacket.PacketType, SessionChannel<? super AbstractPacket>> channels;
     private final long creationTime;
     private String sessionName;
 
     public NexalithicSession(SessionId sessionId, SessionSecretKey sessionSecretKey) {
         super(sessionSecretKey);
         this.sessionId = sessionId;
-        this.channels = new EnumMap<>(AbstractPacket.TYPE.class);
-        for (AbstractPacket.TYPE type : AbstractPacket.TYPE.values()) {
-            channels.put(type, new SessionChannel<>(this, type));
+        this.channels = new EnumMap<>(AbstractPacket.PacketType.class);
+        for (AbstractPacket.PacketType packetType : AbstractPacket.PacketType.values()) {
+            channels.put(packetType, new SessionChannel<>(this, packetType));
         }
         this.creationTime = System.currentTimeMillis();
     }
 
-    public NexalithicSession updateSelectionKey(AbstractPacket.TYPE type, SelectionKey selectionKey) {
-        channels.get(type).updateSelectionKey(selectionKey);
+    public NexalithicSession updateSelectionKey(AbstractPacket.PacketType packetType, SelectionKey selectionKey) {
+        channels.get(packetType).updateSelectionKey(selectionKey);
         return this;
+    }
+
+    public void putSendQueue(AbstractPacket packet) {
+        channels.get(packet.packetType()).put(packet);
+    }
+
+    public SessionChannel<? super AbstractPacket> getChannel(AbstractPacket.PacketType packetType) {
+        return channels.get(packetType);
     }
 
     public void setSessionName(String sessionName) {

@@ -3,11 +3,10 @@ package com.thezeroer.nexalithic.core.io.codec;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.model.packet.TransactionPacket;
-import org.jctools.queues.SpscArrayQueue;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import org.jctools.queues.MpscArrayQueue;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 /**
  * 分片器工厂
@@ -19,100 +18,77 @@ import java.nio.ByteBuffer;
 public class FragmenterFactory {
 
     @SuppressWarnings("unchecked")
-    public static <P extends AbstractPacket<?>> PacketFragmenter<P> create(AbstractPacket.TYPE type) {
-        return (PacketFragmenter<P>) switch (type) {
+    public static <P extends AbstractPacket> PacketFragmenter<P> create(AbstractPacket.PacketType packetType) {
+        return (PacketFragmenter<P>) switch (packetType) {
             case SIGNALING -> new SignalingPacketFragmenter();
-            case TRANSACTION -> new TransactionPacketFragmenter();
-            case STREAMING -> null;
+            case BUSINESS -> new BusinessPacketFragmenter();
         };
     }
 
     static class SignalingPacketFragmenter implements PacketFragmenter<SignalingPacket> {
-        private final SpscArrayQueue<SignalingPacket> packets = new SpscArrayQueue<>(16);
+        private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(16);
         private SignalingPacket currentPacket;
-        private LoopBuffer.Recyclable recyclable;
-        private LoopBuffer loopBuffer;
 
         @Override
-        public boolean dispatch(SignalingPacket signalingPacket) {
+        public boolean feed(SignalingPacket signalingPacket) {
             return packets.offer(signalingPacket);
         }
 
         @Override
-        public void bindBuffer(LoopBuffer.Recyclable recyclable) {
-            this.recyclable = recyclable;
-            loopBuffer = recyclable.unwrap();
+        public int drain(LoopBuffer target) {
+            int total = 0;
+            SignalingPacket packet = currentPacket;
+            while (packet != null || !packets.isEmpty()) {
+                if (packet == null) {
+                    packet = packets.poll();
+                    if (packet == null) {
+                        return -1;
+                    }
+                }
+                int totalRequired = packet.getTotalSize();
+                if (target.writableBytes() < totalRequired) {
+                    currentPacket = packet;
+                    return total;
+                }
+                packet.unsafeToBuffer(target);
+                packet = null;
+                total += totalRequired;
+            }
+            return total;
         }
 
         @Override
-        public int drain() {
-            if (currentPacket == null) {
-                currentPacket = packets.poll();
-                if (currentPacket == null) {
-                    recyclable.recycle();
-                    recyclable = null;
-                    loopBuffer = null;
-                    return -1;
-                }
-            }
-            int contentLength = currentPacket.getContentLength();
-            int totalRequired = Byte.BYTES + contentLength;
-            if (loopBuffer.writableBytes() < totalRequired) {
-                return 0;
-            }
-            ByteBuffer[] writableViews = loopBuffer.put(currentPacket.getSignal()).writableViews();
-            int view0Length = writableViews[0].remaining();
-            byte[] content = currentPacket.getContent();
-            if (view0Length >= contentLength) {
-                writableViews[0].put(content);
-            } else {
-                writableViews[0].put(content, 0, view0Length);
-                writableViews[1].put(content, view0Length, contentLength - view0Length);
-            }
-            loopBuffer.advanceTail(contentLength);
-            currentPacket = null;
-            return totalRequired;
+        public boolean isEmpty() {
+            return currentPacket == null && packets.isEmpty();
         }
 
         @Override
         public void clear() {
             packets.clear();
             currentPacket = null;
-            if (recyclable != null) {
-                recyclable.recycle();
-                recyclable = null;
-                loopBuffer = null;
-            }
         }
     }
 
-    static class TransactionPacketFragmenter implements PacketFragmenter<TransactionPacket> {
-        private LoopBuffer.Recyclable recyclable;
-        private LoopBuffer loopBuffer;
+    static class BusinessPacketFragmenter implements PacketFragmenter<BusinessPacket<?>> {
 
         @Override
-        public boolean dispatch(TransactionPacket transactionPacket) {
+        public boolean feed(BusinessPacket<?> businessPacket) {
             return false;
         }
 
         @Override
-        public void bindBuffer(LoopBuffer.Recyclable recyclable) {
-            this.recyclable = recyclable;
-            loopBuffer = recyclable.unwrap();
-        }
-
-        @Override
-        public int drain() throws IOException {
+        public int drain(LoopBuffer target) throws IOException {
             return 0;
         }
 
         @Override
+        public boolean isEmpty() {
+            return false;
+        }
+
+        @Override
         public void clear() {
-            if (recyclable != null) {
-                recyclable.recycle();
-                recyclable = null;
-                loopBuffer = null;
-            }
+
         }
     }
 }

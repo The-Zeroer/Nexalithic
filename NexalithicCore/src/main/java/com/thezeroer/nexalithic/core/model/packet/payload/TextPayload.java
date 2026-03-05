@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.model.payload;
+package com.thezeroer.nexalithic.core.model.packet.payload;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 

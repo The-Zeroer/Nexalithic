@@ -1,14 +1,19 @@
 package com.thezeroer.nexalithic.core.session;
 
+import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.io.buffer.LoopBufferPool;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketFragmenter;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 会话通道
@@ -17,36 +22,142 @@ import java.nio.channels.SocketChannel;
  * @since 2026/02/04
  * @version 1.0.0
  */
-public class SessionChannel<P extends AbstractPacket<?>> {
-    private final NexalithicSession NexalithicSession;
+public class SessionChannel<P extends AbstractPacket> {
+    private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
+    // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
+    private static final int DIRTY_BIT = 1 << 31;
+    private static final int INTEREST_MASK = ~DIRTY_BIT;
+    private final NexalithicSession session;
+    private final AbstractPacket.PacketType type;
     private final PacketFragmenter<P> fragmenter;
-    private final PacketAssembler assembler;
+    private final PacketAssembler<P> assembler;
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
+    private final AtomicInteger targetInterest = new AtomicInteger(0);
+    private LoopBuffer.Recyclable readPlainBufferRecyclable, writeCipheBufferRecyclable;
+    private LoopBuffer.Recyclable readCipheBufferRecyclable, writePlainBufferRecyclable;
+    private LoopBuffer readPlainBuffer, writeCipheBuffer;
+    private LoopBuffer readCipheBuffer, writePlainBuffer;
 
-    public SessionChannel(NexalithicSession NexalithicSession, AbstractPacket.TYPE type) {
-        this.NexalithicSession = NexalithicSession;
-        fragmenter = FragmenterFactory.create(type);
-        assembler = AssemblerFactory.create();
+    public SessionChannel(NexalithicSession session, AbstractPacket.PacketType packetType) {
+        this.session = session;
+        this.type = packetType;
+        fragmenter = FragmenterFactory.create(packetType);
+        assembler = AssemblerFactory.create(packetType);
     }
 
-    public void updateSelectionKey(SelectionKey selectionKey) {
+    public SessionChannel<P> updateSelectionKey(SelectionKey selectionKey) {
         if (this.selectionKey == selectionKey) {
-            return;
+            return this;
         }
         if (this.selectionKey != null) {
             this.selectionKey.cancel();
         }
+        if (this.socketChannel != null) {
+            try {
+                this.socketChannel.close();
+            } catch (IOException ignored) {}
+        }
         this.selectionKey = selectionKey;
+        this.socketChannel = (SocketChannel) selectionKey.channel();
+        this.targetInterest.set(selectionKey.interestOps());
+        return this;
+    }
+    public boolean updateChannelInterest(int interest, boolean enable) {
+        while (true) {
+            int oldInterest = targetInterest.get();
+            int newInterest = enable ? (oldInterest | interest) : (oldInterest & ~interest);
+            // 性能优化：如果兴趣位没变且已经处于 Dirty 状态，直接返回 false
+            if (newInterest == oldInterest && (oldInterest & DIRTY_BIT) != 0) {
+                return false;
+            }
+            if (targetInterest.compareAndSet(oldInterest, newInterest | DIRTY_BIT)) {
+                return (oldInterest & DIRTY_BIT) == 0;
+            }
+            Thread.onSpinWait();
+        }
+    }
+    public void applyTargetInterest() {
+        while (true) {
+            int oldInterest = targetInterest.get();
+            if ((oldInterest & DIRTY_BIT) == 0) {
+                return;
+            }
+            int newValue = oldInterest & INTEREST_MASK;
+            if (targetInterest.compareAndSet(oldInterest, newValue)) {
+                SelectionKey key = this.selectionKey;
+                if (key != null) {
+                    try {
+                        if (key.interestOps() != newValue) {
+                            key.interestOps(newValue);
+                        }
+                    } catch (IllegalArgumentException e) {
+                        logger.error("applyTargetInterest error: {}", e.getMessage());
+                    } catch (Exception ignored) {}
+                }
+                return;
+            }
+            Thread.onSpinWait();
+        }
     }
 
     public boolean put(P packet) {
-        return fragmenter.dispatch(packet);
+        return fragmenter.feed(packet);
     }
-    public int write() throws IOException {
-        return 0;
+    public P get() {
+        return assembler.drain();
     }
-    public AbstractPacket<?> read() throws IOException {
-        return null;
+
+    public long write() throws IOException {
+        if (readPlainBufferRecyclable == null) {
+            readPlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
+            readPlainBuffer = readPlainBufferRecyclable.unwrap();
+            writeCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
+            writeCipheBuffer = writeCipheBufferRecyclable.unwrap();
+        }
+        if (fragmenter.drain(readPlainBuffer) > 0) {
+            session.encrypt(readPlainBuffer, writeCipheBuffer);
+        }
+        long written = writeCipheBuffer.writeToChannel(socketChannel);
+        if (written == 0 && writeCipheBuffer.isEmpty() && fragmenter.isEmpty()) {
+            readPlainBufferRecyclable.recycle();
+            readPlainBufferRecyclable = null;
+            readPlainBuffer = null;
+            writeCipheBufferRecyclable.recycle();
+            writeCipheBufferRecyclable = null;
+            writeCipheBuffer = null;
+            return -1;
+        } else {
+            return written;
+        }
+    }
+    public long read() throws IOException {
+        if (readCipheBufferRecyclable == null) {
+            readCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
+            readCipheBuffer = readCipheBufferRecyclable.unwrap();
+            writePlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
+            writePlainBuffer = writePlainBufferRecyclable.unwrap();
+        }
+        long read = readCipheBuffer.readFromChannel(socketChannel);
+        if (read > 0) {
+            session.decrypt(readCipheBuffer, writePlainBuffer);
+            assembler.feed(writePlainBuffer);
+        }
+        if (readCipheBuffer.isEmpty() && writePlainBuffer.isEmpty()) {
+            readCipheBufferRecyclable.recycle();
+            readCipheBufferRecyclable = null;
+            readCipheBuffer = null;
+            writePlainBufferRecyclable.recycle();
+            writeCipheBufferRecyclable = null;
+            writeCipheBuffer = null;
+        }
+        return read;
+    }
+
+    public SelectionKey getSelectionKey() {
+        return selectionKey;
+    }
+    public AbstractPacket.PacketType getType() {
+        return type;
     }
 }

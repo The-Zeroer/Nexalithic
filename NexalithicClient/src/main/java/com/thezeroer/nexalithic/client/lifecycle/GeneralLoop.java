@@ -2,11 +2,14 @@ package com.thezeroer.nexalithic.client.lifecycle;
 
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import com.thezeroer.nexalithic.core.session.SessionChannel;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,9 +21,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
-import java.util.HexFormat;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -35,7 +38,7 @@ public class GeneralLoop extends AbstractLoop {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
-    private NexalithicSession nexalithicSession;
+    private NexalithicSession session;
 
     public GeneralLoop(OptionMap options, ClientSecurityPolicy securityPolicy) throws IOException {
         super(options);
@@ -43,8 +46,8 @@ public class GeneralLoop extends AbstractLoop {
         this.eventQueue = new ConcurrentLinkedQueue<>();
     }
 
-    public boolean dispatch(AbstractPacket.TYPE type, SocketChannel socketChannel) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
-        if (type == AbstractPacket.TYPE.SIGNALING) {
+    public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+        if (packetType == AbstractPacket.PacketType.SIGNALING) {
             MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
             ByteBuffer buffer1 = ByteBuffer.allocate(securityPolicy.getServerCertificatesLength());
             ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength());
@@ -77,7 +80,7 @@ public class GeneralLoop extends AbstractLoop {
                 throw new SecurityException("Finished verification failed");
             }
             byte[] sessionIdBytes = sessionSecretKey.decrypt(buffer5.array());
-            nexalithicSession = new NexalithicSession(new SessionId.Immutable(sessionIdBytes), sessionSecretKey);
+            session = new NexalithicSession(new SessionId.Immutable(sessionIdBytes), sessionSecretKey);
             logger.info("Link server succeeded");
         } else {
 
@@ -85,14 +88,31 @@ public class GeneralLoop extends AbstractLoop {
         eventQueue.add(() -> {
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                selectionKey.attach(type);
-                nexalithicSession.updateSelectionKey(type, selectionKey);
-                logger.debug("[{}] channel updateSelectionKey succeeded", type);
+                selectionKey.attach(session.getChannel(packetType).updateSelectionKey(selectionKey));
+                logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
             } catch (IOException e) {
-                logger.error("[{}] channel updateSelectionKey failed", type, e);
+                logger.error("[{}] channel updateSelectionKey failed", packetType, e);
             }
         });
         wakeupIfNeeded();
+        return true;
+    }
+
+    public boolean pushPacket(AbstractPacket packet) {
+        SessionChannel<? super AbstractPacket> sessionChannel = session.getChannel(packet.packetType());
+        if (!sessionChannel.put(packet)) {
+            return false;
+        }
+        switch (packet.packetType()) {
+            case SIGNALING -> {
+                if (sessionChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    updateChannelInterest(sessionChannel);
+                }
+            }
+            case BUSINESS -> {
+
+            }
+        }
         return true;
     }
 
@@ -106,11 +126,42 @@ public class GeneralLoop extends AbstractLoop {
 
     @Override
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
+        SessionChannel<?> sessionChannel = (SessionChannel<?>) selectionKey.attachment();
+        if (selectionKey.isReadable()) {
+            if (sessionChannel.read() == -1) {
+                closeSelectionKey(selectionKey);
+                return;
+            }
+            if (sessionChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                while (sessionChannel.get() instanceof SignalingPacket packet) {
+                    handleSignalPacket(packet);
+                }
+            } else {
+                while (sessionChannel.get() instanceof BusinessPacket<?> packet) {
+                    handleBusinessPacket(packet);
+                }
+            }
+        } else if (selectionKey.isWritable()) {
+            if (sessionChannel.write() == -1) {
+                selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+            }
+        } else {
+            closeSelectionKey(selectionKey);
+        }
+    }
+    private void handleSignalPacket(SignalingPacket packet) {
+
+    }
+    private void handleBusinessPacket(BusinessPacket<?> packet) {
 
     }
 
     @Override
     public void onTerminated() {
 
+    }
+
+    public NexalithicSession getSession() {
+        return session;
     }
 }

@@ -27,7 +27,7 @@ public class PendingChannel {
         STEP_2,
     }
 
-    private AbstractPacket.TYPE type;
+    private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
     private STATE state;
     private final ByteBuffer[] readBuffers = new ByteBuffer[2];
@@ -44,8 +44,8 @@ public class PendingChannel {
         readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SessionSecretKey.TAG_LENGTH);
     }
 
-    public AbstractPacket.TYPE getType() {
-        return type;
+    public AbstractPacket.PacketType getType() {
+        return packetType;
     }
     public SocketChannel getSocketChannel() {
         return socketChannel;
@@ -100,8 +100,8 @@ public class PendingChannel {
             target.recyclable = this;
         }
 
-        public Recyclable initTarget(AbstractPacket.TYPE type, SocketChannel socketChannel) {
-            target.type = type;
+        public Recyclable initTarget(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
+            target.packetType = packetType;
             target.socketChannel = socketChannel;
             target.state = STATE.STEP_0;
             return this;
@@ -109,7 +109,7 @@ public class PendingChannel {
 
         @Override
         protected void onRecycle(PendingChannel target) {
-            target.type = null;
+            target.packetType = null;
             target.socketChannel = null;
             target.readBuffers[0] = null;
             target.readBuffers[1] = null;

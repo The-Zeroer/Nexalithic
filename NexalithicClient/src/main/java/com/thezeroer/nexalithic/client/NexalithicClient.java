@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.client;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
@@ -55,7 +57,10 @@ public class NexalithicClient {
     public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
-        return generalLoop.dispatch(AbstractPacket.TYPE.SIGNALING, socketChannel);
+        return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
+    }
+    public boolean push(BusinessPacket<?> packet) {
+        return generalLoop.pushPacket(packet);
     }
 
     public static class Builder  {

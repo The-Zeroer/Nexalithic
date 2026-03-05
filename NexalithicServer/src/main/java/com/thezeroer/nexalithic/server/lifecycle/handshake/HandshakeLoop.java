@@ -24,7 +24,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
-import java.util.HexFormat;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -107,7 +106,7 @@ public class HandshakeLoop extends AbstractLoop {
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
         PendingChannel pendingChannel = (PendingChannel) selectionKey.attachment();
         SocketChannel socketChannel = pendingChannel.getSocketChannel();
-        if (pendingChannel.getType() == AbstractPacket.TYPE.SIGNALING) {
+        if (pendingChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
             if (selectionKey.isWritable()) {
                 switch (pendingChannel.getState()) {
                     case STEP_0 -> {
@@ -189,6 +188,7 @@ public class HandshakeLoop extends AbstractLoop {
         }
     }
 
+    @Override
     protected void closeSelectionKey(SelectionKey key) {
         super.closeSelectionKey(key);
         loadScore.decrement();

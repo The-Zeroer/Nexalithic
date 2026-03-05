@@ -16,7 +16,12 @@ public class OptionMap {
     @SuppressWarnings("unchecked")
     public <T> T value(NexalithicOption<T> option) {
         Object val = values.get(option);
-        return (val != null) ? (T) val : option.defaultValue();
+        if (val == null) {
+            return option.defaultValue();
+        } else {
+            option.set((T) val);
+            return (T) val;
+        }
     }
 
     public boolean contains(NexalithicOption<?> option) {

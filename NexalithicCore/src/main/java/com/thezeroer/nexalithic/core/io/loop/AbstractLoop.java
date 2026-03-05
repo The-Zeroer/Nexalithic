@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.SessionChannel;
+import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     public static final NexalithicOption<Integer> Max_Shutdown_Wait = NexalithicOption.create("AbstractLoop_Max_Shutdown_Wait", 30000);
+    public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("AbstractLoop_InterestQueue_Capacity", 1024);
     protected enum State {
         NEW,
         STARTING,
@@ -37,12 +39,14 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected static final int MAX_EPOLL = 512;
     protected final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     protected final LongAdder loadScore = new LongAdder();
+    protected final MpscArrayQueue<SessionChannel<?>> interestQueue;
     protected volatile Selector selector;
 
     protected final Thread thread = new Thread(this);
     protected String name = getClass().getSimpleName();
 
     public AbstractLoop(OptionMap options) throws IOException {
+        interestQueue = new MpscArrayQueue<>(options.value(InterestQueue_Capacity));
         selector = Selector.open();
         thread.setDaemon(false);
         Max_Shutdown_Wait.set(options.value(Max_Shutdown_Wait));
@@ -88,6 +92,13 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         }
     }
 
+    public void updateChannelInterest(SessionChannel<?> channel) {
+        while (!interestQueue.offer(channel)) {
+            Thread.onSpinWait();
+        }
+        wakeupIfNeeded();
+    }
+
     @Override
     public long getLoadScore() {
         return loadScore.sum();
@@ -119,7 +130,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             switch (state.get()) {
                 case WORKING -> {
                     try {
-                        if (onAsyncEvent()) {
+                        if (asyncEvent()) {
                             if (state.compareAndSet(State.WORKING, State.WAITING)) {
                                 start = System.currentTimeMillis();
                                 try {
@@ -199,6 +210,10 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         onTerminated();
         state.set(State.TERMINATED);
     }
+    private boolean asyncEvent() {
+        interestQueue.drain(SessionChannel::applyTargetInterest);
+        return onAsyncEvent() & interestQueue.isEmpty();
+    }
     private void readyEvent(Selector selector) throws IOException {
         Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
         while (iterator.hasNext()) {
@@ -207,7 +222,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             try {
                 onReadyEvent(key);
             } catch (IOException e) {
-                logger.warn("[{}] failed to read events", name, e);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[{}] failed to read events", name);
+                }
                 try {
                     key.cancel();
                     key.channel().close();
@@ -224,10 +241,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 Object attachment = oldKey.attachment();
                 try {
                     SelectionKey newKey = oldKey.channel().register(newSelector, oldKey.interestOps(), attachment);
-                    if (attachment instanceof SessionChannel<?> sessionChannel) {
+                    if (attachment instanceof SessionChannel sessionChannel) {
                         sessionChannel.updateSelectionKey(newKey);
                     }
-                    oldKey.cancel();
                 } catch (Exception e) {
                     logger.error("[{}] Failed to migrate key for channel", name, e);
                 }

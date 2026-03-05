@@ -38,7 +38,7 @@ public abstract class FiltrationStrategy {
         }
     };
     protected List<AcceptorFilter> filters = new CopyOnWriteArrayList<>();
-    private AbstractPacket.TYPE type;
+    private AbstractPacket.PacketType packetType;
 
     /**
      * 向策略链末尾追加过滤器。
@@ -90,11 +90,11 @@ public abstract class FiltrationStrategy {
      */
     public abstract void handle(SocketChannel socketChannel, FiltrationContext context) throws IOException;
 
-    FiltrationStrategy setType(AbstractPacket.TYPE type) {
-        this.type = type;
+    FiltrationStrategy setType(AbstractPacket.PacketType packetType) {
+        this.packetType = packetType;
         return this;
     }
-    AbstractPacket.TYPE getType() {
-        return type;
+    AbstractPacket.PacketType getType() {
+        return packetType;
     }
 }

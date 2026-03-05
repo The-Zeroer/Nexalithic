@@ -12,6 +12,7 @@ import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
+import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.slf4j.Logger;
@@ -150,16 +151,16 @@ public class NexalithicServer {
 
     /**
      * 使用默认的旁路过滤策略绑定并监听指定地址。
-     * <p>此方法等同于调用 {@link #open(AbstractPacket.TYPE, InetSocketAddress, FiltrationStrategy)}
+     * <p>此方法等同于调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)}
      * 并传入 {@link FiltrationStrategy#BYPASS}。适用于无需在接入层进行任何安全性或业务校验的场景。</p>
      *
-     * @param type    绑定的协议包类型，决定了该端口接收数据后的解包逻辑。
+     * @param packetType    绑定的协议包类型，决定了该端口接收数据后的解包逻辑。
      * @param local 监听的套接字地址（包含主机名和端口）。
      * @return 实际绑定的本地端口号。
      * @throws IOException 如果打开或绑定 ServerSocketChannel 失败。
      */
-    public int open(AbstractPacket.TYPE type, InetSocketAddress local) throws IOException {
-        return open(type, local, FiltrationStrategy.BYPASS);
+    public int open(AbstractPacket.PacketType packetType, InetSocketAddress local) throws IOException {
+        return open(packetType, local, FiltrationStrategy.BYPASS);
     }
     /**
      * 绑定协议类型与监听地址，并配置特定的接入过滤策略。
@@ -175,30 +176,30 @@ public class NexalithicServer {
      * 方法成功返回后，{@code serverSocketChannel} 的生命周期管理权正式移交给内部的 {@code AcceptorLoop}。
      * 除非发生严重异常，否则外部调用者不应尝试关闭该 Channel。</p>
      *
-     * @param type     协议包类型枚举。不能为空。
+     * @param packetType     协议包类型枚举。不能为空。
      * @param local  监听地址。如果端口号为 0，系统将选择一个临时端口。
      * @param strategy 自定义的过滤策略。不能为空，如需跳过过滤请显式传入 {@link FiltrationStrategy#BYPASS}。
      * @return 实际监听的本地端口号。
-     * @throws NullPointerException 如果 type 或 strategy 为 null。
+     * @throws NullPointerException 如果 packetType 或 strategy 为 null。
      * @throws IOException         如果资源初始化失败或无法绑定到指定地址。
      */
-    public int open(AbstractPacket.TYPE type, InetSocketAddress local, FiltrationStrategy strategy) throws IOException {
+    public int open(AbstractPacket.PacketType packetType, InetSocketAddress local, FiltrationStrategy strategy) throws IOException {
         try {
-            if (type == null) {
-                throw new IllegalStateException("type is null");
+            if (packetType == null) {
+                throw new IllegalStateException("packetType is null");
             }
             if (strategy == null) {
                 throw new IllegalStateException("filtrationStrategy is null");
             }
             ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
             int bindPort = serverSocketChannel.bind(local, 2048).socket().getLocalPort();
-            logger.info("Successfully bound server to [{}:{}] with type [{}] and strategy [{}]",
-                    local.getHostString(), bindPort, type, strategy.getClass().getSimpleName());
-            lifecycleManager.getAcceptorLoop().dispatch(type, serverSocketChannel, strategy);
+            logger.info("Successfully bound server to [{}:{}] with packetType [{}] and strategy [{}]",
+                    local.getHostString(), bindPort, packetType, strategy.getClass().getSimpleName());
+            lifecycleManager.getAcceptorLoop().dispatch(packetType, serverSocketChannel, strategy);
             return bindPort;
         } catch (IOException e) {
-            logger.error("Failed to bind to local [{}]. type [{}], Strategy [{}]",
-                    local, type, strategy.getClass().getSimpleName(), e);
+            logger.error("Failed to bind to local [{}]. packetType [{}], Strategy [{}]",
+                    local, packetType, strategy.getClass().getSimpleName(), e);
             throw e;
         }
     }
@@ -228,13 +229,14 @@ public class NexalithicServer {
             return this;
         }
 
-        public NexalithicServer build() throws Exception {
-            OptionMap options = OptionMap.of(this.options);
+        public NexalithicServer build() throws IOException {
+            OptionMap options = verifyOptions();
             SessionsManager sessionsManager = new SessionsManager(options);
+            NetworkRouter networkRouter = new NetworkRouter();
 
             ServiceUnit[] serviceUnits = new ServiceUnit[options.value(ServiceUnit.Count)];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(options, sessionsManager).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(options, sessionsManager, networkRouter).addIdToLoopName(String.valueOf(i));
             }
             LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer = new ConsistentHashBalancer<>(serviceUnits, 160);
 
@@ -247,6 +249,10 @@ public class NexalithicServer {
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(options, handshakeLoopBalancer).addIdToName("0");
 
             return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager);
+        }
+
+        private OptionMap verifyOptions() {
+            return OptionMap.of(this.options);
         }
     }
 

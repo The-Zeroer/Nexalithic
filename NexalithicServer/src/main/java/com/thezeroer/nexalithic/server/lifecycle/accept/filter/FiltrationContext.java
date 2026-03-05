@@ -33,7 +33,7 @@ import java.nio.channels.SocketChannel;
  * @see FiltrationStrategy
  */
 public class FiltrationContext {
-    private AbstractPacket.TYPE type;
+    private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
     private LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
     private PendingChannel.Recyclable cachedPendingChannel;
@@ -53,7 +53,7 @@ public class FiltrationContext {
     public void approve() {
         if (this.socketChannel == null) return;
         try {
-            handshakeLoopBalancer.select(null).dispatch(cachedPendingChannel.initTarget(type, socketChannel).unwrap());
+            handshakeLoopBalancer.select(null).dispatch(cachedPendingChannel.initTarget(packetType, socketChannel).unwrap());
             cachedPendingChannel = null;
         } catch (Exception e) {
             reject();
@@ -90,9 +90,9 @@ public class FiltrationContext {
             target.handshakeLoopBalancer = balancer;
         }
 
-        public Recyclable initTarget(AbstractPacket.TYPE type, SocketChannel socketChannel,
+        public Recyclable initTarget(AbstractPacket.PacketType packetType, SocketChannel socketChannel,
                                      WrapperPool<PendingChannel.Recyclable> pendingChannelPool) {
-            target.type = type;
+            target.packetType = packetType;
             target.socketChannel = socketChannel;
             if (target.cachedPendingChannel == null) {
                 target.cachedPendingChannel = pendingChannelPool.acquire();
@@ -102,7 +102,7 @@ public class FiltrationContext {
 
         @Override
         protected void onRecycle(FiltrationContext target) {
-            target.type = null;
+            target.packetType = null;
             target.socketChannel = null;
         }
 

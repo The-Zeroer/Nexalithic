@@ -59,18 +59,18 @@ public class AcceptorLoop extends AbstractLoop {
         ).warmUp(options.value(PendingChannelPool_PrefillRatio));
     }
 
-    public void dispatch(AbstractPacket.TYPE type, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
+    public void dispatch(AbstractPacket.PacketType packetType, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
         eventQueue.add(() -> {
             SocketAddress address = null;
             try {
                 address = serverSocketChannel.getLocalAddress();
-                serverSocketChannel.configureBlocking(false).register(selector, SelectionKey.OP_ACCEPT, type).attach(strategy.setType(type));
+                serverSocketChannel.configureBlocking(false).register(selector, SelectionKey.OP_ACCEPT, packetType).attach(strategy.setType(packetType));
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", type, address, strategy.getClass().getSimpleName());
+                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", packetType, address, strategy.getClass().getSimpleName());
                 }
                 loadScore.increment();
             } catch (Exception e) {
-                logger.error("Failed to register [{}] channel [{}]", type, address, e);
+                logger.error("Failed to register [{}] channel [{}]", packetType, address, e);
             }
         });
         wakeupIfNeeded();

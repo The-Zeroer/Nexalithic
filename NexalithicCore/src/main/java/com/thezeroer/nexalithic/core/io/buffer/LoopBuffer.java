@@ -20,7 +20,7 @@ import java.nio.channels.ScatteringByteChannel;
  * @since 2026/02/13
  */
 @SuppressWarnings("UnusedReturnValue")
-public class LoopBuffer {
+public class LoopBuffer implements LoopBufferView {
     /** 原始底层缓冲区 */
     private final ByteBuffer buffer;
     /** 复用的可读段视图（处理回绕时包含两段） */
@@ -30,6 +30,7 @@ public class LoopBuffer {
 
     private final int capacity, mask;
     private long tail, head;
+    private long markedHead = -1; // -1 表示当前没有标记
 
     /**
      * 初始化环形缓冲区。
@@ -161,6 +162,28 @@ public class LoopBuffer {
     }
 
     /**
+     * 记录当前读位置
+     */
+    public void mark() {
+        this.markedHead = this.head;
+    }
+    /**
+     * 将读位置回滚到上次标记的地方
+     */
+    public void reset() {
+        if (markedHead != -1) {
+            this.head = markedHead;
+            this.markedHead = -1;
+        }
+    }
+    /**
+     * 丢弃标记
+     */
+    public void dropMark() {
+        this.markedHead = -1;
+    }
+
+    /**
      * 尝试重置指针索引。
      * <p>
      * 当缓冲区为空时，将指针重置为 0，这能确保下一次写入拥有最大的连续内存空间，
@@ -182,52 +205,28 @@ public class LoopBuffer {
         if (isFull()) {
             throw new IllegalStateException("Buffer overflow");
         }
-        buffer.put((int) (tail & mask), value);
-        tail += Byte.BYTES;
+        unsafePut(value);
         return this;
     }
     public LoopBuffer put(short value) {
         if (writableBytes() < Short.BYTES) {
             throw new IllegalStateException("Buffer overflow");
         }
-        int writePos = (int) (tail & mask);
-        if (writePos <= capacity - Short.BYTES) {
-            buffer.putShort(writePos, value);
-        } else {
-            buffer.put(writePos, (byte) (value >>> 8));
-            buffer.put(0, (byte) (value & 0xFF));
-        }
-        tail += Short.BYTES;
+        unsafePut(value);
         return this;
     }
     public LoopBuffer put(int value) {
         if (writableBytes() < Integer.BYTES) {
             throw new IllegalStateException("Buffer overflow");
         }
-        int writePos = (int) (tail & mask);
-        if (writePos <= capacity - Integer.BYTES) {
-            buffer.putInt(writePos, value);
-        } else {
-            for (int i = 0; i < Integer.BYTES; i++) {
-                buffer.put((int) ((tail + i) & mask), (byte) (value >>> (8 * (3 - i))));
-            }
-        }
-        tail += Integer.BYTES;
+        unsafePut(value);
         return this;
     }
     public LoopBuffer put(long value) {
         if (writableBytes() < Long.BYTES) {
             throw new IllegalStateException("Buffer overflow");
         }
-        int writePos = (int) (tail & mask);
-        if (writePos <= capacity - Long.BYTES) {
-            buffer.putLong(writePos, value);
-        } else {
-            for (int i = 0; i < Long.BYTES; i++) {
-                buffer.put((int) ((tail + i) & mask), (byte) (value >>> (8 * (7 - i))));
-            }
-        }
-        tail += Long.BYTES;
+        unsafePut(value);
         return this;
     }
     public LoopBuffer put(float value) {
@@ -241,13 +240,7 @@ public class LoopBuffer {
         if (writableBytes() < len) {
             throw new IllegalStateException("Buffer overflow");
         }
-        int writePos = (int) (tail & mask);
-        int firstPartLen = Math.min(len, capacity - writePos);
-        buffer.put(writePos, value, 0, firstPartLen);
-        if (len > firstPartLen) {
-            buffer.put(0, value, firstPartLen, len - firstPartLen);
-        }
-        tail += len;
+        unsafePut(value, len);
         return this;
     }
 
@@ -255,57 +248,25 @@ public class LoopBuffer {
         if (isEmpty()) {
             throw new IllegalStateException("Buffer underflow");
         }
-        byte value = buffer.get((int) (head & mask));
-        head += Byte.BYTES;
-        return value;
+        return unsafeGetByte();
     }
     public short getShort() {
         if (readableBytes() < Short.BYTES) {
             throw new IllegalStateException("Buffer underflow");
         }
-        int readPos = (int) (head & mask);
-        short value;
-        if (readPos == capacity - 1) {
-            value = (short) (((buffer.get(readPos) & 0xFF) << 8) | (buffer.get(0) & 0xFF));
-        } else {
-            value = buffer.getShort(readPos);
-        }
-        head += Short.BYTES;
-        return value;
+        return unsafeGetShort();
     }
     public int getInt() {
         if (readableBytes() < Integer.BYTES) {
             throw new IllegalStateException("Buffer underflow");
         }
-        int readPos = (int) (head & mask);
-        int value;
-        if (readPos <= capacity - Integer.BYTES) {
-            value = buffer.getInt(readPos);
-        } else {
-            value = 0;
-            for (int i = 0; i < Integer.BYTES; i++) {
-                value |= (buffer.get((int) ((head + i) & mask)) & 0xFF) << (8 * (Integer.BYTES - 1 - i));
-            }
-        }
-        head += Integer.BYTES;
-        return value;
+        return unsafeGetInt();
     }
     public long getLong() {
         if (readableBytes() < Long.BYTES) {
             throw new IllegalStateException("Buffer underflow");
         }
-        int readPos = (int) (head & mask);
-        long value;
-        if (readPos <= capacity - Long.BYTES) {
-            value = buffer.getLong(readPos);
-        } else {
-            value = 0;
-            for (int i = 0; i < Long.BYTES; i++) {
-                value |= (long) (buffer.get((int) ((head + i) & mask)) & 0xFF) << (8 * (Long.BYTES - 1 - i));
-            }
-        }
-        head += Long.BYTES;
-        return value;
+        return unsafeGetLong();
     }
     public float getFloat() {
         return Float.intBitsToFloat(getInt());
@@ -323,13 +284,125 @@ public class LoopBuffer {
         if (readableBytes() < len) {
             throw new IllegalStateException("Buffer underflow");
         }
-        int readPos = (int) (head & mask);
-        int firstPartLen = Math.min(len, capacity - readPos);
-        buffer.get(readPos, dst, 0, firstPartLen);
-        if (len > firstPartLen) {
-            buffer.get(0, dst, firstPartLen, len - firstPartLen);
+        unsafeGetBytes(dst, len);
+    }
+
+    public void unsafePut(byte value) {
+        buffer.put((int) (tail & mask), value);
+        tail += Byte.BYTES;
+    }
+    public void unsafePut(short value) {
+        int writePos = (int) (tail & mask);
+        if (writePos <= capacity - Short.BYTES) {
+            buffer.putShort(writePos, value);
+        } else {
+            buffer.put(writePos, (byte) (value >>> 8));
+            buffer.put(0, (byte) (value & 0xFF));
         }
-        head += len;
+        tail += Short.BYTES;
+    }
+    public void unsafePut(int value) {
+        int writePos = (int) (tail & mask);
+        if (writePos <= capacity - Integer.BYTES) {
+            buffer.putInt(writePos, value);
+        } else {
+            for (int i = 0; i < Integer.BYTES; i++) {
+                buffer.put((int) ((tail + i) & mask), (byte) (value >>> (8 * (3 - i))));
+            }
+        }
+        tail += Integer.BYTES;
+    }
+    public void unsafePut(long value) {
+        int writePos = (int) (tail & mask);
+        if (writePos <= capacity - Long.BYTES) {
+            buffer.putLong(writePos, value);
+        } else {
+            for (int i = 0; i < Long.BYTES; i++) {
+                buffer.put((int) ((tail + i) & mask), (byte) (value >>> (8 * (7 - i))));
+            }
+        }
+        tail += Long.BYTES;
+
+    }
+    public void unsafePut(float value) {
+        unsafePut(Float.floatToIntBits(value));
+    }
+    public void unsafePut(double value) {
+        unsafePut(Double.doubleToLongBits(value));
+    }
+    public void unsafePut(byte[] value, int length) {
+        int writePos = (int) (tail & mask);
+        int firstPartLen = Math.min(length, capacity - writePos);
+        buffer.put(writePos, value, 0, firstPartLen);
+        if (length > firstPartLen) {
+            buffer.put(0, value, firstPartLen, length - firstPartLen);
+        }
+        tail += length;
+    }
+
+    public byte unsafeGetByte() {
+        byte value = buffer.get((int) (head & mask));
+        head += Byte.BYTES;
+        return value;
+    }
+    public short unsafeGetShort() {
+        int readPos = (int) (head & mask);
+        short value;
+        if (readPos == capacity - 1) {
+            value = (short) (((buffer.get(readPos) & 0xFF) << 8) | (buffer.get(0) & 0xFF));
+        } else {
+            value = buffer.getShort(readPos);
+        }
+        head += Short.BYTES;
+        return value;
+    }
+    public int unsafeGetInt() {
+        int readPos = (int) (head & mask);
+        int value;
+        if (readPos <= capacity - Integer.BYTES) {
+            value = buffer.getInt(readPos);
+        } else {
+            value = 0;
+            for (int i = 0; i < Integer.BYTES; i++) {
+                value |= (buffer.get((int) ((head + i) & mask)) & 0xFF) << (8 * (Integer.BYTES - 1 - i));
+            }
+        }
+        head += Integer.BYTES;
+        return value;
+    }
+    public long unsafeGetLong() {
+        int readPos = (int) (head & mask);
+        long value;
+        if (readPos <= capacity - Long.BYTES) {
+            value = buffer.getLong(readPos);
+        } else {
+            value = 0;
+            for (int i = 0; i < Long.BYTES; i++) {
+                value |= (long) (buffer.get((int) ((head + i) & mask)) & 0xFF) << (8 * (Long.BYTES - 1 - i));
+            }
+        }
+        head += Long.BYTES;
+        return value;
+    }
+    public float unsafeGetFloat() {
+        return Float.intBitsToFloat(unsafeGetInt());
+    }
+    public double unsafeGetDouble() {
+        return Double.longBitsToDouble(unsafeGetLong());
+    }
+    public byte[] unsafeGetBytes(int length) {
+        byte[] value = new byte[length];
+        unsafeGetBytes(value, length);
+        return value;
+    }
+    public void unsafeGetBytes(byte[] dst, int length) {
+        int readPos = (int) (head & mask);
+        int firstPartLen = Math.min(length, capacity - readPos);
+        buffer.get(readPos, dst, 0, firstPartLen);
+        if (length > firstPartLen) {
+            buffer.get(0, dst, firstPartLen, length - firstPartLen);
+        }
+        head += length;
     }
 
     public static class Recyclable extends GeneralRecyclableWrapper<LoopBuffer, Recyclable> {
