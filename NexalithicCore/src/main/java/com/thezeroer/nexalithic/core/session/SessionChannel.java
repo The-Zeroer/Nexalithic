@@ -10,9 +10,14 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.ShortBufferException;
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -108,7 +113,7 @@ public class SessionChannel<P extends AbstractPacket> {
         return assembler.drain();
     }
 
-    public long write() throws IOException {
+    public long write() throws IOException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         if (readPlainBufferRecyclable == null) {
             readPlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
             readPlainBuffer = readPlainBufferRecyclable.unwrap();
@@ -131,7 +136,7 @@ public class SessionChannel<P extends AbstractPacket> {
             return written;
         }
     }
-    public long read() throws IOException {
+    public long read() throws IOException, InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
         if (readCipheBufferRecyclable == null) {
             readCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
             readCipheBuffer = readCipheBufferRecyclable.unwrap();

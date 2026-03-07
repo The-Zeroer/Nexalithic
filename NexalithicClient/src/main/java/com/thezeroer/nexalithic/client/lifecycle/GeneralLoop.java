@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -127,25 +128,31 @@ public class GeneralLoop extends AbstractLoop {
     @Override
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
         SessionChannel<?> sessionChannel = (SessionChannel<?>) selectionKey.attachment();
-        if (selectionKey.isReadable()) {
-            if (sessionChannel.read() == -1) {
-                closeSelectionKey(selectionKey);
-                return;
-            }
-            if (sessionChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                while (sessionChannel.get() instanceof SignalingPacket packet) {
-                    handleSignalPacket(packet);
+        try {
+            if (selectionKey.isReadable()) {
+                if (sessionChannel.read() == -1) {
+                    closeSelectionKey(selectionKey);
+                    return;
+                }
+                if (sessionChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                    while (sessionChannel.get() instanceof SignalingPacket packet) {
+                        handleSignalPacket(packet);
+                    }
+                } else {
+                    while (sessionChannel.get() instanceof BusinessPacket<?> packet) {
+                        handleBusinessPacket(packet);
+                    }
+                }
+            } else if (selectionKey.isWritable()) {
+                if (sessionChannel.write() == -1) {
+                    selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
                 }
             } else {
-                while (sessionChannel.get() instanceof BusinessPacket<?> packet) {
-                    handleBusinessPacket(packet);
-                }
+                closeSelectionKey(selectionKey);
             }
-        } else if (selectionKey.isWritable()) {
-            if (sessionChannel.write() == -1) {
-                selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
-            }
-        } else {
+        } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
+                 BadPaddingException | InvalidKeyException e) {
+            logger.warn("[{}] onReadyEvent Error", name, e);
             closeSelectionKey(selectionKey);
         }
     }

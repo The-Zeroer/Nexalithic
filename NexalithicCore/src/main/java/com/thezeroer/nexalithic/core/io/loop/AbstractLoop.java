@@ -223,12 +223,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 onReadyEvent(key);
             } catch (IOException e) {
                 if (logger.isDebugEnabled()) {
-                    logger.debug("[{}] failed to read events", name);
+                    logger.debug("[{}] failed to ready event", name);
                 }
-                try {
-                    key.cancel();
-                    key.channel().close();
-                } catch (IOException ignored) {}
+                closeSelectionKey(key);
             }
         }
     }
@@ -241,7 +238,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 Object attachment = oldKey.attachment();
                 try {
                     SelectionKey newKey = oldKey.channel().register(newSelector, oldKey.interestOps(), attachment);
-                    if (attachment instanceof SessionChannel sessionChannel) {
+                    if (attachment instanceof SessionChannel<?> sessionChannel) {
                         sessionChannel.updateSelectionKey(newKey);
                     }
                 } catch (Exception e) {

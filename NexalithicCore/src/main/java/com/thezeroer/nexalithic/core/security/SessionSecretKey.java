@@ -57,28 +57,17 @@ public class SessionSecretKey {
     /**
      * 加密
      */
-    public ByteBuffer encrypt(ByteBuffer input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException {
+    public void encrypt(ByteBuffer input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException {
         writeCipher.init(Cipher.ENCRYPT_MODE, writeKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextWriteNonce()));
         writeCipher.doFinal(input, output);
-        return output;
     }
 
     /**
      * 解密
      */
-    public ByteBuffer decrypt(ByteBuffer input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
+    public void decrypt(ByteBuffer input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
         readCipher.init(Cipher.DECRYPT_MODE, readKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextReadNonce()));
         readCipher.doFinal(input, output);
-        return output;
-    }
-
-    public ByteBuffer encrypt(byte[] input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
-        writeCipher.init(Cipher.ENCRYPT_MODE, writeKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextWriteNonce()));
-        return output.put(writeCipher.doFinal(input));
-    }
-    public ByteBuffer decrypt(byte[] input, ByteBuffer output) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
-        readCipher.init(Cipher.DECRYPT_MODE, readKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextReadNonce()));
-        return output.put(readCipher.doFinal(input));
     }
 
     public byte[] encrypt(byte[] input) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
@@ -88,5 +77,26 @@ public class SessionSecretKey {
     public byte[] decrypt(byte[] input) throws InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         readCipher.init(Cipher.DECRYPT_MODE, readKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextReadNonce()));
         return readCipher.doFinal(input);
+    }
+
+    public byte[] encrypt(ByteBuffer input) throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        writeCipher.init(Cipher.ENCRYPT_MODE, writeKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextWriteNonce()));
+        if (input.hasArray()) {
+            return writeCipher.doFinal(input.array(), input.position(), input.remaining());
+        } else {
+            byte[] bytes = new byte[input.remaining()];
+            input.get(bytes);
+            return writeCipher.doFinal(bytes);
+        }
+    }
+    public byte[] decrypt(ByteBuffer input) throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        readCipher.init(Cipher.DECRYPT_MODE, readKey, new GCMParameterSpec(TAG_LENGTH * Byte.SIZE, nextReadNonce()));
+        if (input.hasArray()) {
+            return readCipher.doFinal(input.array(), input.position(), input.remaining());
+        } else {
+            byte[] bytes = new byte[input.remaining()];
+            input.get(bytes);
+            return readCipher.doFinal(bytes);
+        }
     }
 }

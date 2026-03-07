@@ -12,9 +12,14 @@ import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.ShortBufferException;
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 
 /**
  * 主选择器
@@ -81,19 +86,25 @@ public class StewardLoop extends AbstractLoop {
     @SuppressWarnings("unchecked")
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
         SessionChannel<SignalingPacket> sessionChannel = (SessionChannel<SignalingPacket>) selectionKey.attachment();
-        if (selectionKey.isReadable()) {
-            if (sessionChannel.read() == -1) {
+        try {
+            if (selectionKey.isReadable()) {
+                if (sessionChannel.read() == -1) {
+                    closeSelectionKey(selectionKey);
+                }
+                SignalingPacket packet;
+                while ((packet = sessionChannel.get()) != null) {
+                    handleSignalPacket(packet);
+                }
+            } else if (selectionKey.isWritable()) {
+                if (sessionChannel.write() == -1) {
+                    selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+                }
+            } else {
                 closeSelectionKey(selectionKey);
             }
-            SignalingPacket packet;
-            while ((packet = sessionChannel.get()) != null) {
-                handleSignalPacket(packet);
-            }
-        } else if (selectionKey.isWritable()) {
-            if (sessionChannel.write() == -1) {
-                selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
-            }
-        } else {
+        } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
+                 BadPaddingException | InvalidKeyException e) {
+            logger.warn("[{}] onReadyEvent Error", name, e);
             closeSelectionKey(selectionKey);
         }
     }
