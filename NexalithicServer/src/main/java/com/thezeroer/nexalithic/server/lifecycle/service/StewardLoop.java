@@ -55,8 +55,8 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                NexalithicSession session = new NexalithicSession(channel.getSessionId(), channel.getSessionSecretKey());
-                selectionKey.attach(session.attachPrivate(serviceUnit).getSignalingChannel().updateSelectionKey(selectionKey).setLoop(this));
+                NexalithicSession session = channel.getSession();
+                selectionKey.attach(session.attachPrivate(serviceUnit).getSignalingChannel().updateSelectionKey(selectionKey));
                 sessionsManager.putSession(session);
             } catch (IOException ignored) {
             }
@@ -113,6 +113,10 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
                     new SignalingPacket(SignalingPacket.Signal.ResponseBusinessPort, AbstractPacket.intToBytes(networkRouter
                             .choosePort(AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress()))));
         }
+    }
+
+    public ServiceUnit getServiceUnit() {
+        return serviceUnit;
     }
 
 

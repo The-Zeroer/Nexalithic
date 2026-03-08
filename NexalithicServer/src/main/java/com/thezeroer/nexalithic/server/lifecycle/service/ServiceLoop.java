@@ -29,7 +29,7 @@ public abstract class ServiceLoop<P extends AbstractPacket> extends SessionLoop<
         this.sessionsManager = sessionsManager;
     }
 
-    public void dispatch(PendingChannel pendingChannel) {
+    public final void dispatch(PendingChannel pendingChannel) {
         if (dispatchQueue.offer(pendingChannel)) {
             loadScore.increment();
             wakeupIfNeeded();
@@ -38,7 +38,7 @@ public abstract class ServiceLoop<P extends AbstractPacket> extends SessionLoop<
         }
     }
 
-    public boolean pushPacket(SessionChannel<P> channel, P packet) {
+    public final boolean pushPacket(SessionChannel<P> channel, P packet) {
         while (!channel.put(packet)) {
             Thread.onSpinWait();
         }

@@ -7,7 +7,7 @@ import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
-import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
@@ -72,20 +72,21 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
             socketChannel.write(buffer3.flip());
             byte[] secret = SecretKeyUtils.compactSecret(keyPair.getPrivate(), buffer2.array());
             byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
-            SessionSecretKey sessionSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT, SecretKeyUtils.LABEL_SERVER);
-            ByteBuffer buffer4 = ByteBuffer.wrap(sessionSecretKey.encrypt(localFinished));
-            ByteBuffer buffer5 = ByteBuffer.allocate(NexalithicSession.SESSION_ID_LENGTH + SessionSecretKey.TAG_LENGTH);
+            SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_SIGNALING, SecretKeyUtils.LABEL_SERVER_SIGNALING);
+            ByteBuffer buffer4 = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
+            ByteBuffer buffer5 = ByteBuffer.allocate(NexalithicSession.SESSION_ID_LENGTH + SecretKeyContext.TAG_LENGTH);
             socketChannel.write(buffer4);
             if (socketChannel.read(new ByteBuffer[]{buffer4.clear(), buffer5}) == -1) {
                 return false;
             }
-            byte[] remoteFinished = sessionSecretKey.decrypt(buffer4.array());
+            byte[] remoteFinished = signalingSecretKey.decrypt(buffer4.array());
             if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
                 logger.warn("Finished verification failed");
                 throw new SecurityException("Finished verification failed");
             }
-            byte[] sessionIdBytes = sessionSecretKey.decrypt(buffer5.array());
-            session = new NexalithicSession(new SessionId.Immutable(sessionIdBytes), sessionSecretKey).attachPrivate(new LocalSessionAttachment());
+            session = new NexalithicSession(new SessionId.Immutable(signalingSecretKey.decrypt(buffer5.array())), signalingSecretKey,
+                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS))
+                    .attachPrivate(new LocalSessionAttachment());
             logger.info("Link server succeeded");
         } else {
             LocalSessionAttachment attachment = session.privateAttachment();

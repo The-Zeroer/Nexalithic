@@ -24,7 +24,7 @@ public abstract class SessionLoop<P extends AbstractPacket> extends AbstractLoop
         interestQueue = new MpscArrayQueue<>(options.value(InterestQueue_Capacity));
     }
 
-    public void updateChannelInterest(SessionChannel<P> channel) {
+    public final void updateChannelInterest(SessionChannel<P> channel) {
         while (!interestQueue.offer(channel)) {
             Thread.onSpinWait();
         }
@@ -33,7 +33,7 @@ public abstract class SessionLoop<P extends AbstractPacket> extends AbstractLoop
     public abstract boolean pushPacket(SessionChannel<P> channel, P packet);
 
     @Override
-    protected boolean asyncEvent() {
+    protected final boolean asyncEvent() {
         interestQueue.drain(SessionChannel::applyTargetInterest);
         return onAsyncEvent() & interestQueue.isEmpty();
     }

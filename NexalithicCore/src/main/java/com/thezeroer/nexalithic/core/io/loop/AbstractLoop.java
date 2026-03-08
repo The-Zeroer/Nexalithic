@@ -49,7 +49,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         Max_Shutdown_Wait.set(options.value(Max_Shutdown_Wait));
     }
 
-    public void start() throws Exception {
+    public final void start() throws Exception {
         synchronized (this) {
             if (!state.compareAndSet(State.NEW, State.STARTING)) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
@@ -59,7 +59,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         }
     }
 
-    public void stop() throws Exception {
+    public final void stop() throws Exception {
         synchronized (this) {
             if (state.get() == State.STOPPING || state.get() == State.TERMINATED) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
@@ -69,7 +69,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         }
     }
 
-    public void shutdown() throws Exception {
+    public final void shutdown() throws Exception {
         synchronized (this) {
             if (state.get() == State.SHUTTING_DOWN || state.get() == State.STOPPING || state.get() == State.TERMINATED) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
@@ -83,21 +83,21 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
      * 需要时叫醒，只有当 Selector 真的在睡觉（WAITING）时，才将其叫醒并设为 WORKING
      *
      */
-    public void wakeupIfNeeded() {
+    public final void wakeupIfNeeded() {
         if (state.compareAndSet(State.WAITING, State.WORKING)) {
             selector.wakeup();
         }
     }
 
     @Override
-    public long getLoadScore() {
+    public final long getLoadScore() {
         return loadScore.sum();
     }
 
-    public String getName() {
+    public final String getName() {
         return name;
     }
-    public AbstractLoop addIdToName(String id) {
+    public final AbstractLoop addIdToName(String id) {
         name = name + "-" + id;
         return this;
     }
@@ -109,7 +109,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected void onSelectorError(IOException error) {}
 
     @Override
-    public void run() {
+    public final void run() {
         Selector localSelector = this.selector;
         int emptyCount = 0, readyCount;
         long start = 0, end = 0;
@@ -203,7 +203,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected boolean asyncEvent() {
         return onAsyncEvent();
     }
-    protected void readyEvent(Selector selector) throws IOException {
+    protected final void readyEvent(Selector selector) throws IOException {
         Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
         while (iterator.hasNext()) {
             SelectionKey key = iterator.next();
@@ -220,7 +220,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             }
         }
     }
-    protected Selector rebuildSelector() throws IOException {
+    protected final Selector rebuildSelector() throws IOException {
         try {
             Selector newSelector = Selector.open();
             Selector oldSelector = this.selector;

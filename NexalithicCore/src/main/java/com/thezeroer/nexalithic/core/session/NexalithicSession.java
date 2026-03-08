@@ -3,8 +3,7 @@ package com.thezeroer.nexalithic.core.session;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.security.SecuritySession;
-import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 /**
@@ -15,7 +14,7 @@ import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
  * @version 1.0.0
  */
 @SuppressWarnings("unchecked")
-public class NexalithicSession extends SecuritySession {
+public class NexalithicSession {
     public static final int SESSION_ID_LENGTH = 32;
     private final long creationTime;
     private final SessionId sessionId;
@@ -24,11 +23,16 @@ public class NexalithicSession extends SecuritySession {
     private volatile SessionAttachment privateAttachment, publicAttachment;
     private String sessionName;
 
-    public NexalithicSession(SessionId sessionId, SessionSecretKey sessionSecretKey) {
-        super(sessionSecretKey);
+    public NexalithicSession(SessionId sessionId, SecretKeyContext secretKeyContext) {
         this.sessionId = sessionId;
-        this.signalingChannel = new SessionChannel<>(this, AbstractPacket.PacketType.SIGNALING);
-        this.businessChannel = new SessionChannel<>(this, AbstractPacket.PacketType.BUSINESS);
+        this.signalingChannel = new SessionChannel<>(AbstractPacket.PacketType.SIGNALING, this, secretKeyContext);
+        this.businessChannel = new SessionChannel<>(AbstractPacket.PacketType.BUSINESS, this, secretKeyContext);
+        this.creationTime = System.currentTimeMillis();
+    }
+    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
+        this.sessionId = sessionId;
+        this.signalingChannel = new SessionChannel<>(AbstractPacket.PacketType.SIGNALING, this, signalingSecretKey);
+        this.businessChannel = new SessionChannel<>(AbstractPacket.PacketType.BUSINESS, this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
     }
 

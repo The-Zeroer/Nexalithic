@@ -6,9 +6,9 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketFragmenter;
-import com.thezeroer.nexalithic.core.io.loop.SessionLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.security.SecurityChannel;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,13 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026/02/04
  * @version 1.0.0
  */
-public class SessionChannel<P extends AbstractPacket> extends NexalithicChannel<SessionLoop<P>> {
-    public static final int CHANNEL_TOKEN_LENGTH = SecretKeyUtils.ECDH_LENGTH;
-    public enum State {
-        Unconnected,
-        Connecting,
-        Connected,
-    }
+public class SessionChannel<P extends AbstractPacket> extends SecurityChannel implements NexalithicChannel{
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
@@ -57,7 +51,8 @@ public class SessionChannel<P extends AbstractPacket> extends NexalithicChannel<
     private LoopBuffer readPlainBuffer, writeCipheBuffer;
     private LoopBuffer readCipheBuffer, writePlainBuffer;
 
-    public SessionChannel(NexalithicSession session, AbstractPacket.PacketType packetType) {
+    public SessionChannel(AbstractPacket.PacketType packetType, NexalithicSession session, SecretKeyContext secretKeyContext) {
+        super(secretKeyContext);
         this.session = session;
         this.type = packetType;
         fragmenter = FragmenterFactory.create(packetType);
@@ -139,7 +134,7 @@ public class SessionChannel<P extends AbstractPacket> extends NexalithicChannel<
             writeCipheBuffer = writeCipheBufferRecyclable.unwrap();
         }
         if (fragmenter.drain(readPlainBuffer) > 0) {
-            session.encrypt(readPlainBuffer, writeCipheBuffer);
+            encrypt(readPlainBuffer, writeCipheBuffer);
         }
         long written = writeCipheBuffer.writeToChannel(socketChannel);
         if (written == 0 && writeCipheBuffer.isEmpty() && fragmenter.isEmpty()) {
@@ -163,7 +158,7 @@ public class SessionChannel<P extends AbstractPacket> extends NexalithicChannel<
         }
         long read = readCipheBuffer.readFromChannel(socketChannel);
         if (read > 0) {
-            session.decrypt(readCipheBuffer, writePlainBuffer);
+            decrypt(readCipheBuffer, writePlainBuffer);
             assembler.feed(writePlainBuffer);
         }
         if (readCipheBuffer.isEmpty() && writePlainBuffer.isEmpty()) {

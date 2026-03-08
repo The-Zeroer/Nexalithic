@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle;
 
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -10,7 +9,6 @@ import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -66,7 +64,7 @@ public class LifecycleManager {
         ERROR,
     }
     private static final Logger logger = LoggerFactory.getLogger(LifecycleManager.class);
-    private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
+    private final AtomicReference<State> state = new AtomicReference<>(LifecycleManager.State.NEW);
     private final AcceptorLoop acceptorLoop;
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopLoadBalancer;
     private final LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer;
@@ -78,8 +76,8 @@ public class LifecycleManager {
     }
 
     public void start() throws Exception {
-        if (!state.compareAndSet(State.NEW, State.STARTING)) {
-            throw new IllegalStateException("Cannot start NexalithicServer while in state " + state.get());
+        if (!state.compareAndSet(LifecycleManager.State.NEW, LifecycleManager.State.STARTING)) {
+            throw new IllegalStateException("Cannot start NexalithicServer while in State " + state.get());
         }
         logger.info("NexalithicServer starting");
         try {
@@ -93,17 +91,17 @@ public class LifecycleManager {
                 handshakeLoop.start();
             }
             acceptorLoop.start();
-            state.set(State.RUNNING);
+            state.set(LifecycleManager.State.RUNNING);
             logger.info("NexalithicServer start succeed");
         } catch (Exception e) {
             logger.error("NexalithicServer start failed", e);
-            state.set(State.ERROR);
+            state.set(LifecycleManager.State.ERROR);
             throw e;
         }
     }
     public void stop() throws Exception {
-        if (!state.compareAndSet(State.RUNNING, State.STOPPING)) {
-            throw new IllegalStateException("Cannot stop NexalithicServer while in state " + state.get());
+        if (!state.compareAndSet(LifecycleManager.State.RUNNING, LifecycleManager.State.STOPPING)) {
+            throw new IllegalStateException("Cannot stop NexalithicServer while in State " + state.get());
         }
         logger.info("NexalithicServer stopping");
         try {
@@ -117,17 +115,17 @@ public class LifecycleManager {
                     workerLoop.stop();
                 }
             }
-            state.set(State.TERMINATED);
+            state.set(LifecycleManager.State.TERMINATED);
             logger.info("NexalithicServer stop succeed");
         } catch (Exception e) {
             logger.error("NexalithicServer stop failed", e);
-            state.set(State.ERROR);
+            state.set(LifecycleManager.State.ERROR);
             throw e;
         }
     }
     public void shutdown() throws Exception {
-        if (!state.compareAndSet(State.RUNNING, State.SHUTTING_DOWN)) {
-            throw new IllegalStateException("Cannot shutdown NexalithicServer while in state " + state.get());
+        if (!state.compareAndSet(LifecycleManager.State.RUNNING, LifecycleManager.State.SHUTTING_DOWN)) {
+            throw new IllegalStateException("Cannot shutdown NexalithicServer while in State " + state.get());
         }
         logger.info("NexalithicServer shutting down");
         try {
@@ -141,11 +139,11 @@ public class LifecycleManager {
                     workerLoop.shutdown();
                 }
             }
-            state.set(State.TERMINATED);
+            state.set(LifecycleManager.State.TERMINATED);
             logger.info("NexalithicServer shutdown succeed");
         } catch (Exception e) {
             logger.error("NexalithicServer shutdown failed", e);
-            state.set(State.ERROR);
+            state.set(LifecycleManager.State.ERROR);
             throw e;
         }
     }

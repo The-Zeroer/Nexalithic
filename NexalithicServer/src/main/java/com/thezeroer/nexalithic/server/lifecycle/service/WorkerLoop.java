@@ -31,7 +31,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket<?>> {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                selectionKey.attach(channel.getSession().getBusinessChannel().updateSelectionKey(selectionKey).setLoop(this));
+                selectionKey.attach(channel.getSession().getBusinessChannel().updateSelectionKey(selectionKey));
             } catch (IOException ignored) {
             }
         }, MAX_DRAIN_LIMIT);

@@ -4,9 +4,8 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
 import com.thezeroer.nexalithic.core.pool.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
-import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 
 import java.io.IOException;
@@ -22,8 +21,8 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
-    public enum STATE {
+public class PendingChannel implements NexalithicChannel {
+    public enum State {
         STEP_0,
         STEP_1,
         STEP_2,
@@ -31,20 +30,18 @@ public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
 
     private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
-    private STATE state;
+    private State state;
     private final ByteBuffer[] readBuffers = new ByteBuffer[2];
     private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
     private PrivateKey privateKey;
     private MessageDigest transcriptHash;
-    private SessionSecretKey sessionSecretKey;
-    private SessionId sessionId;
     private NexalithicSession session;
 
     private Recyclable recyclable;
 
     public PendingChannel() {
         readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
-        readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SessionSecretKey.TAG_LENGTH);
+        readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH);
     }
 
     public AbstractPacket.PacketType getType() {
@@ -54,10 +51,10 @@ public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
         return socketChannel;
     }
 
-    public void setState(STATE state) {
+    public void setState(State state) {
         this.state = state;
     }
-    public STATE getState() {
+    public State getState() {
         return state;
     }
 
@@ -81,20 +78,6 @@ public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
     }
     public MessageDigest getTranscriptHash() {
         return transcriptHash;
-    }
-    public PendingChannel setSessionSecretKey(SessionSecretKey sessionSecretKey) {
-        this.sessionSecretKey = sessionSecretKey;
-        return this;
-    }
-    public SessionSecretKey getSessionSecretKey() {
-        return sessionSecretKey;
-    }
-    public PendingChannel setSessionId(SessionId sessionId) {
-        this.sessionId = sessionId;
-        return this;
-    }
-    public SessionId getSessionId() {
-        return sessionId;
     }
     public PendingChannel setSession(NexalithicSession session) {
         this.session = session;
@@ -123,7 +106,7 @@ public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
         public Recyclable initTarget(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
             target.packetType = packetType;
             target.socketChannel = socketChannel;
-            target.state = STATE.STEP_0;
+            target.state = PendingChannel.State.STEP_0;
             return this;
         }
 
@@ -137,8 +120,6 @@ public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
             target.writeBuffers[1] = null;
             target.privateKey = null;
             target.transcriptHash = null;
-            target.sessionSecretKey = null;
-            target.sessionId = null;
             target.session = null;
         }
 

@@ -22,11 +22,22 @@ import java.util.Arrays;
 public class SecretKeyUtils {
     public static final int ECDH_LENGTH = 32;
     public static final int FINISHED_LENGTH = 32;
-    public static final String LABEL_CLIENT = "CLIENT_DATA";
-    public static final String LABEL_SERVER = "SERVER_DATA";
+    public static final byte[] LABEL_CLIENT_SIGNALING = "LABEL_CLIENT_SIGNALING".getBytes(StandardCharsets.UTF_8);
+    public static final byte[] LABEL_SERVER_SIGNALING = "LABEL_SERVER_SIGNALING".getBytes(StandardCharsets.UTF_8);
+    public static final byte[] LABEL_CLIENT_BUSINESS = "LABEL_CLIENT_BUSINESS".getBytes(StandardCharsets.UTF_8);
+    public static final byte[] LABEL_SERVER_BUSINESS = "LABEL_SERVER_BUSINESS".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] LABEL_FINISHED = "FINISHED".getBytes(StandardCharsets.UTF_8);
+    private static final String HMAC_ALGO = "HmacSHA256";
     private static final KeyFactory KEY_FACTORY;
     private static final KeyPairGenerator KEY_PAIR_GEN;
     private static final Provider XDH_PROVIDER;
+    private static final ThreadLocal<Mac> MAC_HOLDER = ThreadLocal.withInitial(() -> {
+        try {
+            return Mac.getInstance(HMAC_ALGO);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("HmacSHA256 not supported", e);
+        }
+    });
 
     static {
         try {
@@ -34,8 +45,9 @@ public class SecretKeyUtils {
             KEY_FACTORY = KeyFactory.getInstance("XDH");
             KEY_PAIR_GEN = KeyPairGenerator.getInstance("XDH");
             KEY_PAIR_GEN.initialize(NamedParameterSpec.X25519);
+            MAC_HOLDER.get();
         } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
-            throw new RuntimeException("X25519 not supported", e);
+            throw new IllegalStateException("SecretKeyUtils init error: " + e.getMessage(), e);
         }
     }
 
@@ -60,12 +72,16 @@ public class SecretKeyUtils {
         KeyAgreement ka = KeyAgreement.getInstance("XDH", XDH_PROVIDER);
         ka.init(privateKey);
         ka.doPhase(KEY_FACTORY.generatePublic(new XECPublicKeySpec(NamedParameterSpec.X25519, new BigInteger(1, reversedKey))), true);
-        return HKDF.extract(ka.generateSecret());
+        return HKDF.extract(null, ka.generateSecret());
     }
-    public static SessionSecretKey generateSessionSecretKey(byte[] secret, String selfLabel, String peerLabel) throws NoSuchAlgorithmException, InvalidKeyException, NoSuchPaddingException {
+    public static byte[] generateFinished(byte[] secret, byte[] handshakeHash) throws NoSuchAlgorithmException, InvalidKeyException {
+        return HKDF.extract(HKDF.expand(secret, LABEL_FINISHED, 32), handshakeHash);
+    }
+
+    public static SecretKeyContext generateSessionSecretKey(byte[] secret, byte[] selfLabel, byte[] peerLabel) throws NoSuchAlgorithmException, InvalidKeyException, NoSuchPaddingException {
         byte[] writeMaterial = HKDF.expand(secret, selfLabel, 44);
         byte[] readMaterial = HKDF.expand(secret, peerLabel, 44);
-        return new SessionSecretKey(
+        return new SecretKeyContext(
                 new SecretKeySpec(writeMaterial, 0, 32, "AES"),
                 Arrays.copyOfRange(writeMaterial, 32, 44),
                 new SecretKeySpec(readMaterial, 0, 32, "AES"),
@@ -73,31 +89,25 @@ public class SecretKeyUtils {
         );
     }
 
-    public static byte[] generateFinished(byte[] secret, byte[] handshakeHash) throws NoSuchAlgorithmException, InvalidKeyException {
-        byte[] finishedKey = HKDF.expand(secret, "finished", 32);
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(finishedKey, "HmacSHA256"));
-        return mac.doFinal(handshakeHash);
-    }
-
     static class HKDF {
-        private static final String HMAC_ALGO = "HmacSHA256";
-        public static byte[] extract(byte[] ikm) throws NoSuchAlgorithmException, InvalidKeyException {
-            Mac mac = Mac.getInstance(HMAC_ALGO);
-            mac.init(new SecretKeySpec(new byte[mac.getMacLength()], HMAC_ALGO));
+        public static byte[] extract(byte[] salt, byte[] ikm) throws InvalidKeyException {
+            Mac mac = MAC_HOLDER.get();
+            if (salt == null) {
+                salt = new byte[mac.getMacLength()];
+            }
+            mac.init(new SecretKeySpec(salt, HMAC_ALGO));
             return mac.doFinal(ikm);
         }
-        public static byte[] expand(byte[] prk, String info, int outLen) throws NoSuchAlgorithmException, InvalidKeyException {
-            Mac mac = Mac.getInstance(HMAC_ALGO);
+        public static byte[] expand(byte[] prk, byte[] label, int outLen) throws InvalidKeyException {
+            Mac mac = MAC_HOLDER.get();
             mac.init(new SecretKeySpec(prk, HMAC_ALGO));
-            byte[] infoBytes = info.getBytes(StandardCharsets.UTF_8);
             byte[] okm = new byte[outLen];
             byte[] t = new byte[0];
             int generated = 0;
             byte counter = 1;
             while (generated < outLen) {
                 mac.update(t);
-                mac.update(infoBytes);
+                mac.update(label);
                 mac.update(counter);
                 t = mac.doFinal();
                 int copyLen = Math.min(t.length, outLen - generated);

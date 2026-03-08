@@ -9,13 +9,13 @@ import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 会话密钥
+ * 密钥上下文
  *
  * @author tbrtz647@outlook.com
  * @since 2026/02/05
  * @version 1.0.0
  */
-public class SessionSecretKey {
+public class SecretKeyContext {
     public static final String AES_ALGORITHM = "AES/GCM/NoPadding";
     public static final int NONCE_LENGTH = 12;
     public static final int TAG_LENGTH = 16;
@@ -26,7 +26,7 @@ public class SessionSecretKey {
     private final Cipher readCipher = Cipher.getInstance(AES_ALGORITHM);
     private final Cipher writeCipher = Cipher.getInstance(AES_ALGORITHM);
 
-    public SessionSecretKey(SecretKey readKey, byte[] readIV, SecretKey writeKey, byte[] writeIV) throws NoSuchPaddingException, NoSuchAlgorithmException {
+    public SecretKeyContext(SecretKey readKey, byte[] readIV, SecretKey writeKey, byte[] writeIV) throws NoSuchPaddingException, NoSuchAlgorithmException {
         this.readKey = readKey;
         this.readIV = readIV;
         this.writeKey = writeKey;

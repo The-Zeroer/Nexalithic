@@ -6,7 +6,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
-import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
@@ -82,7 +82,7 @@ public class HandshakeLoop extends AbstractLoop {
                         transcriptHash.update(writeBuffers[1]);
                         writeBuffers[0].flip();
                         writeBuffers[1].flip();
-                        pendingChannel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).setState(PendingChannel.STATE.STEP_1);
+                        pendingChannel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).setState(PendingChannel.State.STEP_1);
                         wakeupIfNeeded();
                     } catch (Exception e) {
                         logger.error(e.getMessage(), e);
@@ -134,7 +134,7 @@ public class HandshakeLoop extends AbstractLoop {
                         if (!writeBuffers[1].hasRemaining()) {
                             key.cancel();
                             loadScore.decrement();
-                            serviceUnitLoadBalancer.select(channel.getSessionId()).getStewardLoop().dispatch(channel);
+                            serviceUnitLoadBalancer.select(channel.getSession().getSessionId()).getStewardLoop().dispatch(channel);
                             return;
                         }
                     }
@@ -152,19 +152,21 @@ public class HandshakeLoop extends AbstractLoop {
                     try {
                         byte[] secret = SecretKeyUtils.compactSecret(channel.getPrivateKey(), readBuffers[0].array());
                         byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
-                        SessionSecretKey sessionSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER, SecretKeyUtils.LABEL_CLIENT);
-                        byte[] remoteFinished = sessionSecretKey.decrypt(readBuffers[1].array());
+                        SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_SIGNALING, SecretKeyUtils.LABEL_CLIENT_SIGNALING);
+                        byte[] remoteFinished = signalingSecretKey.decrypt(readBuffers[1].array());
                         if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
                             closeChannel(key, channel);
                             logger.warn("Finished verification failed");
                             return;
                         }
                         ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                        writeBuffers[0] = ByteBuffer.wrap(sessionSecretKey.encrypt(localFinished));
+                        writeBuffers[0] = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
                         byte[] sessionIdBytes = new byte[NexalithicSession.SESSION_ID_LENGTH];
                         secureRandom.nextBytes(sessionIdBytes);
-                        writeBuffers[1] = ByteBuffer.wrap(sessionSecretKey.encrypt(sessionIdBytes));
-                        channel.setSessionId(new SessionId.Immutable(sessionIdBytes)).setSessionSecretKey(sessionSecretKey).setState(PendingChannel.STATE.STEP_2);
+                        writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
+                        channel.setSession(new NexalithicSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
+                                SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS,
+                                        SecretKeyUtils.LABEL_CLIENT_BUSINESS))).setState(PendingChannel.State.STEP_2);
                         key.interestOps(SelectionKey.OP_WRITE);
                     } catch (BadPaddingException | IllegalBlockSizeException e) {
                         String remoteAddress = socketChannel.getRemoteAddress().toString();
@@ -188,7 +190,7 @@ public class HandshakeLoop extends AbstractLoop {
                 if (!readBuffers[0].hasRemaining()) {
                     NexalithicSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
                     if (session != null) {
-                        serviceUnitLoadBalancer.select(session.getSessionId()).selectWorkerLoop().dispatch(channel.setSession(session));
+                        session.<ServiceUnit>privateAttachment().selectWorkerLoop().dispatch(channel.setSession(session));
                     } else {
                         closeChannel(key, channel);
                     }
