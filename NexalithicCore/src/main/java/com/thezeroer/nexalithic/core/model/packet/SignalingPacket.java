@@ -10,10 +10,14 @@ import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
  * @version 1.0.0
  */
 public class SignalingPacket extends AbstractPacket {
+    public static class Signal {
+        public static final byte HeartBeat = 0x00;
+        public static final byte BusinessChannelToken = 0x01;
+        public static final byte RequestBusinessPort = 0x11;
+        public static final byte ResponseBusinessPort = 0x12;
+    }
     public static final int HEADER_LENGTH = Byte.BYTES + Short.BYTES;
     public static final int MAX_PACKET_LENGTH = 1024 * 4;
-    public static final byte SIGNAL_DH_KEY = 0x00;
-    public static final byte SIGNAL_TOKEN = 0x01;
 
     private byte signal;
     private short length;

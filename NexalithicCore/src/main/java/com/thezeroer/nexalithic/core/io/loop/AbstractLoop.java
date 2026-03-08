@@ -3,8 +3,8 @@ package com.thezeroer.nexalithic.core.io.loop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
-import com.thezeroer.nexalithic.core.session.SessionChannel;
-import org.jctools.queues.MpscArrayQueue;
+import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +24,6 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     public static final NexalithicOption<Integer> Max_Shutdown_Wait = NexalithicOption.create("AbstractLoop_Max_Shutdown_Wait", 30000);
-    public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("AbstractLoop_InterestQueue_Capacity", 1024);
     protected enum State {
         NEW,
         STARTING,
@@ -39,14 +38,12 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected static final int MAX_EPOLL = 512;
     protected final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     protected final LongAdder loadScore = new LongAdder();
-    protected final MpscArrayQueue<SessionChannel<?>> interestQueue;
     protected volatile Selector selector;
 
     protected final Thread thread = new Thread(this);
     protected String name = getClass().getSimpleName();
 
     public AbstractLoop(OptionMap options) throws IOException {
-        interestQueue = new MpscArrayQueue<>(options.value(InterestQueue_Capacity));
         selector = Selector.open();
         thread.setDaemon(false);
         Max_Shutdown_Wait.set(options.value(Max_Shutdown_Wait));
@@ -90,13 +87,6 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         if (state.compareAndSet(State.WAITING, State.WORKING)) {
             selector.wakeup();
         }
-    }
-
-    public void updateChannelInterest(SessionChannel<?> channel) {
-        while (!interestQueue.offer(channel)) {
-            Thread.onSpinWait();
-        }
-        wakeupIfNeeded();
     }
 
     @Override
@@ -210,11 +200,10 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         onTerminated();
         state.set(State.TERMINATED);
     }
-    private boolean asyncEvent() {
-        interestQueue.drain(SessionChannel::applyTargetInterest);
-        return onAsyncEvent() & interestQueue.isEmpty();
+    protected boolean asyncEvent() {
+        return onAsyncEvent();
     }
-    private void readyEvent(Selector selector) throws IOException {
+    protected void readyEvent(Selector selector) throws IOException {
         Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
         while (iterator.hasNext()) {
             SelectionKey key = iterator.next();
@@ -225,11 +214,13 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 if (logger.isDebugEnabled()) {
                     logger.debug("[{}] failed to ready event", name);
                 }
-                closeSelectionKey(key);
+                if (key.attachment() instanceof NexalithicChannel channel) {
+                    channel.close();
+                }
             }
         }
     }
-    private Selector rebuildSelector() throws IOException {
+    protected Selector rebuildSelector() throws IOException {
         try {
             Selector newSelector = Selector.open();
             Selector oldSelector = this.selector;
@@ -253,12 +244,5 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             logger.error("[{}] Failed to rebuild selector", name, e);
             throw e;
         }
-    }
-
-    protected void closeSelectionKey(SelectionKey key) {
-        try {
-            key.cancel();
-            key.channel().close();
-        } catch (IOException ignored) {}
     }
 }

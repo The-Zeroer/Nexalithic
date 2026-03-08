@@ -66,7 +66,7 @@ public class AcceptorLoop extends AbstractLoop {
                 address = serverSocketChannel.getLocalAddress();
                 serverSocketChannel.configureBlocking(false).register(selector, SelectionKey.OP_ACCEPT, packetType).attach(strategy.setType(packetType));
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", packetType, address, strategy.getClass().getSimpleName());
+                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", packetType, address, strategy.getName());
                 }
                 loadScore.increment();
             } catch (Exception e) {
@@ -97,10 +97,11 @@ public class AcceptorLoop extends AbstractLoop {
         if (logger.isDebugEnabled()) {
             logger.debug("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
         }
-        if (filtrationStrategy == FiltrationStrategy.BYPASS) {
-            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel).unwrap());
+        if (filtrationStrategy.enable()) {
+            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().initTarget(
+                    filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
         } else {
-            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
+            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel).unwrap());
         }
     }
 

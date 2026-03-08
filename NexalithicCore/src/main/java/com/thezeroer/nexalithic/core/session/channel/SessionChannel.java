@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.session;
+package com.thezeroer.nexalithic.core.session.channel;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBufferPool;
@@ -6,7 +6,10 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketFragmenter;
+import com.thezeroer.nexalithic.core.io.loop.SessionLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,11 +17,13 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.ShortBufferException;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 会话通道
@@ -27,7 +32,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2026/02/04
  * @version 1.0.0
  */
-public class SessionChannel<P extends AbstractPacket> {
+public class SessionChannel<P extends AbstractPacket> extends NexalithicChannel<SessionLoop<P>> {
+    public static final int CHANNEL_TOKEN_LENGTH = SecretKeyUtils.ECDH_LENGTH;
+    public enum State {
+        Unconnected,
+        Connecting,
+        Connected,
+    }
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
@@ -38,7 +49,9 @@ public class SessionChannel<P extends AbstractPacket> {
     private final PacketAssembler<P> assembler;
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
+    private volatile InetSocketAddress remoteAddress;
     private final AtomicInteger targetInterest = new AtomicInteger(0);
+    private final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
     private LoopBuffer.Recyclable readPlainBufferRecyclable, writeCipheBufferRecyclable;
     private LoopBuffer.Recyclable readCipheBufferRecyclable, writePlainBufferRecyclable;
     private LoopBuffer readPlainBuffer, writeCipheBuffer;
@@ -51,7 +64,10 @@ public class SessionChannel<P extends AbstractPacket> {
         assembler = AssemblerFactory.create(packetType);
     }
 
-    public SessionChannel<P> updateSelectionKey(SelectionKey selectionKey) {
+    public boolean becomeConnecting() {
+        return state.compareAndSet(State.Unconnected, State.Connecting);
+    }
+    public SessionChannel<P> updateSelectionKey(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -65,7 +81,9 @@ public class SessionChannel<P extends AbstractPacket> {
         }
         this.selectionKey = selectionKey;
         this.socketChannel = (SocketChannel) selectionKey.channel();
+        this.remoteAddress = (InetSocketAddress) socketChannel.getRemoteAddress();
         this.targetInterest.set(selectionKey.interestOps());
+        this.state.set(State.Connected);
         return this;
     }
     public boolean updateChannelInterest(int interest, boolean enable) {
@@ -159,10 +177,46 @@ public class SessionChannel<P extends AbstractPacket> {
         return read;
     }
 
-    public SelectionKey getSelectionKey() {
-        return selectionKey;
+    public NexalithicSession getSession() {
+        return session;
     }
     public AbstractPacket.PacketType getType() {
         return type;
+    }
+    public State getState() {
+        return state.get();
+    }
+    public SelectionKey getSelectionKey() {
+        return selectionKey;
+    }
+    public InetSocketAddress getRemoteAddress() {
+        return remoteAddress;
+    }
+
+    public void close() {
+        if (state.compareAndSet(State.Connected, State.Unconnected)) {
+            try {
+                if (selectionKey != null) {
+                    selectionKey.cancel();
+                }
+                if (socketChannel != null) {
+                    socketChannel.close();
+                }
+            } catch (IOException ignored) {}
+            if (readPlainBufferRecyclable != null) {
+                readPlainBufferRecyclable.recycle();
+            }
+            if (writeCipheBufferRecyclable != null) {
+                writeCipheBufferRecyclable.recycle();
+            }
+            if (readCipheBufferRecyclable != null) {
+                readCipheBufferRecyclable.recycle();
+            }
+            if (writePlainBufferRecyclable != null) {
+                writePlainBufferRecyclable.recycle();
+            }
+            fragmenter.clear();
+            assembler.clear();
+        }
     }
 }

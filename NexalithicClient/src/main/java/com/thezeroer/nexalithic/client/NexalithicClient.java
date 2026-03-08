@@ -57,6 +57,7 @@ public class NexalithicClient {
     public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
+        generalLoop.getNetworkRouter().setServerHost(remote.getAddress().getHostAddress());
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
     public boolean push(BusinessPacket<?> packet) {

@@ -3,8 +3,12 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import com.thezeroer.nexalithic.core.session.SessionAttachment;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 
@@ -17,7 +21,7 @@ import java.io.IOException;
  * @version 1.0.0
  * @since 2026/02/18
  */
-public class ServiceUnit implements LoadBalanceable {
+public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     public static final NexalithicOption<Integer> Count = NexalithicOption.create("ServiceUnit_Count", 1);
     public static final NexalithicOption<Integer> WorkerLoop_Count = NexalithicOption.create("ServiceUnit_WorkerLoop_Count", Runtime.getRuntime().availableProcessors());
     private final StewardLoop stewardLoop;
@@ -25,10 +29,10 @@ public class ServiceUnit implements LoadBalanceable {
     private final LoadBalancer<Void, WorkerLoop> workerLoopBalancer;
 
     public ServiceUnit(OptionMap options, SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
-        stewardLoop = new StewardLoop(options, sessionsManager, networkRouter);
+        stewardLoop = new StewardLoop(options, sessionsManager, networkRouter, this);
         workerLoops = new WorkerLoop[options.value(WorkerLoop_Count)];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(options, sessionsManager);
+            workerLoops[i] = new WorkerLoop(options, sessionsManager, stewardLoop);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }
@@ -43,6 +47,15 @@ public class ServiceUnit implements LoadBalanceable {
         return workerLoops;
     }
 
+    public boolean pushBusinessPacket(NexalithicSession session, BusinessPacket<?> packet) {
+        SessionChannel<BusinessPacket<?>> channel = session.getBusinessChannel();
+        if (!channel.put(packet)) {
+            return false;
+        }
+        stewardLoop.becomeChannelConnecting(session.getSignalingChannel(), channel);
+        return true;
+    }
+
     @Override
     public long getLoadScore() {
         return stewardLoop.getLoadScore();
@@ -54,5 +67,9 @@ public class ServiceUnit implements LoadBalanceable {
             workerLoops[i].addIdToName(id + "-" + i);
         }
         return this;
+    }
+
+    @Override
+    public void clear() {
     }
 }

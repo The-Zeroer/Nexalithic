@@ -5,8 +5,11 @@ import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
 import com.thezeroer.nexalithic.core.pool.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.security.MessageDigest;
@@ -19,8 +22,7 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel {
-
+public class PendingChannel extends NexalithicChannel<HandshakeLoop> {
     public enum STATE {
         STEP_0,
         STEP_1,
@@ -36,6 +38,7 @@ public class PendingChannel {
     private MessageDigest transcriptHash;
     private SessionSecretKey sessionSecretKey;
     private SessionId sessionId;
+    private NexalithicSession session;
 
     private Recyclable recyclable;
 
@@ -65,32 +68,49 @@ public class PendingChannel {
         return writeBuffers;
     }
 
-    public void setPrivateKey(PrivateKey privateKey) {
+    public PendingChannel setPrivateKey(PrivateKey privateKey) {
         this.privateKey = privateKey;
+        return this;
     }
     public PrivateKey getPrivateKey() {
         return privateKey;
     }
-    public void setTranscriptHash(MessageDigest transcriptHash) {
+    public PendingChannel setTranscriptHash(MessageDigest transcriptHash) {
         this.transcriptHash = transcriptHash;
+        return this;
     }
     public MessageDigest getTranscriptHash() {
         return transcriptHash;
     }
-    public void setSessionSecretKey(SessionSecretKey sessionSecretKey) {
+    public PendingChannel setSessionSecretKey(SessionSecretKey sessionSecretKey) {
         this.sessionSecretKey = sessionSecretKey;
+        return this;
     }
     public SessionSecretKey getSessionSecretKey() {
         return sessionSecretKey;
     }
-    public void setSessionId(SessionId sessionId) {
+    public PendingChannel setSessionId(SessionId sessionId) {
         this.sessionId = sessionId;
+        return this;
     }
     public SessionId getSessionId() {
         return sessionId;
     }
+    public PendingChannel setSession(NexalithicSession session) {
+        this.session = session;
+        return this;
+    }
+    public NexalithicSession getSession() {
+        return session;
+    }
 
-    public void recycle() {
+    public void close() {
+        if (socketChannel != null) {
+            try {
+                socketChannel.close();
+            } catch (IOException ignored) {
+            }
+        }
         recyclable.recycle();
     }
 
@@ -119,6 +139,7 @@ public class PendingChannel {
             target.transcriptHash = null;
             target.sessionSecretKey = null;
             target.sessionId = null;
+            target.session = null;
         }
 
         @Override

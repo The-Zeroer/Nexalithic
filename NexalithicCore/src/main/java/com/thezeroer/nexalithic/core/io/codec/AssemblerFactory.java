@@ -73,7 +73,8 @@ public class AssemblerFactory {
 
         @Override
         public void clear() {
-
+            packets.clear();
+            currentPacket = null;
         }
     }
 

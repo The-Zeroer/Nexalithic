@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.client.lifecycle;
 
-import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
+import com.thezeroer.nexalithic.client.manager.NetworkRouter;
+import com.thezeroer.nexalithic.core.io.loop.SessionLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -9,7 +10,8 @@ import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.SessionChannel;
+import com.thezeroer.nexalithic.core.session.SessionAttachment;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,10 +21,10 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.ShortBufferException;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Queue;
@@ -35,16 +37,18 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends AbstractLoop {
+public class GeneralLoop extends SessionLoop<AbstractPacket> {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
+    private final NetworkRouter networkRouter;
     private NexalithicSession session;
 
     public GeneralLoop(OptionMap options, ClientSecurityPolicy securityPolicy) throws IOException {
         super(options);
         this.securityPolicy = securityPolicy;
         this.eventQueue = new ConcurrentLinkedQueue<>();
+        this.networkRouter = new NetworkRouter();
     }
 
     public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
@@ -81,10 +85,11 @@ public class GeneralLoop extends AbstractLoop {
                 throw new SecurityException("Finished verification failed");
             }
             byte[] sessionIdBytes = sessionSecretKey.decrypt(buffer5.array());
-            session = new NexalithicSession(new SessionId.Immutable(sessionIdBytes), sessionSecretKey);
+            session = new NexalithicSession(new SessionId.Immutable(sessionIdBytes), sessionSecretKey).attachPrivate(new LocalSessionAttachment());
             logger.info("Link server succeeded");
         } else {
-
+            LocalSessionAttachment attachment = session.privateAttachment();
+            socketChannel.write(ByteBuffer.wrap(attachment.getBusinessChannelToken()));
         }
         eventQueue.add(() -> {
             try {
@@ -100,18 +105,32 @@ public class GeneralLoop extends AbstractLoop {
     }
 
     public boolean pushPacket(AbstractPacket packet) {
-        SessionChannel<? super AbstractPacket> sessionChannel = session.getChannel(packet.packetType());
-        if (!sessionChannel.put(packet)) {
+        return pushPacket(session.asChannel(packet.packetType()), packet);
+    }
+    @Override
+    public boolean pushPacket(SessionChannel<AbstractPacket> channel, AbstractPacket packet) {
+        if (!channel.put(packet)) {
             return false;
         }
         switch (packet.packetType()) {
             case SIGNALING -> {
-                if (sessionChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                    updateChannelInterest(sessionChannel);
+                if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    updateChannelInterest(channel);
                 }
             }
             case BUSINESS -> {
-
+                switch (channel.getState()) {
+                    case Connected -> {
+                        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                            updateChannelInterest(channel);
+                        }
+                    }
+                    case Unconnected -> {
+                        if (channel.becomeConnecting()) {
+                            pushPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
+                        }
+                    }
+                }
             }
         }
         return true;
@@ -127,37 +146,48 @@ public class GeneralLoop extends AbstractLoop {
 
     @Override
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
-        SessionChannel<?> sessionChannel = (SessionChannel<?>) selectionKey.attachment();
+        SessionChannel<?> channel = (SessionChannel<?>) selectionKey.attachment();
         try {
             if (selectionKey.isReadable()) {
-                if (sessionChannel.read() == -1) {
-                    closeSelectionKey(selectionKey);
+                if (channel.read() == -1) {
+                    closeChannel(channel);
                     return;
                 }
-                if (sessionChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                    while (sessionChannel.get() instanceof SignalingPacket packet) {
+                if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                    while (channel.get() instanceof SignalingPacket packet) {
                         handleSignalPacket(packet);
                     }
                 } else {
-                    while (sessionChannel.get() instanceof BusinessPacket<?> packet) {
+                    while (channel.get() instanceof BusinessPacket<?> packet) {
                         handleBusinessPacket(packet);
                     }
                 }
             } else if (selectionKey.isWritable()) {
-                if (sessionChannel.write() == -1) {
+                if (channel.write() == -1) {
                     selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
                 }
             } else {
-                closeSelectionKey(selectionKey);
+                closeChannel(channel);
             }
         } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
                  BadPaddingException | InvalidKeyException e) {
             logger.warn("[{}] onReadyEvent Error", name, e);
-            closeSelectionKey(selectionKey);
+            closeChannel(channel);
         }
     }
     private void handleSignalPacket(SignalingPacket packet) {
-
+        try {
+            switch (packet.getSignal()) {
+                case SignalingPacket.Signal.BusinessChannelToken -> {
+                    LocalSessionAttachment attachment = session.privateAttachment();
+                    attachment.setBusinessChannelToken(packet.getContent());
+                }
+                case SignalingPacket.Signal.ResponseBusinessPort -> dispatch(AbstractPacket.PacketType.BUSINESS, SocketChannel
+                        .open(new InetSocketAddress(networkRouter.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
     private void handleBusinessPacket(BusinessPacket<?> packet) {
 
@@ -170,5 +200,29 @@ public class GeneralLoop extends AbstractLoop {
 
     public NexalithicSession getSession() {
         return session;
+    }
+    public NetworkRouter getNetworkRouter() {
+        return networkRouter;
+    }
+
+    private void closeChannel(SessionChannel<?> channel) {
+        channel.close();
+    }
+
+    private static class LocalSessionAttachment implements SessionAttachment {
+        private volatile byte[] businessChannelToken;
+
+        public void setBusinessChannelToken(byte[] businessChannelToken) {
+            this.businessChannelToken = businessChannelToken;
+        }
+        public byte[] getBusinessChannelToken() {
+            byte[] token = businessChannelToken;
+            businessChannelToken = null;
+            return token;
+        }
+
+        @Override
+        public void clear() {
+        }
     }
 }

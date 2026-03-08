@@ -23,9 +23,6 @@ public interface SessionId {
         private final int hashCode;
 
         public Immutable(byte[] bytes) {
-            if (bytes == null || bytes.length != 32) {
-                throw new IllegalArgumentException("SessionId must be 32 bytes");
-            }
             this.bytes = bytes.clone();
             this.hashCode = Arrays.hashCode(this.bytes);
         }

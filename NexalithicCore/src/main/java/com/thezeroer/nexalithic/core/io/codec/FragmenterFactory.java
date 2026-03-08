@@ -73,7 +73,7 @@ public class FragmenterFactory {
 
         @Override
         public boolean feed(BusinessPacket<?> businessPacket) {
-            return false;
+            return true;
         }
 
         @Override

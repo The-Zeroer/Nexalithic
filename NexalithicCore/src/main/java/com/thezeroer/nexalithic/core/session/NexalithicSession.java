@@ -1,47 +1,68 @@
 package com.thezeroer.nexalithic.core.session;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecuritySession;
 import com.thezeroer.nexalithic.core.security.SessionSecretKey;
-
-import java.nio.channels.SelectionKey;
-import java.util.EnumMap;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 /**
- * Nexalithic会话
+ * Nexalithic 会话
  *
  * @author tbrtz647@outlook.com
  * @since 2026/02/02
  * @version 1.0.0
  */
+@SuppressWarnings("unchecked")
 public class NexalithicSession extends SecuritySession {
     public static final int SESSION_ID_LENGTH = 32;
-    private final SessionId sessionId;
-    private final EnumMap<AbstractPacket.PacketType, SessionChannel<? super AbstractPacket>> channels;
     private final long creationTime;
+    private final SessionId sessionId;
+    private final SessionChannel<SignalingPacket> signalingChannel;
+    private final SessionChannel<BusinessPacket<?>> businessChannel;
+    private volatile SessionAttachment privateAttachment, publicAttachment;
     private String sessionName;
 
     public NexalithicSession(SessionId sessionId, SessionSecretKey sessionSecretKey) {
         super(sessionSecretKey);
         this.sessionId = sessionId;
-        this.channels = new EnumMap<>(AbstractPacket.PacketType.class);
-        for (AbstractPacket.PacketType packetType : AbstractPacket.PacketType.values()) {
-            channels.put(packetType, new SessionChannel<>(this, packetType));
-        }
+        this.signalingChannel = new SessionChannel<>(this, AbstractPacket.PacketType.SIGNALING);
+        this.businessChannel = new SessionChannel<>(this, AbstractPacket.PacketType.BUSINESS);
         this.creationTime = System.currentTimeMillis();
     }
 
-    public NexalithicSession updateSelectionKey(AbstractPacket.PacketType packetType, SelectionKey selectionKey) {
-        channels.get(packetType).updateSelectionKey(selectionKey);
+    public SessionChannel<SignalingPacket> getSignalingChannel() {
+        return signalingChannel;
+    }
+    public SessionChannel<BusinessPacket<?>> getBusinessChannel() {
+        return businessChannel;
+    }
+    public SessionChannel<? super AbstractPacket> getChannel(AbstractPacket.PacketType packetType) {
+        return (SessionChannel<? super AbstractPacket>) switch (packetType) {
+            case SIGNALING -> signalingChannel;
+            case BUSINESS -> businessChannel;
+        };
+    }
+    public <P extends AbstractPacket> SessionChannel<P> asChannel(AbstractPacket.PacketType packetType) {
+        return (SessionChannel<P>) switch (packetType) {
+            case SIGNALING -> signalingChannel;
+            case BUSINESS -> businessChannel;
+        };
+    }
+
+    public NexalithicSession attachPrivate(SessionAttachment attachment) {
+        this.privateAttachment = attachment;
         return this;
     }
-
-    public void putSendQueue(AbstractPacket packet) {
-        channels.get(packet.packetType()).put(packet);
+    public <T extends SessionAttachment> T privateAttachment()  {
+        return (T) privateAttachment;
     }
-
-    public SessionChannel<? super AbstractPacket> getChannel(AbstractPacket.PacketType packetType) {
-        return channels.get(packetType);
+    public void attachPublic(SessionAttachment attachment) {
+        this.publicAttachment = attachment;
+    }
+    public <T extends SessionAttachment> T publicAttachment()  {
+        return (T) publicAttachment;
     }
 
     public void setSessionName(String sessionName) {
@@ -56,5 +77,17 @@ public class NexalithicSession extends SecuritySession {
     }
     public long getCreationTime() {
         return creationTime;
+    }
+
+    public void close() {
+        if (privateAttachment != null) {
+            privateAttachment.clear();
+        }
+        if (signalingChannel != null) {
+            signalingChannel.close();
+        }
+        if (businessChannel != null) {
+            businessChannel.close();
+        }
     }
 }

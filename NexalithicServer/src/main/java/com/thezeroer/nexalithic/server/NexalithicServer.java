@@ -4,9 +4,12 @@ import com.thezeroer.nexalithic.core.loadbalance.ConsistentHashBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
@@ -40,10 +43,12 @@ public class NexalithicServer {
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
     private final LifecycleManager lifecycleManager;
     private final SessionsManager sessionsManager;
+    private final NetworkRouter networkRouter;
 
-    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager) {
+    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter) {
         this.lifecycleManager = lifecycleManager;
         this.sessionsManager = sessionsManager;
+        this.networkRouter = networkRouter;
     }
 
     public static Builder builder() {
@@ -150,9 +155,25 @@ public class NexalithicServer {
     }
 
     /**
+     * <p>获取当前服务器的路由管理器。</p>
+     * <ul>
+     * <li><b>前置性：</b> 开发者必须在调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)} 开启端口监听<b>之前</b>，
+     * 通过此方法获取路由器并完成所有初始路由规则的添加（{@link NetworkRouter#addRoutes}）。</li>
+     * <li><b>冷启动保护：</b> 若在 open 之后才添加路由，可能会导致服务器启动瞬间涌入的Channel
+     * 因找不到匹配端口（Return -1）而触发静默丢弃或连接断开。</li>
+     * <li><b>动态性：</b> 服务器运行期间仍支持动态增删路由，但基础骨干路由应在 open 前就位。</li>
+     * </ul>
+     *
+     * @return 全局唯一的网络路由器实例 {@link NetworkRouter}
+     */
+    public NetworkRouter getNetworkRouter() {
+        return networkRouter;
+    }
+
+    /**
      * 使用默认的旁路过滤策略绑定并监听指定地址。
      * <p>此方法等同于调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)}
-     * 并传入 {@link FiltrationStrategy#BYPASS}。适用于无需在接入层进行任何安全性或业务校验的场景。</p>
+     * 并传入 {@link FiltrationStrategy.Bypass}。适用于无需在接入层进行任何安全性或业务校验的场景。</p>
      *
      * @param packetType    绑定的协议包类型，决定了该端口接收数据后的解包逻辑。
      * @param local 监听的套接字地址（包含主机名和端口）。
@@ -160,7 +181,7 @@ public class NexalithicServer {
      * @throws IOException 如果打开或绑定 ServerSocketChannel 失败。
      */
     public int open(AbstractPacket.PacketType packetType, InetSocketAddress local) throws IOException {
-        return open(packetType, local, FiltrationStrategy.BYPASS);
+        return open(packetType, local, new FiltrationStrategy.Bypass());
     }
     /**
      * 绑定协议类型与监听地址，并配置特定的接入过滤策略。
@@ -178,7 +199,7 @@ public class NexalithicServer {
      *
      * @param packetType     协议包类型枚举。不能为空。
      * @param local  监听地址。如果端口号为 0，系统将选择一个临时端口。
-     * @param strategy 自定义的过滤策略。不能为空，如需跳过过滤请显式传入 {@link FiltrationStrategy#BYPASS}。
+     * @param strategy 自定义的过滤策略。不能为空，如需跳过过滤请显式传入 {@link FiltrationStrategy.Bypass}。
      * @return 实际监听的本地端口号。
      * @throws NullPointerException 如果 packetType 或 strategy 为 null。
      * @throws IOException         如果资源初始化失败或无法绑定到指定地址。
@@ -194,14 +215,22 @@ public class NexalithicServer {
             ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
             int bindPort = serverSocketChannel.bind(local, 2048).socket().getLocalPort();
             logger.info("Successfully bound server to [{}:{}] with packetType [{}] and strategy [{}]",
-                    local.getHostString(), bindPort, packetType, strategy.getClass().getSimpleName());
+                    local.getHostString(), bindPort, packetType, strategy.getName());
             lifecycleManager.getAcceptorLoop().dispatch(packetType, serverSocketChannel, strategy);
             return bindPort;
         } catch (IOException e) {
             logger.error("Failed to bind to local [{}]. packetType [{}], Strategy [{}]",
-                    local, packetType, strategy.getClass().getSimpleName(), e);
+                    local, packetType, strategy.getName(), e);
             throw e;
         }
+    }
+
+    public boolean push(String sessionName, BusinessPacket<?> packet) {
+        NexalithicSession session = sessionsManager.getSession(sessionName);
+        if (session == null) {
+            return false;
+        }
+        return session.<ServiceUnit>privateAttachment().pushBusinessPacket(session, packet);
     }
 
     public static class Builder {
@@ -242,13 +271,14 @@ public class NexalithicServer {
 
             HandshakeLoop[] handshakeLoops = new HandshakeLoop[options.value(HandshakeLoop.Count)];
             for (int i = 0; i < handshakeLoops.length; i++) {
-                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(options, serviceUnitLoadBalancer, securityPolicy, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
+                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(options, serviceUnitLoadBalancer, securityPolicy,
+                        sessionsManager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
             }
             LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer = new P2CBalancer<>(handshakeLoops);
 
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(options, handshakeLoopBalancer).addIdToName("0");
 
-            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager);
+            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager, networkRouter);
         }
 
         private OptionMap verifyOptions() {
