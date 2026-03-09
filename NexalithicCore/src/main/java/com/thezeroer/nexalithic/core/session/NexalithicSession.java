@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 /**
@@ -14,59 +15,38 @@ import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
  * @version 1.0.0
  */
 @SuppressWarnings("unchecked")
-public class NexalithicSession {
+public class NexalithicSession <S extends NexalithicSession<S, SC, BC>, SC extends SessionChannel<SignalingPacket, S>, BC extends SessionChannel<BusinessPacket<?>, S>>{
     public static final int SESSION_ID_LENGTH = 32;
     private final long creationTime;
     private final SessionId sessionId;
-    private final SessionChannel<SignalingPacket> signalingChannel;
-    private final SessionChannel<BusinessPacket<?>> businessChannel;
-    private volatile SessionAttachment privateAttachment, publicAttachment;
+    private final SC signalingChannel;
+    private final BC businessChannel;
     private String sessionName;
 
-    public NexalithicSession(SessionId sessionId, SecretKeyContext secretKeyContext) {
+    public NexalithicSession(SessionId sessionId, ChannelFactory<S, SC, BC> factory, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
         this.sessionId = sessionId;
-        this.signalingChannel = new SessionChannel<>(AbstractPacket.PacketType.SIGNALING, this, secretKeyContext);
-        this.businessChannel = new SessionChannel<>(AbstractPacket.PacketType.BUSINESS, this, secretKeyContext);
-        this.creationTime = System.currentTimeMillis();
-    }
-    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
-        this.sessionId = sessionId;
-        this.signalingChannel = new SessionChannel<>(AbstractPacket.PacketType.SIGNALING, this, signalingSecretKey);
-        this.businessChannel = new SessionChannel<>(AbstractPacket.PacketType.BUSINESS, this, businessSecretKey);
+        this.signalingChannel = factory.createSignaling((S) this, signalingSecretKey);
+        this.businessChannel = factory.createBusiness((S) this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
     }
 
-    public SessionChannel<SignalingPacket> getSignalingChannel() {
+    public final SC getSignalingChannel() {
         return signalingChannel;
     }
-    public SessionChannel<BusinessPacket<?>> getBusinessChannel() {
+    public final BC getBusinessChannel() {
         return businessChannel;
     }
-    public SessionChannel<? super AbstractPacket> getChannel(AbstractPacket.PacketType packetType) {
-        return (SessionChannel<? super AbstractPacket>) switch (packetType) {
+    public final SessionChannel<?, S> getChannel(AbstractPacket.PacketType packetType) {
+        return switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
     }
-    public <P extends AbstractPacket> SessionChannel<P> asChannel(AbstractPacket.PacketType packetType) {
-        return (SessionChannel<P>) switch (packetType) {
+    public final <C extends SessionChannel<?, S>> C asChannel(AbstractPacket.PacketType packetType) {
+        return (C) switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
-    }
-
-    public NexalithicSession attachPrivate(SessionAttachment attachment) {
-        this.privateAttachment = attachment;
-        return this;
-    }
-    public <T extends SessionAttachment> T privateAttachment()  {
-        return (T) privateAttachment;
-    }
-    public void attachPublic(SessionAttachment attachment) {
-        this.publicAttachment = attachment;
-    }
-    public <T extends SessionAttachment> T publicAttachment()  {
-        return (T) publicAttachment;
     }
 
     public void setSessionName(String sessionName) {
@@ -84,9 +64,6 @@ public class NexalithicSession {
     }
 
     public void close() {
-        if (privateAttachment != null) {
-            privateAttachment.clear();
-        }
         if (signalingChannel != null) {
             signalingChannel.close();
         }

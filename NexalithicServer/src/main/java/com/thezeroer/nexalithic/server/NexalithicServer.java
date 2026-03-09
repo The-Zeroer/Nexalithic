@@ -1,20 +1,17 @@
 package com.thezeroer.nexalithic.server;
 
-import com.thezeroer.nexalithic.core.loadbalance.ConsistentHashBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.SessionId;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
@@ -226,11 +223,11 @@ public class NexalithicServer {
     }
 
     public boolean push(String sessionName, BusinessPacket<?> packet) {
-        NexalithicSession session = sessionsManager.getSession(sessionName);
+        ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return false;
         }
-        return session.<ServiceUnit>privateAttachment().pushBusinessPacket(session, packet);
+        return session.getServiceUnit().pushBusinessPacket(session, packet);
     }
 
     public static class Builder {
@@ -267,7 +264,7 @@ public class NexalithicServer {
             for (int i = 0; i < serviceUnits.length; i++) {
                 serviceUnits[i] = new ServiceUnit(options, sessionsManager, networkRouter).addIdToLoopName(String.valueOf(i));
             }
-            LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer = new ConsistentHashBalancer<>(serviceUnits, 160);
+            LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
 
             HandshakeLoop[] handshakeLoops = new HandshakeLoop[options.value(HandshakeLoop.Count)];
             for (int i = 0; i < handshakeLoops.length; i++) {

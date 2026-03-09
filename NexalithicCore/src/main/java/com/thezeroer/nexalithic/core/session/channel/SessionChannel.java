@@ -32,12 +32,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026/02/04
  * @version 1.0.0
  */
-public class SessionChannel<P extends AbstractPacket> extends SecurityChannel implements NexalithicChannel{
+public class SessionChannel<P extends AbstractPacket, S extends NexalithicSession<S, ?, ?>> extends SecurityChannel implements NexalithicChannel{
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
     private static final int INTEREST_MASK = ~DIRTY_BIT;
-    private final NexalithicSession session;
+    private final S session;
     private final AbstractPacket.PacketType type;
     private final PacketFragmenter<P> fragmenter;
     private final PacketAssembler<P> assembler;
@@ -51,7 +51,7 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
     private LoopBuffer readPlainBuffer, writeCipheBuffer;
     private LoopBuffer readCipheBuffer, writePlainBuffer;
 
-    public SessionChannel(AbstractPacket.PacketType packetType, NexalithicSession session, SecretKeyContext secretKeyContext) {
+    public SessionChannel(AbstractPacket.PacketType packetType, S session, SecretKeyContext secretKeyContext) {
         super(secretKeyContext);
         this.session = session;
         this.type = packetType;
@@ -59,10 +59,10 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
         assembler = AssemblerFactory.create(packetType);
     }
 
-    public boolean becomeConnecting() {
+    public final boolean becomeConnecting() {
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public SessionChannel<P> updateSelectionKey(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, S> updateSelectionKey(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -81,7 +81,7 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
         this.state.set(State.Connected);
         return this;
     }
-    public boolean updateChannelInterest(int interest, boolean enable) {
+    public final boolean updateChannelInterest(int interest, boolean enable) {
         while (true) {
             int oldInterest = targetInterest.get();
             int newInterest = enable ? (oldInterest | interest) : (oldInterest & ~interest);
@@ -95,7 +95,7 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
             Thread.onSpinWait();
         }
     }
-    public void applyTargetInterest() {
+    public final void applyTargetInterest() {
         while (true) {
             int oldInterest = targetInterest.get();
             if ((oldInterest & DIRTY_BIT) == 0) {
@@ -119,14 +119,22 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
         }
     }
 
-    public boolean put(P packet) {
+    public final boolean put(P packet) {
         return fragmenter.feed(packet);
     }
-    public P get() {
+    @SafeVarargs
+    public final boolean fill(P... packets) {
+        return fragmenter.fill(packets);
+    }
+    public final P get() {
         return assembler.drain();
     }
 
-    public long write() throws IOException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
+    public final boolean fragmenterIsEmpty() {
+        return fragmenter.isEmpty();
+    }
+
+    public final long write() throws IOException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         if (readPlainBufferRecyclable == null) {
             readPlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
             readPlainBuffer = readPlainBufferRecyclable.unwrap();
@@ -149,7 +157,7 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
             return written;
         }
     }
-    public long read() throws IOException, InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
+    public final long read() throws IOException, InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
         if (readCipheBufferRecyclable == null) {
             readCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
             readCipheBuffer = readCipheBufferRecyclable.unwrap();
@@ -172,23 +180,24 @@ public class SessionChannel<P extends AbstractPacket> extends SecurityChannel im
         return read;
     }
 
-    public NexalithicSession getSession() {
+    public final S session() {
         return session;
     }
-    public AbstractPacket.PacketType getType() {
+    public final AbstractPacket.PacketType getType() {
         return type;
     }
-    public State getState() {
+    public final State getState() {
         return state.get();
     }
-    public SelectionKey getSelectionKey() {
+    public final SelectionKey getSelectionKey() {
         return selectionKey;
     }
-    public InetSocketAddress getRemoteAddress() {
+    public final InetSocketAddress getRemoteAddress() {
         return remoteAddress;
     }
 
-    public void close() {
+    @Override
+    public final void close() {
         if (state.compareAndSet(State.Connected, State.Unconnected)) {
             try {
                 if (selectionKey != null) {

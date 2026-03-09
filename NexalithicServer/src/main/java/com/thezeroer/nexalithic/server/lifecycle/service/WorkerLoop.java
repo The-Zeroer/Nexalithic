@@ -3,7 +3,7 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -17,21 +17,24 @@ import java.nio.channels.SelectionKey;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class WorkerLoop extends ServiceLoop<BusinessPacket<?>> {
+public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket<?>>, BusinessPacket<?>> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
-    private final StewardLoop stewardLoop;
 
-    public WorkerLoop(OptionMap options, SessionsManager sessionsManager, StewardLoop stewardLoop) throws IOException {
+    public WorkerLoop(OptionMap options, SessionsManager sessionsManager) throws IOException {
         super(options, sessionsManager, new MpscArrayQueue<>(options.value(DispatchQueue_Capacity)));
-        this.stewardLoop = stewardLoop;
     }
 
     @Override
-    public boolean onAsyncEvent() {
+    protected boolean onAsyncEvent() {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                selectionKey.attach(channel.getSession().getBusinessChannel().updateSelectionKey(selectionKey));
+                ServerSessionChannel<BusinessPacket<?>> businessChannel = channel.getSession().getBusinessChannel();
+                businessChannel.updateSelectionKey(selectionKey);
+                selectionKey.attach(businessChannel.setServiceLoop(this));
+                if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    businessChannel.applyTargetInterest();
+                }
             } catch (IOException ignored) {
             }
         }, MAX_DRAIN_LIMIT);
@@ -39,8 +42,9 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket<?>> {
     }
 
     @Override
-    public void onReadyEvent(SelectionKey selectionKey) throws IOException {
-
+    @SuppressWarnings("unchecked")
+    protected void onReadyEvent(SelectionKey selectionKey) throws IOException {
+        ServerSessionChannel<BusinessPacket<?>> channel = (ServerSessionChannel<BusinessPacket<?>>) selectionKey.attachment();
     }
 
     @Override

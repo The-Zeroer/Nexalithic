@@ -5,8 +5,8 @@ import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
 import com.thezeroer.nexalithic.core.pool.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -35,7 +35,7 @@ public class PendingChannel implements NexalithicChannel {
     private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
     private PrivateKey privateKey;
     private MessageDigest transcriptHash;
-    private NexalithicSession session;
+    private ServerSession session;
 
     private Recyclable recyclable;
 
@@ -79,11 +79,11 @@ public class PendingChannel implements NexalithicChannel {
     public MessageDigest getTranscriptHash() {
         return transcriptHash;
     }
-    public PendingChannel setSession(NexalithicSession session) {
+    public PendingChannel setSession(ServerSession session) {
         this.session = session;
         return this;
     }
-    public NexalithicSession getSession() {
+    public ServerSession getSession() {
         return session;
     }
 

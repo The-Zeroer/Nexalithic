@@ -61,7 +61,7 @@ public class NexalithicClient {
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
     public boolean push(BusinessPacket<?> packet) {
-        return generalLoop.pushPacket(packet);
+        return generalLoop.pushBusinessPacket(packet);
     }
 
     public static class Builder  {

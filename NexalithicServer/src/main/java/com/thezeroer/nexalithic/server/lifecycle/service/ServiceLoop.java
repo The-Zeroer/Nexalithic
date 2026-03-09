@@ -1,10 +1,12 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
-import com.thezeroer.nexalithic.core.io.loop.SessionLoop;
+import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -18,7 +20,7 @@ import java.nio.channels.SelectionKey;
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class ServiceLoop<P extends AbstractPacket> extends SessionLoop<P> {
+public abstract class ServiceLoop<C extends SessionChannel<P, ?>, P extends AbstractPacket> extends ChannelLoop<C> {
     protected static final int MAX_DRAIN_LIMIT = 64;
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
     protected final SessionsManager sessionsManager;
@@ -38,9 +40,21 @@ public abstract class ServiceLoop<P extends AbstractPacket> extends SessionLoop<
         }
     }
 
-    public final boolean pushPacket(SessionChannel<P> channel, P packet) {
-        while (!channel.put(packet)) {
-            Thread.onSpinWait();
+    public final boolean pushPacket(C channel, P packet) {
+        if (!channel.put(packet)) {
+            return false;
+        }
+        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+            updateChannelInterest(channel);
+        }
+        wakeupIfNeeded();
+        return true;
+    }
+
+    @SafeVarargs
+    public final boolean pushPacket(C channel, P... packets) {
+        if (!channel.fill(packets)) {
+            return false;
         }
         if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
             updateChannelInterest(channel);

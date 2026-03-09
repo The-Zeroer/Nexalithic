@@ -1,6 +1,5 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
@@ -9,28 +8,27 @@ import org.jctools.queues.MpscArrayQueue;
 import java.io.IOException;
 
 /**
- * 会话循环
+ * 通道环路
  *
  * @author tbrtz647@outlook.com
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class SessionLoop<P extends AbstractPacket> extends AbstractLoop {
+public abstract class ChannelLoop<C extends SessionChannel<?, ?>> extends AbstractLoop {
     public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("SessionLoop_InterestQueue_Capacity", 1024);
-    protected final MpscArrayQueue<SessionChannel<P>> interestQueue;
+    protected final MpscArrayQueue<C> interestQueue;
 
-    public SessionLoop(OptionMap options) throws IOException {
+    public ChannelLoop(OptionMap options) throws IOException {
         super(options);
         interestQueue = new MpscArrayQueue<>(options.value(InterestQueue_Capacity));
     }
 
-    public final void updateChannelInterest(SessionChannel<P> channel) {
+    public final void updateChannelInterest(C channel) {
         while (!interestQueue.offer(channel)) {
             Thread.onSpinWait();
         }
         wakeupIfNeeded();
     }
-    public abstract boolean pushPacket(SessionChannel<P> channel, P packet);
 
     @Override
     protected final boolean asyncEvent() {

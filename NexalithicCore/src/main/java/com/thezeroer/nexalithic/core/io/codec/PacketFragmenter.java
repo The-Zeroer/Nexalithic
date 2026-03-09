@@ -14,6 +14,7 @@ import java.io.IOException;
  */
 public interface PacketFragmenter<P extends AbstractPacket> {
     boolean feed(P p);
+    boolean fill(P... p);
     int drain(LoopBuffer target) throws IOException;
     boolean isEmpty();
     void clear();

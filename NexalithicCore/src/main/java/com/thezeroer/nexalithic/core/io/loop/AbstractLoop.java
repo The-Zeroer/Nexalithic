@@ -229,7 +229,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 Object attachment = oldKey.attachment();
                 try {
                     SelectionKey newKey = oldKey.channel().register(newSelector, oldKey.interestOps(), attachment);
-                    if (attachment instanceof SessionChannel<?> sessionChannel) {
+                    if (attachment instanceof SessionChannel<?, ?> sessionChannel) {
                         sessionChannel.updateSelectionKey(newKey);
                     }
                 } catch (Exception e) {

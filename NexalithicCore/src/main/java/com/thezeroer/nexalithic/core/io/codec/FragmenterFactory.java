@@ -26,12 +26,30 @@ public class FragmenterFactory {
     }
 
     static class SignalingPacketFragmenter implements PacketFragmenter<SignalingPacket> {
-        private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(16);
+        public static final int QUEUE_CAPACITY = 256;
+        private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(QUEUE_CAPACITY);
         private SignalingPacket currentPacket;
 
         @Override
-        public boolean feed(SignalingPacket signalingPacket) {
-            return packets.offer(signalingPacket);
+        public boolean feed(SignalingPacket packet) {
+            return packets.offer(packet);
+        }
+
+        @Override
+        public boolean fill(SignalingPacket[] packets) {
+            int length = packets.length;
+            if (QUEUE_CAPACITY - this.packets.size() < length * 4) {
+                return false;
+            }
+            final int[] cursor = {0};
+            int result = this.packets.fill(() -> packets[cursor[0]++], length);
+            if (result != length) {
+                throw new IllegalStateException(String.format(
+                        "Nexalithic Fatal: Partial fill in MpscQueue! Expected %d, but only %d queued. Check concurrency or capacity.",
+                        length, result
+                ));
+            }
+            return true;
         }
 
         @Override
@@ -70,10 +88,16 @@ public class FragmenterFactory {
     }
 
     static class BusinessPacketFragmenter implements PacketFragmenter<BusinessPacket<?>> {
+        private final MpscArrayQueue<BusinessPacket<?>> packets = new MpscArrayQueue<>(16);
 
         @Override
-        public boolean feed(BusinessPacket<?> businessPacket) {
-            return true;
+        public boolean feed(BusinessPacket<?> packet) {
+            return packets.offer(packet);
+        }
+
+        @Override
+        public boolean fill(BusinessPacket<?>... p) {
+            return false;
         }
 
         @Override

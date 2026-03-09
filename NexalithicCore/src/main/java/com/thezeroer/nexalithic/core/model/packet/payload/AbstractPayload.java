@@ -125,7 +125,9 @@ public abstract class AbstractPayload<T> {
      *
      * @param totalSize 报文头部声明的总数据大小
      */
-    public void prepareDecode(long totalSize) throws Exception {}
+    public void prepareDecode(long totalSize) throws Exception {
+        this.totalSize = totalSize;
+    }
 
     /**
      * 解码完成钩子。

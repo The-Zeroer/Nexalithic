@@ -66,10 +66,10 @@ public class LifecycleManager {
     private static final Logger logger = LoggerFactory.getLogger(LifecycleManager.class);
     private final AtomicReference<State> state = new AtomicReference<>(LifecycleManager.State.NEW);
     private final AcceptorLoop acceptorLoop;
-    private final LoadBalancer<Void, HandshakeLoop> handshakeLoopLoadBalancer;
-    private final LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer;
+    private final LoadBalancer<?, HandshakeLoop> handshakeLoopLoadBalancer;
+    private final LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer;
 
-    public LifecycleManager(AcceptorLoop acceptorLoop, LoadBalancer<Void, HandshakeLoop> handshakeLoopLoadBalancer, LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer) {
+    public LifecycleManager(AcceptorLoop acceptorLoop, LoadBalancer<?, HandshakeLoop> handshakeLoopLoadBalancer, LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer) {
         this.acceptorLoop = acceptorLoop;
         this.handshakeLoopLoadBalancer = handshakeLoopLoadBalancer;
         this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;

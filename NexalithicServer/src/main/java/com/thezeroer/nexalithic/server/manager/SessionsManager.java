@@ -2,8 +2,8 @@ package com.thezeroer.nexalithic.server.manager;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,9 +19,9 @@ public class SessionsManager {
     public static final NexalithicOption<Integer> Sessions_Initial_Capacity = NexalithicOption.create("SessionsManager_Sessions_Initial_Capacity", 1024);
     public static final NexalithicOption<Integer> Tokens_Initial_Capacity = NexalithicOption.create("SessionsManager_Tokens_Sessions_Initial_Capacity", 1024);
     private static final ThreadLocal<SessionId.Mutable> LOOKUP_KEY = ThreadLocal.withInitial(SessionId.Mutable::new);
-    private final Map<SessionId, NexalithicSession> idToSessions;
-    private final Map<String, NexalithicSession> nameToSessions;
-    private final Map<SessionId, NexalithicSession> tokens;
+    private final Map<SessionId, ServerSession> idToSessions;
+    private final Map<String, ServerSession> nameToSessions;
+    private final Map<SessionId, ServerSession> tokens;
 
     public SessionsManager(OptionMap options) {
         idToSessions = new ConcurrentHashMap<>(options.value(Sessions_Initial_Capacity));
@@ -29,10 +29,10 @@ public class SessionsManager {
         tokens = new ConcurrentHashMap<>(options.value(Tokens_Initial_Capacity));
     }
 
-    public void putSession(NexalithicSession session) {
+    public void putSession(ServerSession session) {
         idToSessions.putIfAbsent(session.getSessionId(), session);
     }
-    public boolean setSessionName(String sessionName, NexalithicSession session) {
+    public boolean setSessionName(String sessionName, ServerSession session) {
         if (nameToSessions.putIfAbsent(sessionName, session) != null) {
             return false;
         }
@@ -40,20 +40,31 @@ public class SessionsManager {
         return true;
     }
 
-    public NexalithicSession getSession(SessionId sessionId) {
+    public ServerSession getSession(SessionId sessionId) {
         return idToSessions.get(sessionId);
     }
-    public NexalithicSession getSession(String sessionName) {
+    public ServerSession getSession(String sessionName) {
         return nameToSessions.get(sessionName);
     }
-    public NexalithicSession getSession(byte[] rawSessionId) {
+    public ServerSession getSession(byte[] rawSessionId) {
         return idToSessions.get(LOOKUP_KEY.get().wrap(rawSessionId));
     }
 
-    public void relateChannelToken(byte[] token, NexalithicSession session) {
+    public void removeSession(ServerSession session) {
+        idToSessions.remove(session.getSessionId());
+        nameToSessions.remove(session.getSessionName());
+    }
+    public void removeSession(String sessionName) {
+        ServerSession session = nameToSessions.remove(sessionName);
+        if (session != null) {
+            idToSessions.remove(session.getSessionId());
+        }
+    }
+
+    public void relateChannelToken(byte[] token, ServerSession session) {
         tokens.put(new SessionId.Immutable(token), session);
     }
-    public NexalithicSession verifyAndConsumeToken(byte[] token) {
+    public ServerSession verifyAndConsumeToken(byte[] token) {
         return tokens.remove(LOOKUP_KEY.get().wrap(token));
     }
 }

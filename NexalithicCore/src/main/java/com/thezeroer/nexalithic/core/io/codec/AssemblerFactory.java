@@ -26,7 +26,7 @@ public class AssemblerFactory {
     }
 
     static class SignalingPacketAssembler implements PacketAssembler<SignalingPacket> {
-        private final SpscArrayQueue<SignalingPacket> packets = new SpscArrayQueue<>(16);
+        private final SpscArrayQueue<SignalingPacket> packets = new SpscArrayQueue<>(128);
         private SignalingPacket currentPacket;
 
         @Override

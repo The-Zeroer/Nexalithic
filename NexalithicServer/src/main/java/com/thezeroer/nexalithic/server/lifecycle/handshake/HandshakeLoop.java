@@ -7,8 +7,8 @@ import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
@@ -40,14 +40,14 @@ public class HandshakeLoop extends AbstractLoop {
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
     private static final int MAX_DRAIN_LIMIT = 64;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
-    private final LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer;
+    private final LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer;
     private final ServerSecurityPolicy securityPolicy;
     private final SessionsManager sessionsManager;
     private final ExecutorService threadPool;
     private final ByteBuffer certificateBuffer;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public HandshakeLoop(OptionMap options, LoadBalancer<SessionId, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy,
+    public HandshakeLoop(OptionMap options, LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy,
                          SessionsManager sessionsManager, ExecutorService threadPool) throws IOException {
         super(options);
         this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;
@@ -134,7 +134,9 @@ public class HandshakeLoop extends AbstractLoop {
                         if (!writeBuffers[1].hasRemaining()) {
                             key.cancel();
                             loadScore.decrement();
-                            serviceUnitLoadBalancer.select(channel.getSession().getSessionId()).getStewardLoop().dispatch(channel);
+                            ServiceUnit serviceUnit = serviceUnitLoadBalancer.select(null);
+                            channel.getSession().setServiceUnit(serviceUnit);
+                            serviceUnit.getStewardLoop().dispatch(channel);
                             return;
                         }
                     }
@@ -161,10 +163,10 @@ public class HandshakeLoop extends AbstractLoop {
                         }
                         ByteBuffer[] writeBuffers = channel.getWriteBuffers();
                         writeBuffers[0] = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
-                        byte[] sessionIdBytes = new byte[NexalithicSession.SESSION_ID_LENGTH];
+                        byte[] sessionIdBytes = new byte[ServerSession.SESSION_ID_LENGTH];
                         secureRandom.nextBytes(sessionIdBytes);
                         writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
-                        channel.setSession(new NexalithicSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
+                        channel.setSession(new ServerSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
                                 SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS,
                                         SecretKeyUtils.LABEL_CLIENT_BUSINESS))).setState(PendingChannel.State.STEP_2);
                         key.interestOps(SelectionKey.OP_WRITE);
@@ -188,9 +190,9 @@ public class HandshakeLoop extends AbstractLoop {
                     closeChannel(key, channel);
                 }
                 if (!readBuffers[0].hasRemaining()) {
-                    NexalithicSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
+                    ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
                     if (session != null) {
-                        session.<ServiceUnit>privateAttachment().selectWorkerLoop().dispatch(channel.setSession(session));
+                        session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
                     } else {
                         closeChannel(key, channel);
                     }

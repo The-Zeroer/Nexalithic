@@ -1,7 +1,9 @@
 package com.thezeroer.nexalithic.client.lifecycle;
 
+import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
+import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
-import com.thezeroer.nexalithic.core.io.loop.SessionLoop;
+import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -9,9 +11,6 @@ import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.SessionAttachment;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,12 +36,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends SessionLoop<AbstractPacket> {
+public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
     private final NetworkRouter networkRouter;
-    private NexalithicSession session;
+    private ClientSession session;
 
     public GeneralLoop(OptionMap options, ClientSecurityPolicy securityPolicy) throws IOException {
         super(options);
@@ -51,7 +50,9 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
         this.networkRouter = new NetworkRouter();
     }
 
-    public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+    public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException,
+            NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException,
+            InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         if (packetType == AbstractPacket.PacketType.SIGNALING) {
             MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
             ByteBuffer buffer1 = ByteBuffer.allocate(securityPolicy.getServerCertificatesLength());
@@ -74,7 +75,7 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
             byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
             SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_SIGNALING, SecretKeyUtils.LABEL_SERVER_SIGNALING);
             ByteBuffer buffer4 = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
-            ByteBuffer buffer5 = ByteBuffer.allocate(NexalithicSession.SESSION_ID_LENGTH + SecretKeyContext.TAG_LENGTH);
+            ByteBuffer buffer5 = ByteBuffer.allocate(ClientSession.SESSION_ID_LENGTH + SecretKeyContext.TAG_LENGTH);
             socketChannel.write(buffer4);
             if (socketChannel.read(new ByteBuffer[]{buffer4.clear(), buffer5}) == -1) {
                 return false;
@@ -84,13 +85,11 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
                 logger.warn("Finished verification failed");
                 throw new SecurityException("Finished verification failed");
             }
-            session = new NexalithicSession(new SessionId.Immutable(signalingSecretKey.decrypt(buffer5.array())), signalingSecretKey,
-                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS))
-                    .attachPrivate(new LocalSessionAttachment());
+            session = new ClientSession(new SessionId.Immutable(signalingSecretKey.decrypt(buffer5.array())), signalingSecretKey,
+                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS));
             logger.info("Link server succeeded");
         } else {
-            LocalSessionAttachment attachment = session.privateAttachment();
-            socketChannel.write(ByteBuffer.wrap(attachment.getBusinessChannelToken()));
+            socketChannel.write(ByteBuffer.wrap(session.getBusinessChannelToken()));
         }
         eventQueue.add(() -> {
             try {
@@ -105,36 +104,34 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
         return true;
     }
 
-    public boolean pushPacket(AbstractPacket packet) {
-        return pushPacket(session.asChannel(packet.packetType()), packet);
-    }
-    @Override
-    public boolean pushPacket(SessionChannel<AbstractPacket> channel, AbstractPacket packet) {
+    public boolean pushSignalingPacket(SignalingPacket packet) {
+        ClientSessionChannel<SignalingPacket> channel = session.getSignalingChannel();
         if (!channel.put(packet)) {
             return false;
         }
-        switch (packet.packetType()) {
-            case SIGNALING -> {
+        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+            updateChannelInterest(channel);
+        }
+        return true;
+    }
+    public boolean pushBusinessPacket(BusinessPacket<?> packet) {
+        ClientSessionChannel<BusinessPacket<?>> channel = session.getBusinessChannel();
+        if (!channel.put(packet)) {
+            return false;
+        }
+        switch (channel.getState()) {
+            case Unconnected -> {
+                if (channel.becomeConnecting()) {
+                    return pushSignalingPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
+                }
+            }
+            case Connected -> {
                 if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     updateChannelInterest(channel);
                 }
             }
-            case BUSINESS -> {
-                switch (channel.getState()) {
-                    case Connected -> {
-                        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                            updateChannelInterest(channel);
-                        }
-                    }
-                    case Unconnected -> {
-                        if (channel.becomeConnecting()) {
-                            pushPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
-                        }
-                    }
-                }
-            }
         }
-        return true;
+        return false;
     }
 
     @Override
@@ -147,7 +144,7 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
 
     @Override
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
-        SessionChannel<?> channel = (SessionChannel<?>) selectionKey.attachment();
+        ClientSessionChannel<?> channel = (ClientSessionChannel<?>) selectionKey.attachment();
         try {
             if (selectionKey.isReadable()) {
                 if (channel.read() == -1) {
@@ -179,10 +176,7 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
     private void handleSignalPacket(SignalingPacket packet) {
         try {
             switch (packet.getSignal()) {
-                case SignalingPacket.Signal.BusinessChannelToken -> {
-                    LocalSessionAttachment attachment = session.privateAttachment();
-                    attachment.setBusinessChannelToken(packet.getContent());
-                }
+                case SignalingPacket.Signal.BusinessChannelToken -> session.setBusinessChannelToken(packet.getContent());
                 case SignalingPacket.Signal.ResponseBusinessPort -> dispatch(AbstractPacket.PacketType.BUSINESS, SocketChannel
                         .open(new InetSocketAddress(networkRouter.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
             }
@@ -199,31 +193,14 @@ public class GeneralLoop extends SessionLoop<AbstractPacket> {
 
     }
 
-    public NexalithicSession getSession() {
+    public ClientSession getSession() {
         return session;
     }
     public NetworkRouter getNetworkRouter() {
         return networkRouter;
     }
 
-    private void closeChannel(SessionChannel<?> channel) {
+    private void closeChannel(ClientSessionChannel<?> channel) {
         channel.close();
-    }
-
-    private static class LocalSessionAttachment implements SessionAttachment {
-        private volatile byte[] businessChannelToken;
-
-        public void setBusinessChannelToken(byte[] businessChannelToken) {
-            this.businessChannelToken = businessChannelToken;
-        }
-        public byte[] getBusinessChannelToken() {
-            byte[] token = businessChannelToken;
-            businessChannelToken = null;
-            return token;
-        }
-
-        @Override
-        public void clear() {
-        }
     }
 }

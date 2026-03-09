@@ -11,7 +11,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 
 /**
- * 安全会话
+ * 安全通道
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
