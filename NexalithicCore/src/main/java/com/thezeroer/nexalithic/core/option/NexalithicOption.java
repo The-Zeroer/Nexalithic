@@ -10,7 +10,7 @@ package com.thezeroer.nexalithic.core.option;
 public class NexalithicOption<T> {
     private final String name;
     private final T defaultValue;
-    private T currentValue;
+    private volatile T currentValue;
 
     private NexalithicOption(String name, T defaultValue) {
         this.name = name;
@@ -21,23 +21,26 @@ public class NexalithicOption<T> {
         return new NexalithicOption<T>(name, defaultValue);
     }
 
-    public String name() {
+    public final String name() {
         return name;
     }
-    public T defaultValue() {
+    public final T defaultValue() {
         return defaultValue;
     }
 
-    public NexalithicOption<T> set(T value) {
+    public final void set(T value) {
         this.currentValue = value;
-        return this;
     }
-    public T get() {
+    public final T get() {
         return currentValue;
+    }
+
+    public final T value() {
+        return currentValue == null ? defaultValue : currentValue;
     }
 
     @Override
     public String toString() {
-        return String.format("%s(default=%s)", name, defaultValue);
+        return String.format("%s[current=%s](default=%s)", name, currentValue, defaultValue);
     }
 }

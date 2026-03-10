@@ -4,7 +4,6 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionId;
@@ -47,14 +46,13 @@ public class HandshakeLoop extends AbstractLoop {
     private final ByteBuffer certificateBuffer;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public HandshakeLoop(OptionMap options, LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy,
+    public HandshakeLoop(LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy,
                          SessionsManager sessionsManager, ExecutorService threadPool) throws IOException {
-        super(options);
         this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;
         this.securityPolicy = securityPolicy;
         this.sessionsManager = sessionsManager;
         this.threadPool = threadPool;
-        dispatchQueue = new MpscArrayQueue<>(options.value(DispatchQueue_Capacity));
+        dispatchQueue = new MpscArrayQueue<>(DispatchQueue_Capacity.value());
         certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());
         updateCertificateBuffer();
     }

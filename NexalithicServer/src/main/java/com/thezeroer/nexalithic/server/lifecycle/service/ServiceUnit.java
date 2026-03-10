@@ -5,7 +5,6 @@ import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
@@ -28,11 +27,11 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     private final WorkerLoop[] workerLoops;
     private final LoadBalancer<Void, WorkerLoop> workerLoopBalancer;
 
-    public ServiceUnit(OptionMap options, SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
-        stewardLoop = new StewardLoop(options, sessionsManager, networkRouter);
-        workerLoops = new WorkerLoop[options.value(WorkerLoop_Count)];
+    public ServiceUnit(SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
+        stewardLoop = new StewardLoop(sessionsManager, networkRouter);
+        workerLoops = new WorkerLoop[WorkerLoop_Count.value()];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(options, sessionsManager);
+            workerLoops[i] = new WorkerLoop(sessionsManager);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }

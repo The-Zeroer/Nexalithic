@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -18,9 +17,8 @@ public abstract class ChannelLoop<C extends SessionChannel<?, ?>> extends Abstra
     public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("SessionLoop_InterestQueue_Capacity", 1024);
     protected final MpscArrayQueue<C> interestQueue;
 
-    public ChannelLoop(OptionMap options) throws IOException {
-        super(options);
-        interestQueue = new MpscArrayQueue<>(options.value(InterestQueue_Capacity));
+    public ChannelLoop() throws IOException {
+        interestQueue = new MpscArrayQueue<>(InterestQueue_Capacity.value());
     }
 
     public final void updateChannelInterest(C channel) {

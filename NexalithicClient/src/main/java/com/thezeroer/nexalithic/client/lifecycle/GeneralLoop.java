@@ -7,7 +7,6 @@ import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -43,8 +42,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
     private final NetworkRouter networkRouter;
     private ClientSession session;
 
-    public GeneralLoop(OptionMap options, ClientSecurityPolicy securityPolicy) throws IOException {
-        super(options);
+    public GeneralLoop(ClientSecurityPolicy securityPolicy) throws IOException {
         this.securityPolicy = securityPolicy;
         this.eventQueue = new ConcurrentLinkedQueue<>();
         this.networkRouter = new NetworkRouter();

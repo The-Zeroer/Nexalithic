@@ -2,9 +2,7 @@ package com.thezeroer.nexalithic.client;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
 import org.slf4j.Logger;
@@ -20,8 +18,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Nexalithic客户端
@@ -64,12 +60,11 @@ public class NexalithicClient {
         return generalLoop.pushBusinessPacket(packet);
     }
 
-    public static class Builder  {
-        private final Map<NexalithicOption<?>, Object> options = new HashMap<>();
+    public static class Builder {
         private ClientSecurityPolicy securityPolicy;
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
-            options.put(option, value);
+            option.set(value);
             return this;
         }
 
@@ -79,11 +74,14 @@ public class NexalithicClient {
         }
 
         public NexalithicClient build() throws Exception {
-            OptionMap options = OptionMap.of(this.options);
-
-            GeneralLoop generalLoop = new GeneralLoop(options, securityPolicy);
+            verifyOptions();
+            GeneralLoop generalLoop = new GeneralLoop(securityPolicy);
 
             return new NexalithicClient(generalLoop);
+        }
+
+        private void verifyOptions() {
+
         }
     }
 

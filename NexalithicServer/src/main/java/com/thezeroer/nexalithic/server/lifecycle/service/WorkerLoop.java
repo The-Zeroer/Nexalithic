@@ -2,7 +2,6 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
@@ -20,8 +19,8 @@ import java.nio.channels.SelectionKey;
 public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket<?>>, BusinessPacket<?>> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
 
-    public WorkerLoop(OptionMap options, SessionsManager sessionsManager) throws IOException {
-        super(options, sessionsManager, new MpscArrayQueue<>(options.value(DispatchQueue_Capacity)));
+    public WorkerLoop(SessionsManager sessionsManager) throws IOException {
+        super(sessionsManager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
     }
 
     @Override

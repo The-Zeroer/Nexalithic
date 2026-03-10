@@ -3,7 +3,6 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
@@ -32,8 +31,8 @@ public class StewardLoop extends ServiceLoop<ServerSessionChannel<SignalingPacke
     private final NetworkRouter networkRouter;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public StewardLoop(OptionMap options, SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
-        super(options, sessionsManager, new MpscArrayQueue<>(options.value(DispatchQueue_Capacity)));
+    public StewardLoop(SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
+        super(sessionsManager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
         this.networkRouter = networkRouter;
     }
 

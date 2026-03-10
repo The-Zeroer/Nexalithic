@@ -2,7 +2,6 @@ package com.thezeroer.nexalithic.core.io.loop;
 
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.slf4j.Logger;
@@ -43,10 +42,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected final Thread thread = new Thread(this);
     protected String name = getClass().getSimpleName();
 
-    public AbstractLoop(OptionMap options) throws IOException {
+    public AbstractLoop() throws IOException {
         selector = Selector.open();
         thread.setDaemon(false);
-        Max_Shutdown_Wait.set(options.value(Max_Shutdown_Wait));
     }
 
     public final void start() throws Exception {
@@ -173,7 +171,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                             logger.error("[{}] Error closing loop", name, e);
                         }
                         logger.debug("[{}] shutdown", name);
-                    } else if (System.currentTimeMillis() - start > Max_Shutdown_Wait.get()) {
+                    } else if (System.currentTimeMillis() - start > Max_Shutdown_Wait.value()) {
                         logger.warn("[{}] max shutdown time exceeded, forcing stop.", name);
                         state.set(State.STOPPING);
                     }

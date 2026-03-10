@@ -5,7 +5,6 @@ import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
@@ -21,8 +20,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -231,8 +228,6 @@ public class NexalithicServer {
     }
 
     public static class Builder {
-        private final Map<NexalithicOption<?>, Object> options = new HashMap<>();
-
         private ServerSecurityPolicy securityPolicy;
         private ExecutorService handshakeLoopThreadPool;
 
@@ -242,7 +237,7 @@ public class NexalithicServer {
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
-            options.put(option, value);
+            option.set(value);
             return this;
         }
 
@@ -256,30 +251,30 @@ public class NexalithicServer {
         }
 
         public NexalithicServer build() throws IOException {
-            OptionMap options = verifyOptions();
-            SessionsManager sessionsManager = new SessionsManager(options);
+            verifyOptions();
+            SessionsManager sessionsManager = new SessionsManager();
             NetworkRouter networkRouter = new NetworkRouter();
 
-            ServiceUnit[] serviceUnits = new ServiceUnit[options.value(ServiceUnit.Count)];
+            ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(options, sessionsManager, networkRouter).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(sessionsManager, networkRouter).addIdToLoopName(String.valueOf(i));
             }
             LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
 
-            HandshakeLoop[] handshakeLoops = new HandshakeLoop[options.value(HandshakeLoop.Count)];
+            HandshakeLoop[] handshakeLoops = new HandshakeLoop[HandshakeLoop.Count.value()];
             for (int i = 0; i < handshakeLoops.length; i++) {
-                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(options, serviceUnitLoadBalancer, securityPolicy,
+                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(serviceUnitLoadBalancer, securityPolicy,
                         sessionsManager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
             }
             LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer = new P2CBalancer<>(handshakeLoops);
 
-            AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(options, handshakeLoopBalancer).addIdToName("0");
+            AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(handshakeLoopBalancer).addIdToName("0");
 
             return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager, networkRouter);
         }
 
-        private OptionMap verifyOptions() {
-            return OptionMap.of(this.options);
+        private void verifyOptions() {
+
         }
     }
 

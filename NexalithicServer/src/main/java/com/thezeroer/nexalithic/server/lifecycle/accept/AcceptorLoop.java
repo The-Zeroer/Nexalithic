@@ -4,7 +4,6 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.pool.WrapperPool;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -41,22 +40,15 @@ public class AcceptorLoop extends AbstractLoop {
     private final WrapperPool<PendingChannel.Recyclable> pendingChannelPool;
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
 
-    public AcceptorLoop(OptionMap options, LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
-        super(options);
+    public AcceptorLoop(LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
         this.handshakeLoopBalancer = handshakeLoopBalancer;
-        filtrationContextPool = new BlockedMpscWrapperPool<>(
-                options.value(FiltrationContextPool_Capacity),
-                options.value(FiltrationContextPool_Limit),
-                FiltrationContext::new,
-                (FiltrationContext target, WrapperPool<FiltrationContext.Recyclable> pool) ->
+        filtrationContextPool = new BlockedMpscWrapperPool<>(FiltrationContextPool_Capacity.value(), FiltrationContextPool_Limit.value(),
+                FiltrationContext::new, (FiltrationContext target, WrapperPool<FiltrationContext.Recyclable> pool) ->
                         new FiltrationContext.Recyclable(target, pool, handshakeLoopBalancer)
-        ).warmUp(options.value(FiltrationContextPool_PrefillRatio));
-        pendingChannelPool = new BlockedMpscWrapperPool<>(
-                options.value(PendingChannelPool_Capacity),
-                options.value(PendingChannelPool_Limit),
-                PendingChannel::new,
-                PendingChannel.Recyclable::new
-        ).warmUp(options.value(PendingChannelPool_PrefillRatio));
+        ).warmUp(FiltrationContextPool_PrefillRatio.value());
+        pendingChannelPool = new BlockedMpscWrapperPool<>(PendingChannelPool_Capacity.value(), PendingChannelPool_Limit.value(),
+                PendingChannel::new, PendingChannel.Recyclable::new
+        ).warmUp(PendingChannelPool_PrefillRatio.value());
     }
 
     public void dispatch(AbstractPacket.PacketType packetType, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {

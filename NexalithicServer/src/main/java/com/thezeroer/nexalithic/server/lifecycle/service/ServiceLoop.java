@@ -2,11 +2,8 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
-import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -25,8 +22,7 @@ public abstract class ServiceLoop<C extends SessionChannel<P, ?>, P extends Abst
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
     protected final SessionsManager sessionsManager;
 
-    public ServiceLoop(OptionMap options, SessionsManager sessionsManager, MpscArrayQueue<PendingChannel> dispatchQueue) throws IOException {
-        super(options);
+    public ServiceLoop(SessionsManager sessionsManager, MpscArrayQueue<PendingChannel> dispatchQueue) throws IOException {
         this.dispatchQueue = dispatchQueue;
         this.sessionsManager = sessionsManager;
     }

@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.server.manager;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
@@ -23,10 +22,10 @@ public class SessionsManager {
     private final Map<String, ServerSession> nameToSessions;
     private final Map<SessionId, ServerSession> tokens;
 
-    public SessionsManager(OptionMap options) {
-        idToSessions = new ConcurrentHashMap<>(options.value(Sessions_Initial_Capacity));
-        nameToSessions = new ConcurrentHashMap<>(options.value(Tokens_Initial_Capacity));
-        tokens = new ConcurrentHashMap<>(options.value(Tokens_Initial_Capacity));
+    public SessionsManager() {
+        idToSessions = new ConcurrentHashMap<>(Sessions_Initial_Capacity.value());
+        nameToSessions = new ConcurrentHashMap<>(Tokens_Initial_Capacity.value());
+        tokens = new ConcurrentHashMap<>(Tokens_Initial_Capacity.value());
     }
 
     public void putSession(ServerSession session) {
