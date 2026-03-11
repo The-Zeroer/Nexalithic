@@ -1,8 +1,9 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.TargetWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
@@ -21,7 +22,7 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel implements NexalithicChannel {
+public class PendingChannel extends SelfWrapperPool.SelfRecyclableWrapper<PendingChannel> implements NexalithicChannel {
     public enum State {
         STEP_0,
         STEP_1,
@@ -37,11 +38,16 @@ public class PendingChannel implements NexalithicChannel {
     private MessageDigest transcriptHash;
     private ServerSession session;
 
-    private Recyclable recyclable;
-
     public PendingChannel() {
         readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
         readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH);
+    }
+
+    public PendingChannel init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
+        this.packetType = packetType;
+        this.socketChannel = socketChannel;
+        state = PendingChannel.State.STEP_0;
+        return this;
     }
 
     public AbstractPacket.PacketType getType() {
@@ -87,6 +93,19 @@ public class PendingChannel implements NexalithicChannel {
         return session;
     }
 
+    @Override
+    protected void onRecycle() {
+        packetType = null;
+        socketChannel = null;
+        readBuffers[0] = null;
+        readBuffers[1] = null;
+        writeBuffers[0] = null;
+        writeBuffers[1] = null;
+        privateKey = null;
+        transcriptHash = null;
+        session = null;
+    }
+
     public void close() {
         if (socketChannel != null) {
             try {
@@ -94,38 +113,6 @@ public class PendingChannel implements NexalithicChannel {
             } catch (IOException ignored) {
             }
         }
-        recyclable.recycle();
-    }
-
-    public static class Recyclable extends GeneralRecyclableWrapper<PendingChannel, Recyclable> {
-        public Recyclable(PendingChannel target, WrapperPool<Recyclable> pool) {
-            super(target, pool);
-            target.recyclable = this;
-        }
-
-        public Recyclable initTarget(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
-            target.packetType = packetType;
-            target.socketChannel = socketChannel;
-            target.state = PendingChannel.State.STEP_0;
-            return this;
-        }
-
-        @Override
-        protected void onRecycle(PendingChannel target) {
-            target.packetType = null;
-            target.socketChannel = null;
-            target.readBuffers[0] = null;
-            target.readBuffers[1] = null;
-            target.writeBuffers[0] = null;
-            target.writeBuffers[1] = null;
-            target.privateKey = null;
-            target.transcriptHash = null;
-            target.session = null;
-        }
-
-        @Override
-        protected void onOverflow(PendingChannel target) {
-            target.recyclable = null;
-        }
+        recycle();
     }
 }

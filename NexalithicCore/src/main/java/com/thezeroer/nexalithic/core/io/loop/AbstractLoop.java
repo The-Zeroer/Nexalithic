@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
+import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
@@ -39,7 +40,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected final LongAdder loadScore = new LongAdder();
     protected volatile Selector selector;
 
-    protected final Thread thread = new Thread(this);
+    protected final LoopThread thread = new LoopThread(this);
     protected String name = getClass().getSimpleName();
 
     public AbstractLoop() throws IOException {

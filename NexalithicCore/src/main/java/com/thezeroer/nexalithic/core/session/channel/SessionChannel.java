@@ -46,8 +46,6 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
     private volatile InetSocketAddress remoteAddress;
     private final AtomicInteger targetInterest = new AtomicInteger(0);
     private final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
-    private LoopBuffer.Recyclable readPlainBufferRecyclable, writeCipheBufferRecyclable;
-    private LoopBuffer.Recyclable readCipheBufferRecyclable, writePlainBufferRecyclable;
     private LoopBuffer readPlainBuffer, writeCipheBuffer;
     private LoopBuffer readCipheBuffer, writePlainBuffer;
 
@@ -135,22 +133,18 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
     }
 
     public final long write() throws IOException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        if (readPlainBufferRecyclable == null) {
-            readPlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
-            readPlainBuffer = readPlainBufferRecyclable.unwrap();
-            writeCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
-            writeCipheBuffer = writeCipheBufferRecyclable.unwrap();
+        if (readPlainBuffer == null) {
+            readPlainBuffer = LoopBufferPool.INSTANCE.acquire();
+            writeCipheBuffer = LoopBufferPool.INSTANCE.acquire();
         }
         if (fragmenter.drain(readPlainBuffer) > 0) {
             encrypt(readPlainBuffer, writeCipheBuffer);
         }
         long written = writeCipheBuffer.writeToChannel(socketChannel);
         if (written == 0 && writeCipheBuffer.isEmpty() && fragmenter.isEmpty()) {
-            readPlainBufferRecyclable.recycle();
-            readPlainBufferRecyclable = null;
+            readPlainBuffer.recycle();
             readPlainBuffer = null;
-            writeCipheBufferRecyclable.recycle();
-            writeCipheBufferRecyclable = null;
+            writeCipheBuffer.recycle();
             writeCipheBuffer = null;
             return -1;
         } else {
@@ -158,11 +152,9 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
         }
     }
     public final long read() throws IOException, InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
-        if (readCipheBufferRecyclable == null) {
-            readCipheBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
-            readCipheBuffer = readCipheBufferRecyclable.unwrap();
-            writePlainBufferRecyclable = LoopBufferPool.INSTANCE.acquire();
-            writePlainBuffer = writePlainBufferRecyclable.unwrap();
+        if (readCipheBuffer == null) {
+            readCipheBuffer = LoopBufferPool.INSTANCE.acquire();
+            writePlainBuffer = LoopBufferPool.INSTANCE.acquire();
         }
         long read = readCipheBuffer.readFromChannel(socketChannel);
         if (read > 0) {
@@ -170,12 +162,10 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
             assembler.feed(writePlainBuffer);
         }
         if (readCipheBuffer.isEmpty() && writePlainBuffer.isEmpty()) {
-            readCipheBufferRecyclable.recycle();
-            readCipheBufferRecyclable = null;
+            readCipheBuffer.recycle();
             readCipheBuffer = null;
-            writePlainBufferRecyclable.recycle();
-            writeCipheBufferRecyclable = null;
-            writeCipheBuffer = null;
+            writePlainBuffer.recycle();
+            writePlainBuffer = null;
         }
         return read;
     }
@@ -207,17 +197,17 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
                     socketChannel.close();
                 }
             } catch (IOException ignored) {}
-            if (readPlainBufferRecyclable != null) {
-                readPlainBufferRecyclable.recycle();
+            if (readPlainBuffer != null) {
+                readPlainBuffer.recycle();
             }
-            if (writeCipheBufferRecyclable != null) {
-                writeCipheBufferRecyclable.recycle();
+            if (writeCipheBuffer != null) {
+                writeCipheBuffer.recycle();
             }
-            if (readCipheBufferRecyclable != null) {
-                readCipheBufferRecyclable.recycle();
+            if (readCipheBuffer != null) {
+                readCipheBuffer.recycle();
             }
-            if (writePlainBufferRecyclable != null) {
-                writePlainBufferRecyclable.recycle();
+            if (writePlainBuffer != null) {
+                writePlainBuffer.recycle();
             }
             fragmenter.clear();
             assembler.clear();

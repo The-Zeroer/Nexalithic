@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.server.lifecycle.accept;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.AcceptorFilter;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
+import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContextView;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
@@ -79,7 +80,7 @@ public abstract class FiltrationStrategy {
      * @param context       从对象池中分配的上下文对象，用于承载过滤状态及后续分发所需的元数据。
      * @throws IOException  当底层网络操作失败时抛出。注意：抛出异常前建议先执行 {@code context.reject()}。
      */
-    public abstract void handle(SocketChannel socketChannel, FiltrationContext context) throws IOException;
+    public abstract void handle(SocketChannel socketChannel, FiltrationContextView context) throws IOException;
     public abstract boolean enable();
     public abstract String getName();
 
@@ -96,7 +97,7 @@ public abstract class FiltrationStrategy {
      */
     public static class Bypass extends FiltrationStrategy {
         @Override
-        public void handle(SocketChannel socketChannel, FiltrationContext context) {
+        public void handle(SocketChannel socketChannel, FiltrationContextView context) {
             context.approve();
         }
 

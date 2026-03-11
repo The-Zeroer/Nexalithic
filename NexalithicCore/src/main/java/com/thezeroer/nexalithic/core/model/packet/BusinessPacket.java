@@ -23,7 +23,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
     public static final byte PRIORITY_NORMAL = 0;
     /** 优先级低 */
     public static final byte PRIORITY_LOW = 127;
-    private byte suggestedPriority = PRIORITY_NORMAL;
     public enum Way {
         DEFAULT,
 
@@ -45,6 +44,9 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
         RESPONSE_Busy,
     }
 
+    private static final Way[] WAYS = Way.values();
+    private byte suggestedPriority = PRIORITY_NORMAL;
+
     private short way;
     private long taskId;
     private byte packetIndex;
@@ -54,9 +56,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
     private byte payloadCount;
     private List<P> payloads;
 
-    private BusinessPacket() {
-
-    }
     private BusinessPacket(Way way, short... path) {
         this.way = (short) way.ordinal();
         if (path != null && path.length > 0) {
@@ -66,10 +65,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
             this.path = path;
             this.pathDepth = (byte) path.length;
         }
-    }
-
-    public static BusinessPacket<?> build() {
-        return new BusinessPacket<>();
     }
     public static BusinessPacket<?> build(Way way) {
         return new BusinessPacket<>(way);
@@ -90,11 +85,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
             this.payloads.addAll(List.of(payloads));
             this.payloadCount = (byte) this.payloads.size();
         }
-        return this;
-    }
-
-    public BusinessPacket<P> setPacketIndex(byte packetIndex) {
-        this.packetIndex = packetIndex;
         return this;
     }
 
@@ -122,8 +112,23 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
     public final byte getPayloadCount() {
         return payloadCount;
     }
+    public final Way getWay() {
+        return WAYS[way];
+    }
+
+    public final BusinessPacket<P> setPacketIndex(byte packetIndex) {
+        this.packetIndex = packetIndex;
+        return this;
+    }
     public final byte getPacketIndex() {
         return packetIndex;
+    }
+    public final BusinessPacket<P> setTaskId(long taskId) {
+        this.taskId = taskId;
+        return this;
+    }
+    public final long getTaskId() {
+        return taskId;
     }
 
     /**

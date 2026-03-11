@@ -1,9 +1,12 @@
 package com.thezeroer.nexalithic.core.io.buffer;
 
-import com.thezeroer.nexalithic.core.io.thread.IOThread;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
+import org.jctools.queues.MpscArrayQueue;
 
 import java.nio.ByteBuffer;
+import java.util.function.Supplier;
 
 /**
  * 环路缓冲池
@@ -12,19 +15,13 @@ import java.nio.ByteBuffer;
  * @since 2026/03/03
  * @version 1.0.0
  */
-public class LoopBufferPool implements WrapperPool<LoopBuffer.Recyclable> {
-    public static final LoopBufferPool INSTANCE = new LoopBufferPool();
+public class LoopBufferPool extends SelfWrapperPool<LoopBuffer> {
+    public static final LoopBufferPool INSTANCE = new LoopBufferPool(
+            PoolStorage.of(new MpscArrayQueue<>(1024), 1024),
+            PoolStrategy.alwaysCreate(),
+            () -> new LoopBuffer(ByteBuffer.allocate(1024 * 16)));
 
-    @Override
-    public LoopBuffer.Recyclable acquire() {
-        if (Thread.currentThread() instanceof IOThread thread) {
-
-        }
-        return new LoopBuffer.Recyclable(new LoopBuffer(ByteBuffer.allocate(1024 * 16)), this);
-    }
-
-    @Override
-    public boolean release(LoopBuffer.Recyclable recyclable) {
-        return false;
+    public LoopBufferPool(PoolStorage<LoopBuffer> storage, PoolStrategy<LoopBuffer> strategy, Supplier<LoopBuffer> factory) {
+        super(storage, strategy, factory);
     }
 }

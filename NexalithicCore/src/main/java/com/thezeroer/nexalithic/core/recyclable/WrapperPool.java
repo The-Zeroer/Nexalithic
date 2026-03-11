@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.pool;
+package com.thezeroer.nexalithic.core.recyclable;
 
 /**
  * 包装器池 (Wrapper Pool)
@@ -15,8 +15,7 @@ package com.thezeroer.nexalithic.core.pool;
  * @author tbrtz647@outlook.com
  * @since 2026/02/11
  */
-public interface WrapperPool<W extends RecyclableWrapper<?, W>> {
-
+public interface WrapperPool<W extends RecyclableWrapper<?>> {
     /**
      * 从池中获取一个可用的包装器。
      * <p>如果池为空，实现类应根据策略创建新实例或阻塞等待。</p>
@@ -25,10 +24,10 @@ public interface WrapperPool<W extends RecyclableWrapper<?, W>> {
     W acquire();
 
     /**
-     * 将包装器归还至池中。
-     * <p>调用者不应直接调用此方法，而应通过包装器的 {@code recycle()} 触发自动归还。</p>
-     * @param w 要释放的包装器实例
-     * @return 是否成功归还到 Queue
+     * 执行池预热
+     * @param prefillRatio 预热比例 (0.0 ~ 1.0)。
+     * 例如 0.5 表示启动时填充 50% 的容量。
+     * @throws IllegalArgumentException 如果比例不在有效范围内
      */
-    boolean release(W w);
+    WrapperPool<W> warmUp(double prefillRatio);
 }

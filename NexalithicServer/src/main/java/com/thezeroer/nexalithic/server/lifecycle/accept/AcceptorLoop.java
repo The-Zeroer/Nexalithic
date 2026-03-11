@@ -4,11 +4,14 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
-import com.thezeroer.nexalithic.server.pool.BlockedMpscWrapperPool;
+import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,18 +39,21 @@ public class AcceptorLoop extends AbstractLoop {
     public static final NexalithicOption<Double> PendingChannelPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_PendingChannelPool_PrefillRatio", 0.5);
     private static final Logger logger = LoggerFactory.getLogger(AcceptorLoop.class);
     private final Queue<Runnable> eventQueue = new ConcurrentLinkedQueue<>();
-    private final WrapperPool<FiltrationContext.Recyclable> filtrationContextPool;
-    private final WrapperPool<PendingChannel.Recyclable> pendingChannelPool;
+    private final WrapperPool<FiltrationContext> filtrationContextPool;
+    private final WrapperPool<PendingChannel> pendingChannelPool;
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
 
     public AcceptorLoop(LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
         this.handshakeLoopBalancer = handshakeLoopBalancer;
-        filtrationContextPool = new BlockedMpscWrapperPool<>(FiltrationContextPool_Capacity.value(), FiltrationContextPool_Limit.value(),
-                FiltrationContext::new, (FiltrationContext target, WrapperPool<FiltrationContext.Recyclable> pool) ->
-                        new FiltrationContext.Recyclable(target, pool, handshakeLoopBalancer)
+        filtrationContextPool = new SelfWrapperPool<>(
+                PoolStorage.of(new MpscArrayQueue<>(FiltrationContextPool_Capacity.value()), FiltrationContextPool_Capacity.value()),
+                PoolStrategy.blocking(FiltrationContextPool_Limit.value()),
+                () -> new FiltrationContext(handshakeLoopBalancer)
         ).warmUp(FiltrationContextPool_PrefillRatio.value());
-        pendingChannelPool = new BlockedMpscWrapperPool<>(PendingChannelPool_Capacity.value(), PendingChannelPool_Limit.value(),
-                PendingChannel::new, PendingChannel.Recyclable::new
+        pendingChannelPool = new SelfWrapperPool<>(
+                PoolStorage.of(new MpscArrayQueue<>(PendingChannelPool_Capacity.value()), PendingChannelPool_Capacity.value()),
+                PoolStrategy.blocking(PendingChannelPool_Limit.value()),
+                PendingChannel::new
         ).warmUp(PendingChannelPool_PrefillRatio.value());
     }
 
@@ -90,10 +96,9 @@ public class AcceptorLoop extends AbstractLoop {
             logger.debug("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
         }
         if (filtrationStrategy.enable()) {
-            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().initTarget(
-                    filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
+            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().init(filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
         } else {
-            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel).unwrap());
+            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());
         }
     }
 

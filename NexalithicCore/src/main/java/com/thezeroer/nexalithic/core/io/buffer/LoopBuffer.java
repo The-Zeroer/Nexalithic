@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.core.io.buffer;
 
-import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -20,7 +19,7 @@ import java.nio.channels.ScatteringByteChannel;
  * @since 2026/02/13
  */
 @SuppressWarnings("UnusedReturnValue")
-public class LoopBuffer implements LoopBufferView {
+public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer> implements LoopBufferView {
     /** 原始底层缓冲区 */
     private final ByteBuffer buffer;
     /** 复用的可读段视图（处理回绕时包含两段） */
@@ -38,6 +37,7 @@ public class LoopBuffer implements LoopBufferView {
      * @throws IllegalArgumentException 如果容量不是 2 的幂。
      */
     public LoopBuffer(ByteBuffer buffer) {
+        super();
         this.capacity = buffer.remaining();
         if ((capacity & (capacity - 1)) != 0) {
             throw new IllegalArgumentException("Capacity must be a power of 2");
@@ -405,15 +405,8 @@ public class LoopBuffer implements LoopBufferView {
         head += length;
     }
 
-    public static class Recyclable extends GeneralRecyclableWrapper<LoopBuffer, Recyclable> {
-        public Recyclable(LoopBuffer target, WrapperPool<Recyclable> pool) {
-            super(target, pool);
-        }
-
-        @Override
-        protected void onRecycle(LoopBuffer target) {
-            target.tail = 0;
-            target.head = 0;
-        }
+    @Override
+    protected void onRecycle() {
+        clear();
     }
 }
