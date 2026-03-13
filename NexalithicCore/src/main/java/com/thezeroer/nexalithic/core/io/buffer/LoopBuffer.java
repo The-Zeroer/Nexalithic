@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.io.buffer;
 
-import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -19,13 +19,16 @@ import java.nio.channels.ScatteringByteChannel;
  * @since 2026/02/13
  */
 @SuppressWarnings("UnusedReturnValue")
-public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer> implements LoopBufferView {
+public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<LoopBuffer> {
     /** 原始底层缓冲区 */
     private final ByteBuffer buffer;
     /** 复用的可读段视图（处理回绕时包含两段） */
     private final ByteBuffer[] readViews = new ByteBuffer[2];
     /** 复用的可写段视图（处理回绕时包含两段） */
     private final ByteBuffer[] writeViews = new ByteBuffer[2];
+
+    private final LimitedReadableView limitedReadableView = new LimitedReadableView();
+    private final LimitedWritableView limitedWritableView = new LimitedWritableView();
 
     private final int capacity, mask;
     private long tail, head;
@@ -37,7 +40,6 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
      * @throws IllegalArgumentException 如果容量不是 2 的幂。
      */
     public LoopBuffer(ByteBuffer buffer) {
-        super();
         this.capacity = buffer.remaining();
         if ((capacity & (capacity - 1)) != 0) {
             throw new IllegalArgumentException("Capacity must be a power of 2");
@@ -48,6 +50,15 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
             this.readViews[i] = buffer.duplicate();
             this.writeViews[i] = buffer.duplicate();
         }
+    }
+
+    public LimitedReadableView unsafeLimitedReadableView(int quota) {
+        limitedReadableView.quota = quota;
+        return limitedReadableView;
+    }
+    public LimitedWritableView unsafeLimitedWritableView(int quota) {
+        limitedWritableView.quota = quota;
+        return limitedWritableView;
     }
 
     /**
@@ -136,8 +147,8 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
         this.tail += amount;
     }
     /**
-     * 手动向前推进读取指针。
-     * @param amount 推进的字节数。在对{@link #readableViews()}返回的views进行读取后调用。
+     * 手动向前推进读取指针。在对{@link #readableViews()}返回的views进行读取后调用。
+     * @param amount 推进的字节数。
      */
     public void advanceHead(int amount) {
         this.head += amount;
@@ -203,28 +214,28 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
 
     public LoopBuffer put(byte value) {
         if (isFull()) {
-            throw new IllegalStateException("Buffer overflow");
+            throwOverflow(Byte.BYTES);
         }
         unsafePut(value);
         return this;
     }
     public LoopBuffer put(short value) {
         if (writableBytes() < Short.BYTES) {
-            throw new IllegalStateException("Buffer overflow");
+            throwOverflow(Short.BYTES);
         }
         unsafePut(value);
         return this;
     }
     public LoopBuffer put(int value) {
         if (writableBytes() < Integer.BYTES) {
-            throw new IllegalStateException("Buffer overflow");
+            throwOverflow(Integer.BYTES);
         }
         unsafePut(value);
         return this;
     }
     public LoopBuffer put(long value) {
         if (writableBytes() < Long.BYTES) {
-            throw new IllegalStateException("Buffer overflow");
+            throwOverflow(Long.BYTES);
         }
         unsafePut(value);
         return this;
@@ -238,33 +249,40 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
     public LoopBuffer put(byte[] value) {
         int len = value.length;
         if (writableBytes() < len) {
-            throw new IllegalStateException("Buffer overflow");
+            throwOverflow(len);
         }
         unsafePut(value, len);
+        return this;
+    }
+    public LoopBuffer put(byte[] value, int offset, int length) {
+        if (writableBytes() < length) {
+            throwOverflow(length);
+        }
+        unsafePut(value, offset, length);
         return this;
     }
 
     public byte getByte() {
         if (isEmpty()) {
-            throw new IllegalStateException("Buffer underflow");
+            throwUnderflow(Byte.BYTES);
         }
         return unsafeGetByte();
     }
     public short getShort() {
         if (readableBytes() < Short.BYTES) {
-            throw new IllegalStateException("Buffer underflow");
+            throwUnderflow(Short.BYTES);
         }
         return unsafeGetShort();
     }
     public int getInt() {
         if (readableBytes() < Integer.BYTES) {
-            throw new IllegalStateException("Buffer underflow");
+            throwUnderflow(Integer.BYTES);
         }
         return unsafeGetInt();
     }
     public long getLong() {
         if (readableBytes() < Long.BYTES) {
-            throw new IllegalStateException("Buffer underflow");
+            throwUnderflow(Long.BYTES);
         }
         return unsafeGetLong();
     }
@@ -282,9 +300,15 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
     public void getBytes(byte[] dst) {
         int len = dst.length;
         if (readableBytes() < len) {
-            throw new IllegalStateException("Buffer underflow");
+            throwUnderflow(len);
         }
         unsafeGetBytes(dst, len);
+    }
+    public void getBytes(byte[] dst, int offset, int length) {
+        if (readableBytes() < length) {
+            throwUnderflow(length);
+        }
+        unsafeGetBytes(dst, offset, length);
     }
 
     public void unsafePut(byte value) {
@@ -334,6 +358,15 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
         int writePos = (int) (tail & mask);
         int firstPartLen = Math.min(length, capacity - writePos);
         buffer.put(writePos, value, 0, firstPartLen);
+        if (length > firstPartLen) {
+            buffer.put(0, value, firstPartLen, length - firstPartLen);
+        }
+        tail += length;
+    }
+    public void unsafePut(byte[] value, int offset, int length) {
+        int writePos = (int) (tail & mask);
+        int firstPartLen = Math.min(length, capacity - writePos);
+        buffer.put(writePos, value, offset, firstPartLen);
         if (length > firstPartLen) {
             buffer.put(0, value, firstPartLen, length - firstPartLen);
         }
@@ -404,9 +437,273 @@ public class LoopBuffer extends SelfWrapperPool.SelfRecyclableWrapper<LoopBuffer
         }
         head += length;
     }
+    public void unsafeGetBytes(byte[] dst, int offset, int length) {
+        int readPos = (int) (head & mask);
+        int firstPartLen = Math.min(length, capacity - readPos);
+        buffer.get(readPos, dst, offset, firstPartLen);
+        if (length > firstPartLen) {
+            buffer.get(0, dst, firstPartLen, length - firstPartLen);
+        }
+        head += length;
+    }
 
     @Override
     protected void onRecycle() {
         clear();
+    }
+
+    private void throwOverflow(int required) {
+        throw new LoopBufferOverflowException(required, writableBytes());
+    }
+    private void throwUnderflow(int requested) {
+        throw new LoopBufferUnderflowException(requested, readableBytes());
+    }
+
+    /**
+     * 有限可读视图
+     *
+     * @author tbrtz647@outlook.com
+     * @since 2026/03/13
+     * @version 1.0.0
+     */
+    public class LimitedReadableView {
+        private int quota;
+
+        private LimitedReadableView() {}
+
+        public byte getByte() {
+            if (quota < Byte.BYTES) {
+                throwQuote(Byte.BYTES);
+            }
+            byte value = LoopBuffer.this.unsafeGetByte();
+            quota -= Byte.BYTES;
+            return value;
+        }
+        public short getShort() {
+            if (quota < Short.BYTES) {
+                throwQuote(Short.BYTES);
+            }
+            short value = LoopBuffer.this.unsafeGetShort();
+            quota -= Short.BYTES;
+            return value;
+        }
+        public int getInt() {
+            if (quota < Integer.BYTES) {
+                throwQuote(Integer.BYTES);
+            }
+            int value = LoopBuffer.this.unsafeGetInt();
+            quota -= Integer.BYTES;
+            return value;
+        }
+        public long getLong() {
+            if (quota < Long.BYTES) {
+                throwQuote(Long.BYTES);
+            }
+            long value = LoopBuffer.this.unsafeGetLong();
+            quota -= Long.BYTES;
+            return value;
+        }
+        public float getFloat() {
+            if (quota < Float.BYTES) {
+                throwQuote(Float.BYTES);
+            }
+            float value = LoopBuffer.this.unsafeGetFloat();
+            quota -= Float.BYTES;
+            return value;
+        }
+        public double getDouble() {
+            if (quota < Double.BYTES) {
+                throwQuote(Double.BYTES);
+            }
+            double value = LoopBuffer.this.unsafeGetDouble();
+            quota -= Double.BYTES;
+            return value;
+        }
+        public byte[] getBytes(int length) {
+            if (quota < length) {
+                throwQuote(length);
+            }
+            byte[] value = unsafeGetBytes(length);
+            quota -= length;
+            return value;
+        }
+        public void getBytes(byte[] dst, int offset, int length) {
+            if (quota < length) {
+                throwQuote(length);
+            }
+            unsafeGetBytes(dst, offset, length);
+            quota -= length;
+        }
+
+        public int writeTo(ByteBuffer dst) {
+            if (quota <= 0) {
+                return 0;
+            }
+            ByteBuffer[] views = readableViews();
+            int written = 0;
+            for (ByteBuffer src : views) {
+                int canWrite = Math.min(Math.min(src.remaining(), dst.remaining()), quota);
+                if (canWrite <= 0) {
+                    break;
+                }
+                src.limit(src.position() + canWrite);
+                dst.put(src);
+                written += canWrite;
+            }
+            advanceHead(written);
+            this.quota -= written;
+            return written;
+        }
+        public int writeTo(GatheringByteChannel dst) throws IOException {
+            if (quota <= 0) {
+                return 0;
+            }
+            ByteBuffer[] views = readableViews();
+            int remainingQuota = quota;
+            ByteBuffer v0 = views[0];
+            int len0 = v0.remaining();
+            int written;
+            if (len0 >= remainingQuota) {
+                v0.limit(v0.position() + remainingQuota);
+                written = dst.write(v0);
+            } else {
+                remainingQuota -= len0;
+                ByteBuffer v1 = views[1];
+                int len1 = v1.remaining();
+                if (len1 > remainingQuota) {
+                    v1.limit(v1.position() + remainingQuota);
+                }
+                written = (int) dst.write(views);
+            }
+            if (written > 0) {
+                advanceHead(written);
+                quota -= written;
+            }
+            return written;
+        }
+
+        private void throwQuote(int required) {
+            throw new LimitedViewQuotaException(quota, required);
+        }
+    }
+
+    /**
+     * 有限可写视图
+     *
+     * @author tbrtz647@outlook.com
+     * @since 2026/03/13
+     * @version 1.0.0
+     */
+    public class LimitedWritableView {
+        private int quota;
+
+        private LimitedWritableView() {}
+
+        public void putByte(byte value) {
+            if (quota < Byte.BYTES) {
+                throwQuote(Byte.BYTES);
+            }
+            unsafePut(value);
+            quota -= Byte.BYTES;
+        }
+        public void putShort(short value) {
+            if (quota < Short.BYTES) {
+                throwQuote(Short.BYTES);
+            }
+            unsafePut(value);
+            quota -= Short.BYTES;
+        }
+        public void putInt(int value) {
+            if (quota < Integer.BYTES) {
+                throwQuote(Integer.BYTES);
+            }
+            unsafePut(value);
+            quota -= Integer.BYTES;
+        }
+        public void putLong(long value) {
+            if (quota < Long.BYTES) {
+                throwQuote(Long.BYTES);
+            }
+            unsafePut(value);
+            quota -= Long.BYTES;
+        }
+        public void putFloat(float value) {
+            if (quota < Float.BYTES) {
+                throwQuote(Float.BYTES);
+            }
+            unsafePut(value);
+            quota -= Float.BYTES;
+        }
+        public void putDouble(double value) {
+            if (quota < Double.BYTES) {
+                throwQuote(Double.BYTES);
+            }
+            unsafePut(value);
+            quota -= Double.BYTES;
+        }
+        public void putBytes(byte[] value) {
+            if (quota < value.length) {
+                throwQuote(value.length);
+            }
+            unsafePut(value, value.length);
+            quota -= value.length;
+        }
+        public void putBytes(byte[] value, int offset, int length) {
+            if (quota < length) {
+                throwQuote(length);
+            }
+            unsafePut(value, offset, length);
+            quota -= length;
+        }
+
+        public int readFrom(ByteBuffer src) {
+            if (quota <= 0) {
+                return 0;
+            }
+            ByteBuffer[] views = writableViews();
+            int read = 0;
+            for (ByteBuffer dst : views) {
+                int canRead = Math.min(Math.min(dst.remaining(), src.remaining()), quota);
+                if (canRead <= 0) {
+                    break;
+                }
+                dst.limit(dst.position() + canRead);
+                dst.put(src);
+                read += canRead;
+            }
+            advanceTail(read);
+            quota -= read;
+            return read;
+        }
+        public int readFrom(ScatteringByteChannel src) throws IOException {
+            if (quota <= 0) {
+                return 0;
+            }
+            ByteBuffer[] views = writableViews();
+            int remainingQuota = quota;
+            ByteBuffer v0 = views[0];
+            int space0 = v0.remaining();
+            int read;
+            if (space0 >= remainingQuota) {
+                v0.limit(v0.position() + remainingQuota);
+                read = src.read(v0);
+            } else {
+                ByteBuffer v1 = views[1];
+                int v1LimitRequest = remainingQuota - space0;
+                if (v1.remaining() > v1LimitRequest) {
+                    v1.limit(v1.position() + v1LimitRequest);
+                }
+                read = (int) src.read(views);
+            }
+            if (read > 0) {
+                advanceTail(read);
+                quota -= read;
+            }
+            return read;
+        }
+
+        private void throwQuote(int required) {
+            throw new LimitedViewQuotaException(quota, required);
+        }
     }
 }

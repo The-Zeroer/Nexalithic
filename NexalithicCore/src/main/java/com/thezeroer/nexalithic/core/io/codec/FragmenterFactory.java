@@ -1,9 +1,16 @@
 package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
+import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.io.IOException;
@@ -16,6 +23,9 @@ import java.io.IOException;
  * @version 1.0.0
  */
 public class FragmenterFactory {
+    public static final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperPool_Capacity", 4096);
+    public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperQueue_Capacity", 64);
+
 
     @SuppressWarnings("unchecked")
     public static <P extends AbstractPacket> PacketFragmenter<P> create(AbstractPacket.PacketType packetType) {
@@ -36,7 +46,7 @@ public class FragmenterFactory {
         }
 
         @Override
-        public boolean fill(SignalingPacket[] packets) {
+        public boolean fill(SignalingPacket... packets) {
             int length = packets.length;
             if (QUEUE_CAPACITY - this.packets.size() < length * 4) {
                 return false;
@@ -88,11 +98,18 @@ public class FragmenterFactory {
     }
 
     static class BusinessPacketFragmenter implements PacketFragmenter<BusinessPacket<?>> {
-        private final MpscArrayQueue<BusinessPacket<?>> packets = new MpscArrayQueue<>(16);
+        public static final int MAX_PAYLOAD_SIZE = 1024 * 8;
+        private static final WrapperPool<BusinessPacketWrapper> WRAPPER_POOL = new TargetDynamicWrapperPool<>(
+            PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
+            PoolStrategy.alwaysCreate(),
+            BusinessPacketWrapper::new
+        );
+        private final MpscArrayQueue<BusinessPacketWrapper> packets = new MpscArrayQueue<>(WrapperQueue_Capacity.value());
+        private BusinessPacketWrapper head, last;
 
         @Override
         public boolean feed(BusinessPacket<?> packet) {
-            return packets.offer(packet);
+            return packets.offer((BusinessPacketWrapper) WRAPPER_POOL.acquire().wrap(packet));
         }
 
         @Override
@@ -102,12 +119,13 @@ public class FragmenterFactory {
 
         @Override
         public int drain(LoopBuffer target) throws IOException {
-            return 0;
+            int total = 0;
+            return total;
         }
 
         @Override
         public boolean isEmpty() {
-            return false;
+            return packets.isEmpty();
         }
 
         @Override

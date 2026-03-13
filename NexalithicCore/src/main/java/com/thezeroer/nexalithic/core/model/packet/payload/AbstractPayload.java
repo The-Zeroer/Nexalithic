@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.core.model.packet.payload;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.buffer.LoopBufferView;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -66,24 +65,22 @@ public abstract class AbstractPayload<T> {
     /**
      * <b>编码动作：</b>将业务对象（data）转换为二进制流并写入缓冲区。
      * <p>框架可能会多次调用此方法，直到 {@code processedSize == totalSize}。
-     * 开发者应根据 {@code output.writableBytes()} 判断单次写入量，并更新 {@code processedSize}。</p>
      *
      * @param output 目标输出视图
      * @return 本次实际写入的字节数
      * @throws Exception 如果业务逻辑转换出错
      */
-    public abstract int encode(LoopBufferView output) throws Exception;
+    public abstract int encode(LoopBuffer.LimitedWritableView output) throws Exception;
 
     /**
      * <b>解码动作：</b>从缓冲区读取二进制数据并填充/解析为业务对象（data）。
      * <p>框架可能会多次调用此方法，直到 {@code processedSize == totalSize}。
-     * 开发者应注意处理数据不足（Partial Data）的情况，并更新 {@code processedSize}。</p>
      *
      * @param input 源输入视图
      * @return 本次实际读取并解析的字节数
      * @throws Exception 如果格式校验或解析出错
      */
-    public abstract int decode(LoopBufferView input) throws Exception;
+    public abstract int decode(LoopBuffer.LimitedReadableView input) throws Exception;
 
     /**
      * 获取有效载荷的唯一标识（UID）。
@@ -110,7 +107,7 @@ public abstract class AbstractPayload<T> {
 
     /**
      * 编码准备钩子。
-     * <p>在第一次调用 {@link #encode(LoopBufferView)} 之前触发。用于打开资源或初始化编码状态机。</p>
+     * <p>在第一次调用 {@link #encode(LoopBuffer.LimitedWritableView)} 之前触发。用于打开资源或初始化编码状态机。</p>
      */
     public void prepareEncode() throws Exception {}
 

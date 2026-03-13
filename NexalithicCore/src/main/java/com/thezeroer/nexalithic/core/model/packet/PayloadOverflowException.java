@@ -1,4 +1,6 @@
-package com.thezeroer.nexalithic.core.exception;
+package com.thezeroer.nexalithic.core.model.packet;
+
+import com.thezeroer.nexalithic.core.exception.NexalithicException;
 
 /**
  * 有效载荷溢出异常

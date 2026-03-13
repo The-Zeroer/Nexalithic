@@ -2,8 +2,7 @@ package com.thezeroer.nexalithic.server.lifecycle.accept.filter;
 
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
-import com.thezeroer.nexalithic.core.recyclable.TargetWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -33,7 +32,7 @@ import java.nio.channels.SocketChannel;
  * @version 1.0.0
  * @see FiltrationStrategy
  */
-public class FiltrationContext extends SelfWrapperPool.SelfRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
+public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
     private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;

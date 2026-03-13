@@ -1,9 +1,7 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
-import com.thezeroer.nexalithic.core.recyclable.TargetWrapperPool;
-import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
@@ -22,7 +20,7 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel extends SelfWrapperPool.SelfRecyclableWrapper<PendingChannel> implements NexalithicChannel {
+public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel {
     public enum State {
         STEP_0,
         STEP_1,

@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.model.packet.payload;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBufferView;
+import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 
 import java.io.File;
 
@@ -13,12 +13,12 @@ import java.io.File;
  */
 public class FilePayload extends AbstractPayload<File> {
     @Override
-    public int encode(LoopBufferView output) throws Exception {
+    public int encode(LoopBuffer.LimitedWritableView output) throws Exception {
         return 0;
     }
 
     @Override
-    public int decode(LoopBufferView input) throws Exception {
+    public int decode(LoopBuffer.LimitedReadableView input) throws Exception {
         return 0;
     }
 

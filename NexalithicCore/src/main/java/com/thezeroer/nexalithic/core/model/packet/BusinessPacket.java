@@ -1,6 +1,5 @@
 package com.thezeroer.nexalithic.core.model.packet;
 
-import com.thezeroer.nexalithic.core.exception.PayloadOverflowException;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 
 import java.util.ArrayList;
@@ -15,14 +14,6 @@ import java.util.List;
  */
 public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket {
     public static final int MAX_PATH_DEPTH = Byte.MAX_VALUE;
-    /** 优先级紧急 */
-    public static final byte PRIORITY_URGENT = -128;
-    /** 优先级高 */
-    public static final byte PRIORITY_HIGH = -64;
-    /** 优先级普通 */
-    public static final byte PRIORITY_NORMAL = 0;
-    /** 优先级低 */
-    public static final byte PRIORITY_LOW = 127;
     public enum Way {
         DEFAULT,
 
@@ -45,7 +36,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
     }
 
     private static final Way[] WAYS = Way.values();
-    private byte suggestedPriority = PRIORITY_NORMAL;
 
     private short way;
     private long taskId;
@@ -109,11 +99,15 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
         }
         return payloads.getLast();
     }
+
+    public final Way getWay() {
+        return WAYS[way];
+    }
     public final byte getPayloadCount() {
         return payloadCount;
     }
-    public final Way getWay() {
-        return WAYS[way];
+    public final long getTotalSize() {
+        return totalSize;
     }
 
     public final BusinessPacket<P> setPacketIndex(byte packetIndex) {
@@ -129,20 +123,6 @@ public class BusinessPacket<P extends AbstractPayload<?>> extends AbstractPacket
     }
     public final long getTaskId() {
         return taskId;
-    }
-
-    /**
-     * 设置建议优先级，小值优先
-     *
-     * @param suggestedPriority 建议优先级
-     * @return {@link BusinessPacket }
-     */
-    public final BusinessPacket<?> setSuggestedPriority(byte suggestedPriority) {
-        this.suggestedPriority = suggestedPriority;
-        return this;
-    }
-    public final byte getSuggestedPriority() {
-        return suggestedPriority;
     }
 
     @Override

@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.model.packet.payload;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBufferView;
+import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 
 /**
  * 文本有效载荷
@@ -11,12 +11,12 @@ import com.thezeroer.nexalithic.core.io.buffer.LoopBufferView;
  */
 public class TextPayload extends AbstractPayload<String> {
     @Override
-    public int encode(LoopBufferView output) throws Exception {
+    public int encode(LoopBuffer.LimitedWritableView output) throws Exception {
         return 0;
     }
 
     @Override
-    public int decode(LoopBufferView input) throws Exception {
+    public int decode(LoopBuffer.LimitedReadableView input) throws Exception {
         return 0;
     }
 

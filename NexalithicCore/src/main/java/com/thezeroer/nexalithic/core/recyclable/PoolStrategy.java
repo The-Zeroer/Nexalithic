@@ -56,8 +56,9 @@ public interface PoolStrategy<W> {
      */
     default void afterRelease() {}
 
+    @SuppressWarnings("unchecked")
     static <W> PoolStrategy<W> alwaysCreate() {
-        return new AlwaysCreateStrategy<>();
+        return (PoolStrategy<W>) AlwaysCreateStrategy.INSTANCE;
     }
     static <W> PoolStrategy<W> failFast(int max) {
         return new FailFastStrategy<>(max);
@@ -80,6 +81,7 @@ public interface PoolStrategy<W> {
      * @version 1.0.0
      */
     record AlwaysCreateStrategy<W>() implements PoolStrategy<W> {
+        public static final AlwaysCreateStrategy<Object> INSTANCE = new AlwaysCreateStrategy<>();
     }
 
     /**

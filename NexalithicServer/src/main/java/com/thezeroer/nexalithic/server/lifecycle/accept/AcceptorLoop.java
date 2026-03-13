@@ -6,7 +6,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.SelfWrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -45,12 +45,12 @@ public class AcceptorLoop extends AbstractLoop {
 
     public AcceptorLoop(LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
         this.handshakeLoopBalancer = handshakeLoopBalancer;
-        filtrationContextPool = new SelfWrapperPool<>(
+        filtrationContextPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(new MpscArrayQueue<>(FiltrationContextPool_Capacity.value()), FiltrationContextPool_Capacity.value()),
                 PoolStrategy.blocking(FiltrationContextPool_Limit.value()),
                 () -> new FiltrationContext(handshakeLoopBalancer)
         ).warmUp(FiltrationContextPool_PrefillRatio.value());
-        pendingChannelPool = new SelfWrapperPool<>(
+        pendingChannelPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(new MpscArrayQueue<>(PendingChannelPool_Capacity.value()), PendingChannelPool_Capacity.value()),
                 PoolStrategy.blocking(PendingChannelPool_Limit.value()),
                 PendingChannel::new

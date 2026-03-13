@@ -1,4 +1,6 @@
-package com.thezeroer.nexalithic.core.exception;
+package com.thezeroer.nexalithic.core.model.packet;
+
+import com.thezeroer.nexalithic.core.exception.NexalithicException;
 
 /**
  * 当多个 Payload 类产生了相同的 IdentityCode 时抛出

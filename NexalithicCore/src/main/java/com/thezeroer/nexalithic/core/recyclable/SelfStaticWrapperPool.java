@@ -2,35 +2,34 @@ package com.thezeroer.nexalithic.core.recyclable;
 
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 
-import java.util.Queue;
 import java.util.function.Supplier;
 
 /**
  * <h2>自包装器池 (Self-Wrapper Pool)</h2>
  *
- * <p>Nexalithic 框架的高性能核心组件，专门用于管理 {@link SelfRecyclableWrapper} 及其子类。
+ * <p>Nexalithic 框架的高性能核心组件，专门用于管理 {@link InteriorRecyclableWrapper} 及其子类。
  * 该组件通过“身兼两职”的设计，消除了池化中 Wrapper 与 Target 之间的解引用开销。</p>
  *
- * @param <W> 必须继承自 {@link SelfRecyclableWrapper} 的具体实现类型
+ * @param <W> 必须继承自 {@link InteriorRecyclableWrapper} 的具体实现类型
  * @author tbrtz647@outlook.com
  * @since 2026/03/10
  */
-public class SelfWrapperPool<W extends SelfWrapperPool.SelfRecyclableWrapper<W>> extends AbstractWrapperPool<W, W> {
-    protected final Supplier<W> factory;
+public class SelfStaticWrapperPool<W extends SelfStaticWrapperPool.InteriorRecyclableWrapper<W>> extends AbstractWrapperPool<W, W> {
+    protected final Supplier<W> wrapperFactory;
 
     /**
      * 构造一个新的自包装池。
      * @param storage 外部提供的无锁或高并发存储容器
-     * @param factory 用户定义的实例工厂，通常为 {@code MyWrapper::new}
+     * @param wrapperFactory 用户定义的实例工厂，通常为 {@code MyWrapper::new}
      */
-    public SelfWrapperPool(PoolStorage<W> storage, PoolStrategy<W> strategy, Supplier<W> factory) {
+    public SelfStaticWrapperPool(PoolStorage<W> storage, PoolStrategy<W> strategy, Supplier<W> wrapperFactory) {
         super(storage, strategy);
-        this.factory = factory;
+        this.wrapperFactory = wrapperFactory;
     }
 
     @Override
-    protected W create() {
-        return factory.get();
+    protected final W create() {
+        return wrapperFactory.get();
     }
 
     /**
@@ -51,11 +50,11 @@ public class SelfWrapperPool<W extends SelfWrapperPool.SelfRecyclableWrapper<W>>
      * @since 2026/03/10
      */
     @SuppressWarnings("unchecked")
-    public abstract static class SelfRecyclableWrapper<W extends SelfRecyclableWrapper<W>> implements RecyclableWrapper<W> {
+    public abstract static class InteriorRecyclableWrapper<W extends InteriorRecyclableWrapper<W>> implements RecyclableWrapper<W> {
         private final ProxyRecycler<? super W> recycler;
         private final W self;
 
-        protected SelfRecyclableWrapper() {
+        protected InteriorRecyclableWrapper() {
             if (Thread.currentThread() instanceof LoopThread loopThread) {
                 this.recycler = loopThread.consumeProxyRecycler();
             } else {
