@@ -92,8 +92,12 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
         eventQueue.add(() -> {
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                selectionKey.attach(session.getChannel(packetType).updateSelectionKey(selectionKey));
+                ClientSessionChannel<?> channel = (ClientSessionChannel<?>) session.getChannel(packetType);
+                selectionKey.attach(channel.updateSelectionKey(selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
+                if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    channel.applyTargetInterest();
+                }
             } catch (IOException e) {
                 logger.error("[{}] channel updateSelectionKey failed", packetType, e);
             }
@@ -112,8 +116,8 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
         }
         return true;
     }
-    public boolean pushBusinessPacket(BusinessPacket<?> packet) {
-        ClientSessionChannel<BusinessPacket<?>> channel = session.getBusinessChannel();
+    public boolean pushBusinessPacket(BusinessPacket packet) {
+        ClientSessionChannel<BusinessPacket> channel = session.getBusinessChannel();
         if (!channel.put(packet)) {
             return false;
         }
@@ -154,7 +158,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
                         handleSignalPacket(packet);
                     }
                 } else {
-                    while (channel.get() instanceof BusinessPacket<?> packet) {
+                    while (channel.get() instanceof BusinessPacket packet) {
                         handleBusinessPacket(packet);
                     }
                 }
@@ -182,7 +186,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
             throw new RuntimeException(e);
         }
     }
-    private void handleBusinessPacket(BusinessPacket<?> packet) {
+    private void handleBusinessPacket(BusinessPacket packet) {
 
     }
 

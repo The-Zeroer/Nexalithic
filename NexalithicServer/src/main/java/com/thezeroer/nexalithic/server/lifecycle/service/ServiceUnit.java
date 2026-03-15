@@ -46,9 +46,9 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
         return workerLoops;
     }
 
-    public boolean pushBusinessPacket(ServerSession session, BusinessPacket<?> packet) {
-        ServerSessionChannel<BusinessPacket<?>> channel = session.getBusinessChannel();
-        ServiceLoop<ServerSessionChannel<BusinessPacket<?>>, BusinessPacket<?>> loop = channel.getServiceLoop();
+    public boolean pushBusinessPacket(ServerSession session, BusinessPacket packet) {
+        ServerSessionChannel<BusinessPacket> channel = session.getBusinessChannel();
+        ServiceLoop<ServerSessionChannel<BusinessPacket>, BusinessPacket> loop = channel.getServiceLoop();
         if (loop != null) {
             return loop.pushPacket(channel, packet);
         }

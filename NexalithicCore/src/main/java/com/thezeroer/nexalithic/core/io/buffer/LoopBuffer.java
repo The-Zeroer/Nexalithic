@@ -32,7 +32,7 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
 
     private final int capacity, mask;
     private long tail, head;
-    private long markedHead = -1; // -1 表示当前没有标记
+    private long markedTail = -1, markedHead = -1; // -1 表示当前没有标记
 
     /**
      * 初始化环形缓冲区。
@@ -154,6 +154,60 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         this.head += amount;
     }
 
+    /**
+     * 记录当前读位置
+     */
+    public void markHead() {
+        markedHead = head;
+    }
+    /**
+     * 将读位置回滚到上次标记的地方
+     */
+    public void resetHead() {
+        if (markedHead != -1) {
+            head = markedHead;
+            markedHead = -1;
+        }
+    }
+    /**
+     * 丢弃标记
+     */
+    public void dropMarkHead() {
+        markedHead = -1;
+    }
+
+    public void markTail() {
+        markedTail = tail;
+    }
+    public void resetTail() {
+        if (markedTail != -1) {
+            tail = markedTail;
+            markedTail = -1;
+        }
+    }
+    public void dropMarkTail() {
+        markedTail = -1;
+    }
+
+    public long getMarkedTail() {
+        return markedTail;
+    }
+    public long getMarkedHead() {
+        return markedHead;
+    }
+    public long getTail() {
+        return tail;
+    }
+    public long getHead() {
+        return head;
+    }
+    public void setHead(long head) {
+        this.head = head;
+    }
+    public void setTail(long tail) {
+        this.tail = tail;
+    }
+
     /** 是否为空 */
     public boolean isEmpty() {
         return tail == head;
@@ -170,28 +224,6 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
     /** 获取剩余可写空间 */
     public int writableBytes() {
         return capacity - readableBytes();
-    }
-
-    /**
-     * 记录当前读位置
-     */
-    public void mark() {
-        this.markedHead = this.head;
-    }
-    /**
-     * 将读位置回滚到上次标记的地方
-     */
-    public void reset() {
-        if (markedHead != -1) {
-            this.head = markedHead;
-            this.markedHead = -1;
-        }
-    }
-    /**
-     * 丢弃标记
-     */
-    public void dropMark() {
-        this.markedHead = -1;
     }
 
     /**
@@ -582,6 +614,10 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
             return written;
         }
 
+        public int remaining() {
+            return quota;
+        }
+
         private void throwQuote(int required) {
             throw new LimitedViewQuotaException(quota, required);
         }
@@ -700,6 +736,10 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
                 quota -= read;
             }
             return read;
+        }
+
+        public int remaining() {
+            return quota;
         }
 
         private void throwQuote(int required) {

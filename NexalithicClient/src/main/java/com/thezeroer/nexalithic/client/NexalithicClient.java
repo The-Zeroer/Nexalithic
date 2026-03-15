@@ -56,7 +56,7 @@ public class NexalithicClient {
         generalLoop.getNetworkRouter().setServerHost(remote.getAddress().getHostAddress());
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
-    public boolean push(BusinessPacket<?> packet) {
+    public boolean push(BusinessPacket packet) {
         return generalLoop.pushBusinessPacket(packet);
     }
 

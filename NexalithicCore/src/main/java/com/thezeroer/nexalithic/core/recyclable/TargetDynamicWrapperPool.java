@@ -76,11 +76,10 @@ public class TargetDynamicWrapperPool <T, W extends TargetDynamicWrapperPool.Int
 
         @Override
         public final void recycle() {
-            T currentTarget = this.target;
-            onRecycle(currentTarget);
+            onRecycle();
             this.target = null;
             if (!recycler.release(self)) {
-                onOverflow(currentTarget);
+                onOverflow();
             }
         }
 
@@ -89,10 +88,8 @@ public class TargetDynamicWrapperPool <T, W extends TargetDynamicWrapperPool.Int
             return target;
         }
 
-        protected void onWrap(T target) {
-
-        }
-        protected void onRecycle(T target) {}
-        protected void onOverflow(T target) {}
+        protected void onWrap(T target) {}
+        protected void onRecycle() {}
+        protected void onOverflow() {}
     }
 }

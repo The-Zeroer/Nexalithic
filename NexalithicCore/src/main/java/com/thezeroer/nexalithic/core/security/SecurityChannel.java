@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.core.security;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -19,9 +18,9 @@ import java.security.InvalidKeyException;
  */
 public abstract class SecurityChannel {
     public static final int CHANNEL_TOKEN_LENGTH = SecretKeyUtils.ECDH_LENGTH;
-    public static final int FRAME_HEAD_LENGTH = Short.BYTES;
+    public static final int FRAME_HEADER_LENGTH = Short.BYTES;
     public static final int MAX_FRAME_SIZE = 1024 * 16;
-    public static final int MAX_PAYLOAD_SIZE = MAX_FRAME_SIZE - FRAME_HEAD_LENGTH - SecretKeyContext.TAG_LENGTH;
+    public static final int MAX_PAYLOAD_SIZE = MAX_FRAME_SIZE - FRAME_HEADER_LENGTH - SecretKeyContext.TAG_LENGTH;
     private final SecretKeyContext secretKeyContext;
 
     public SecurityChannel(SecretKeyContext secretKeyContext) {
@@ -59,12 +58,12 @@ public abstract class SecurityChannel {
 
     /** 解密 */
     protected final void decrypt(LoopBuffer srcBuffer, LoopBuffer dstBuffer) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
-        while (srcBuffer.readableBytes() > FRAME_HEAD_LENGTH) {
-            srcBuffer.mark();
+        while (srcBuffer.readableBytes() > FRAME_HEADER_LENGTH) {
+            srcBuffer.markHead();
             int payloadLength = srcBuffer.getShort();
             int cipherLength = payloadLength + SecretKeyContext.TAG_LENGTH;
             if (srcBuffer.readableBytes() < cipherLength || dstBuffer.writableBytes() < payloadLength) {
-                srcBuffer.reset();
+                srcBuffer.resetHead();
                 break;
             }
             ByteBuffer[] srcs = srcBuffer.readableViews();

@@ -19,7 +19,7 @@ public class LoopBufferPool extends SelfStaticWrapperPool<LoopBuffer> {
     public static final LoopBufferPool INSTANCE = new LoopBufferPool(
             PoolStorage.of(new MpscArrayQueue<>(1024), 1024),
             PoolStrategy.alwaysCreate(),
-            () -> new LoopBuffer(ByteBuffer.allocate(1024 * 16)));
+            () -> new LoopBuffer(ByteBuffer.allocate(1024 * 64)));
 
     public LoopBufferPool(PoolStorage<LoopBuffer> storage, PoolStrategy<LoopBuffer> strategy, Supplier<LoopBuffer> factory) {
         super(storage, strategy, factory);

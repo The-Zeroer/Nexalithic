@@ -41,9 +41,28 @@ public abstract class AbstractWrapperPool<T, W extends RecyclableWrapper<T>> imp
         if (prefillRatio < 0.0 || prefillRatio > 1.0) {
             throw new IllegalArgumentException("Prefill ratio must be between 0.0 and 1.0");
         }
-        for (int i = 0; i < (int) (storage.capacity() * prefillRatio); i++) {
-            if (!storage.offer(create())) {
-                break;
+        if (Thread.currentThread() instanceof LoopThread loopThread) {
+            for (int i = 0; i < (int) (storage.capacity() * prefillRatio); i++) {
+                loopThread.productionProxyRecycler(recycler);
+                try {
+                    if (!storage.offer(create())) {
+                        break;
+                    }
+                } catch (Exception e) {
+                    loopThread.consumeProxyRecycler();
+                    throw e;
+                }
+            }
+        } else {
+            for (int i = 0; i < (int) (storage.capacity() * prefillRatio); i++) {
+                INJECTOR.set(recycler);
+                try {
+                    if (!storage.offer(create())) {
+                        break;
+                    }
+                } finally {
+                    INJECTOR.remove();
+                }
             }
         }
         return this;

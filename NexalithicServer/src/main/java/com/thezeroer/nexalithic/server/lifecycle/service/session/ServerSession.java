@@ -17,15 +17,15 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ServerSession extends NexalithicSession<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket<?>>> {
-    private static final ChannelFactory<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket<?>>> FACTORY = new ChannelFactory<>() {
+public class ServerSession extends NexalithicSession<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket>> {
+    private static final ChannelFactory<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket>> FACTORY = new ChannelFactory<>() {
         @Override
         public ServerSessionChannel<SignalingPacket> createSignaling(ServerSession session, SecretKeyContext key) {
             return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
         }
 
         @Override
-        public ServerSessionChannel<BusinessPacket<?>> createBusiness(ServerSession session, SecretKeyContext key) {
+        public ServerSessionChannel<BusinessPacket> createBusiness(ServerSession session, SecretKeyContext key) {
             return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
         }
     };

@@ -15,7 +15,7 @@ import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
  * @version 1.0.0
  */
 @SuppressWarnings("unchecked")
-public class NexalithicSession <S extends NexalithicSession<S, SC, BC>, SC extends SessionChannel<SignalingPacket, S>, BC extends SessionChannel<BusinessPacket<?>, S>>{
+public class NexalithicSession <S extends NexalithicSession<S, SC, BC>, SC extends SessionChannel<SignalingPacket, S>, BC extends SessionChannel<BusinessPacket, S>>{
     public static final int SESSION_ID_LENGTH = 32;
     private final long creationTime;
     private final SessionId sessionId;

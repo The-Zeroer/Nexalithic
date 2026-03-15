@@ -219,7 +219,7 @@ public class NexalithicServer {
         }
     }
 
-    public boolean push(String sessionName, BusinessPacket<?> packet) {
+    public boolean push(String sessionName, BusinessPacket packet) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return false;

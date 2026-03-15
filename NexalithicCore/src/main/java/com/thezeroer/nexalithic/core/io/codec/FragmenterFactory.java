@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketWrapper;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -14,6 +14,7 @@ import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 分片器工厂
@@ -28,14 +29,14 @@ public class FragmenterFactory {
 
 
     @SuppressWarnings("unchecked")
-    public static <P extends AbstractPacket> PacketFragmenter<P> create(AbstractPacket.PacketType packetType) {
-        return (PacketFragmenter<P>) switch (packetType) {
-            case SIGNALING -> new SignalingPacketFragmenter();
-            case BUSINESS -> new BusinessPacketFragmenter();
+    public static <P extends AbstractPacket> PacketsFragmenter<P> create(AbstractPacket.PacketType packetType) {
+        return (PacketsFragmenter<P>) switch (packetType) {
+            case SIGNALING -> new SignalingPacketsFragmenter();
+            case BUSINESS -> new BusinessPacketsFragmenter();
         };
     }
 
-    static class SignalingPacketFragmenter implements PacketFragmenter<SignalingPacket> {
+    static class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPacket> {
         public static final int QUEUE_CAPACITY = 256;
         private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(QUEUE_CAPACITY);
         private SignalingPacket currentPacket;
@@ -97,40 +98,97 @@ public class FragmenterFactory {
         }
     }
 
-    static class BusinessPacketFragmenter implements PacketFragmenter<BusinessPacket<?>> {
-        public static final int MAX_PAYLOAD_SIZE = 1024 * 8;
-        private static final WrapperPool<BusinessPacketWrapper> WRAPPER_POOL = new TargetDynamicWrapperPool<>(
+    static class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPacket> {
+        public static final int MAX_LINKED_COUNT = 64;
+        private static final WrapperPool<BusinessPacketFragmentWrapper> WRAPPER_POOL = new TargetDynamicWrapperPool<>(
             PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
             PoolStrategy.alwaysCreate(),
-            BusinessPacketWrapper::new
+            BusinessPacketFragmentWrapper::new
         );
-        private final MpscArrayQueue<BusinessPacketWrapper> packets = new MpscArrayQueue<>(WrapperQueue_Capacity.value());
-        private BusinessPacketWrapper head, last;
+        private final MpscArrayQueue<BusinessPacketFragmentWrapper> packets = new MpscArrayQueue<>(WrapperQueue_Capacity.value());
+        private final AtomicInteger currentLinkedCount = new AtomicInteger(0);
+        private BusinessPacketFragmentWrapper head, last;
 
         @Override
-        public boolean feed(BusinessPacket<?> packet) {
-            return packets.offer((BusinessPacketWrapper) WRAPPER_POOL.acquire().wrap(packet));
+        public boolean feed(BusinessPacket packet) {
+            if (currentLinkedCount.get() >= MAX_LINKED_COUNT) {
+                return false;
+            }
+            return packets.offer((BusinessPacketFragmentWrapper) WRAPPER_POOL.acquire().wrap(packet));
         }
 
         @Override
-        public boolean fill(BusinessPacket<?>... p) {
+        public boolean fill(BusinessPacket... p) {
             return false;
         }
 
         @Override
         public int drain(LoopBuffer target) throws IOException {
-            int total = 0;
+            int total = 0, written;
+            BusinessPacketFragmentWrapper wrapper;
+            while ((wrapper = packets.poll()) != null) {
+                written = wrapper.nextFrame(target);
+                total += written;
+                if (wrapper.hasFrame()) {
+                    if (head == null) {
+                        head = wrapper;
+                        last = wrapper;
+                    }
+                    head.setPrev(wrapper);
+                    currentLinkedCount.incrementAndGet();
+                } else {
+                    wrapper.recycle();
+                }
+                if (written == 0) {
+                    break;
+                }
+            }
+            wrapper = last;
+            while (wrapper != null) {
+                written = wrapper.nextFrame(target);
+                if (written == 0) {
+                    break;
+                }
+                total += written;
+                if (wrapper.hasFrame()) {
+                    wrapper = wrapper.getNext();
+                } else {
+                    BusinessPacketFragmentWrapper next = wrapper.removeSelfAndGetNext();
+                    currentLinkedCount.decrementAndGet();
+                    if (next == null) {
+                        wrapper.recycle();
+                        head = null;
+                        last = null;
+                        break;
+                    }
+                    if (wrapper == head) {
+                        head = next;
+                    }
+                    wrapper.recycle();
+                    wrapper = next;
+                }
+                last = wrapper;
+            }
             return total;
         }
 
         @Override
         public boolean isEmpty() {
-            return packets.isEmpty();
+            return packets.isEmpty() && currentLinkedCount.get() == 0;
         }
 
         @Override
         public void clear() {
-
+            packets.clear();
+            BusinessPacketFragmentWrapper wrapper = head;
+            while (wrapper != null) {
+                BusinessPacketFragmentWrapper next = wrapper.removeSelfAndGetNext();
+                wrapper.recycle();
+                wrapper = next;
+            }
+            currentLinkedCount.set(0);
+            head = null;
+            last = null;
         }
     }
 }

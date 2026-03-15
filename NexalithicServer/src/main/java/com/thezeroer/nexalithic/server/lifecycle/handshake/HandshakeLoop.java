@@ -190,6 +190,8 @@ public class HandshakeLoop extends AbstractLoop {
                 if (!readBuffers[0].hasRemaining()) {
                     ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
                     if (session != null) {
+                        key.cancel();
+                        loadScore.decrement();
                         session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
                     } else {
                         closeChannel(key, channel);

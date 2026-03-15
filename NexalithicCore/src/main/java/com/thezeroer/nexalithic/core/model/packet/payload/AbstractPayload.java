@@ -2,6 +2,7 @@ package com.thezeroer.nexalithic.core.model.packet.payload;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +21,7 @@ import java.util.zip.CRC32;
  */
 public abstract class AbstractPayload<T> {
     /** 具体的业务数据对象 */
-    protected T data;
+    protected T value;
     /** 数据的总字节大小（用于进度控制和长度校验） */
     protected long totalSize;
     /** 当前已编解码处理的字节大小 */
@@ -29,19 +30,19 @@ public abstract class AbstractPayload<T> {
     public AbstractPayload() {}
 
     /**
-     * 获取业务数据对象。
-     * @return T
+     * 设置业务数据对象。
+     * @param value 数据实例
      */
-    public final T getData() {
-        return data;
+    public void value(T value) {
+        this.value = value;
     }
 
     /**
-     * 设置业务数据对象。
-     * @param data 数据实例
+     * 获取业务数据对象。
+     * @return T
      */
-    public final void setData(T data) {
-        this.data = data;
+    public final T value() {
+        return value;
     }
 
     /**
@@ -68,9 +69,9 @@ public abstract class AbstractPayload<T> {
      *
      * @param output 目标输出视图
      * @return 本次实际写入的字节数
-     * @throws Exception 如果业务逻辑转换出错
+     * @throws IOException 如果业务逻辑转换出错
      */
-    public abstract int encode(LoopBuffer.LimitedWritableView output) throws Exception;
+    public abstract int encode(LoopBuffer.LimitedWritableView output) throws IOException;
 
     /**
      * <b>解码动作：</b>从缓冲区读取二进制数据并填充/解析为业务对象（data）。
@@ -78,9 +79,9 @@ public abstract class AbstractPayload<T> {
      *
      * @param input 源输入视图
      * @return 本次实际读取并解析的字节数
-     * @throws Exception 如果格式校验或解析出错
+     * @throws IOException 如果格式校验或解析出错
      */
-    public abstract int decode(LoopBuffer.LimitedReadableView input) throws Exception;
+    public abstract int decode(LoopBuffer.LimitedReadableView input) throws IOException;
 
     /**
      * 获取有效载荷的唯一标识（UID）。
@@ -109,13 +110,13 @@ public abstract class AbstractPayload<T> {
      * 编码准备钩子。
      * <p>在第一次调用 {@link #encode(LoopBuffer.LimitedWritableView)} 之前触发。用于打开资源或初始化编码状态机。</p>
      */
-    public void prepareEncode() throws Exception {}
+    public void prepareEncode() throws IOException {}
 
     /**
      * 编码完成钩子。
      * <p>在所有数据编码完毕（processedSize == totalSize）后触发。</p>
      */
-    public void finishEncode() throws Exception {}
+    public void finishEncode() throws IOException {}
 
     /**
      * 解码准备钩子。
@@ -123,7 +124,7 @@ public abstract class AbstractPayload<T> {
      *
      * @param totalSize 报文头部声明的总数据大小
      */
-    public void prepareDecode(long totalSize) throws Exception {
+    public void prepareDecode(long totalSize) throws IOException {
         this.totalSize = totalSize;
     }
 
@@ -131,7 +132,7 @@ public abstract class AbstractPayload<T> {
      * 解码完成钩子。
      * <p>在成功解析完整数据后触发。常用于执行业务逻辑前的最终校验或数据合并。</p>
      */
-    public void finishDecode() throws Exception {}
+    public void finishDecode() throws IOException {}
 
     /**
      * 资源清理钩子。

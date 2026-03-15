@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.core.model.packet.payload;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 
 import java.io.File;
+import java.io.IOException;
 
 /**
  * 文件有效载荷
@@ -13,12 +14,12 @@ import java.io.File;
  */
 public class FilePayload extends AbstractPayload<File> {
     @Override
-    public int encode(LoopBuffer.LimitedWritableView output) throws Exception {
+    public int encode(LoopBuffer.LimitedWritableView output) throws IOException {
         return 0;
     }
 
     @Override
-    public int decode(LoopBuffer.LimitedReadableView input) throws Exception {
+    public int decode(LoopBuffer.LimitedReadableView input) throws IOException {
         return 0;
     }
 
