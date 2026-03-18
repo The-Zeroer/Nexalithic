@@ -46,6 +46,7 @@ public abstract class SessionChannel<
     private final AbstractPacket.PacketType type;
     private final PacketsFragmenter<P> fragmenter;
     private final PacketsAssembler<P> assembler;
+    private volatile L loop;
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
     private volatile InetSocketAddress remoteAddress;
@@ -65,7 +66,7 @@ public abstract class SessionChannel<
     public final boolean becomeConnecting() {
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public final SessionChannel<P, S, L> updateSelectionKey(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, S, L> updateChannel(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -83,6 +84,10 @@ public abstract class SessionChannel<
         this.targetInterest.set(selectionKey.interestOps());
         this.state.set(State.Connected);
         return this;
+    }
+    public final SessionChannel<P, S, L> updateChannel(L loop, SelectionKey selectionKey) throws IOException {
+        this.loop = loop;
+        return updateChannel(selectionKey);
     }
     public final boolean updateChannelInterest(int interest, boolean enable) {
         while (true) {
@@ -178,6 +183,9 @@ public abstract class SessionChannel<
     public final S session() {
         return session;
     }
+    public final L localLoop() {
+        return loop;
+    }
     public final AbstractPacket.PacketType getType() {
         return type;
     }
@@ -191,11 +199,10 @@ public abstract class SessionChannel<
         return remoteAddress;
     }
 
-    public abstract L localLoop();
 
     @Override
     public final void close() {
-        if (state.compareAndSet(State.Connected, State.Unconnected)) {
+        if (state.compareAndSet(State.Connected, State.Unconnected) || state.compareAndSet(State.Connecting, State.Unconnected)) {
             try {
                 if (selectionKey != null) {
                     selectionKey.cancel();
@@ -218,6 +225,7 @@ public abstract class SessionChannel<
             }
             fragmenter.clear();
             assembler.clear();
+            loop = null;
         }
     }
 }

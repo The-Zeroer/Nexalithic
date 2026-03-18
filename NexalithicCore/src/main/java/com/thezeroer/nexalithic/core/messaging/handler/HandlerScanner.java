@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class HandlerScanner {
 
-    public static <HC extends HandlerContext<?, ?, ?>> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry<HC> registry) throws Throwable {
+    public static <HC extends HandlerContext> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry<HC> registry) throws Throwable {
         List<Class<?>> classes = ClassScanner.scan(packageName);
         for (Class<?> clazz : classes) {
             HandlerMapping classAnnotation = clazz.getAnnotation(HandlerMapping.class);
@@ -37,7 +37,7 @@ public class HandlerScanner {
             }
         }
     }
-    private static <HC extends HandlerContext<?, ?, ?>> NexalithicHandler<HC> createHandler(Object bean, Method method) throws Throwable {
+    private static <HC extends HandlerContext> NexalithicHandler<HC> createHandler(Object bean, Method method) throws Throwable {
         MethodHandles.Lookup lookup = MethodHandles.lookup();
         MethodHandle methodHandle = lookup.unreflect(method);
         MethodType methodType = MethodType.methodType(void.class, HandlerContext.class);

@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.client;
 
+import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
@@ -23,6 +24,10 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -69,6 +74,12 @@ public class NexalithicClient {
     public static class Builder {
         private ClientSecurityPolicy securityPolicy;
         private HandlerRegistry<ClientHandlerContext> registry;
+        private ExecutorService businessPacketDispatcherThreadPool;
+
+        public Builder() {
+            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(4, 8,
+                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+        }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
             option.set(value);
@@ -103,9 +114,19 @@ public class NexalithicClient {
             return this;
         }
 
+        public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
+            this.businessPacketDispatcherThreadPool = threadPool;
+            return this;
+        }
+
         public NexalithicClient build() throws Exception {
             verifyOptions();
-            GeneralLoop generalLoop = new GeneralLoop(securityPolicy);
+
+            if (registry == null) {
+                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            }
+            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(registry, businessPacketDispatcherThreadPool);
+            GeneralLoop generalLoop = new GeneralLoop(securityPolicy, dispatcher);
 
             return new NexalithicClient(generalLoop);
         }

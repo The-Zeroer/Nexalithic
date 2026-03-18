@@ -232,7 +232,7 @@ public class NexalithicServer {
         if (session == null) {
             return false;
         }
-        return session.getServiceUnit().pushBusinessPacket(session, packet);
+        return session.pushBusinessPacket(packet);
     }
 
     public static class Builder {
@@ -294,6 +294,9 @@ public class NexalithicServer {
             verifyOptions();
             SessionsManager manager = new SessionsManager();
             NetworkRouter router = new NetworkRouter();
+            if (registry == null) {
+                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            }
             ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(registry, businessPacketDispatcherThreadPool);
 
             ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];

@@ -31,6 +31,14 @@ public class ClientSession extends NexalithicSession<ClientSession, ClientSessio
         return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
+    @Override
+    protected boolean onPushBusinessPacket() {
+        if (businessChannel.becomeConnecting()) {
+            return pushSignalingPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
+        }
+        return true;
+    }
+
     public void setBusinessChannelToken(byte[] businessChannelToken) {
         this.businessChannelToken = businessChannelToken;
     }

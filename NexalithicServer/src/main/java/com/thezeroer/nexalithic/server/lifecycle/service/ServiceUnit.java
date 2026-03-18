@@ -3,16 +3,18 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
-import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 
 /**
  * 服务单元
@@ -27,8 +29,13 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     private final StewardLoop stewardLoop;
     private final WorkerLoop[] workerLoops;
     private final LoadBalancer<Void, WorkerLoop> workerLoopBalancer;
+    private final SecureRandom random = new SecureRandom();
+    private final NetworkRouter router;
+    private final SessionsManager manager;
 
     public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher) throws IOException {
+        this.manager = manager;
+        this.router = router;
         stewardLoop = new StewardLoop(manager, router);
         workerLoops = new WorkerLoop[WorkerLoop_Count.value()];
         for (int i = 0; i < workerLoops.length; i++) {
@@ -47,26 +54,28 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
         return workerLoops;
     }
 
-    public boolean pushBusinessPacket(ServerSession session, BusinessPacket packet) {
-        ServerSessionChannel<BusinessPacket> channel = session.getBusinessChannel();
-        ServiceLoop<BusinessPacket> loop = channel.localLoop();
-        if (loop != null) {
-            return loop.pushPacket(channel, packet);
-        }
-        return stewardLoop.becomeChannelConnecting(session.getSignalingChannel(), channel) && channel.put(packet);
-    }
-
-    @Override
-    public long getLoadScore() {
-        return stewardLoop.getLoadScore();
-    }
-
     public ServiceUnit addIdToLoopName(String id) {
         stewardLoop.addIdToName(id);
         for (int i = 0; i < workerLoops.length; i++) {
             workerLoops[i].addIdToName(id + "-" + i);
         }
         return this;
+    }
+
+    public SignalingPacket[] prepareChannelAccess(ServerSessionChannel<?> channel) {
+        byte[] channelToken = new byte[SessionChannel.CHANNEL_TOKEN_LENGTH];
+        random.nextBytes(channelToken);
+        manager.relateChannelToken(channelToken, channel.session());
+        return new SignalingPacket[] {
+                new SignalingPacket(SignalingPacket.Signal.BusinessChannelToken, channelToken),
+                new SignalingPacket(SignalingPacket.Signal.ResponseBusinessPort, AbstractPacket.intToBytes(
+                        router.choosePort(channel.getType(), channel.getRemoteAddress().getAddress()))),
+        };
+    }
+
+    @Override
+    public long getLoadScore() {
+        return stewardLoop.getLoadScore();
     }
 
     @Override

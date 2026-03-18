@@ -28,24 +28,14 @@ import java.security.SecureRandom;
  */
 public class StewardLoop extends ServiceLoop<SignalingPacket> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
-    private final NetworkRouter networkRouter;
     private final SecureRandom secureRandom = new SecureRandom();
+    private final NetworkRouter networkRouter;
+    private final SessionsManager sessionsManager;
 
     public StewardLoop(SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
-        super(sessionsManager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+        super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
         this.networkRouter = networkRouter;
-    }
-
-    public boolean becomeChannelConnecting(ServerSessionChannel<SignalingPacket> signalingChannel, ServerSessionChannel<?> targetChannel) {
-        if (targetChannel.becomeConnecting()) {
-            byte[] channelToken = new byte[SessionChannel.CHANNEL_TOKEN_LENGTH];
-            secureRandom.nextBytes(channelToken);
-            sessionsManager.relateChannelToken(channelToken, signalingChannel.session());
-            return pushPacket(signalingChannel, new SignalingPacket(SignalingPacket.Signal.BusinessChannelToken, channelToken),
-                    new SignalingPacket(SignalingPacket.Signal.ResponseBusinessPort, AbstractPacket.intToBytes(networkRouter
-                            .choosePort(AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress()))));
-        }
-        return true;
+        this.sessionsManager = sessionsManager;
     }
 
     @Override
@@ -54,7 +44,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ServerSession session = channel.getSession();
-                selectionKey.attach(session.getSignalingChannel().updateSelectionKey(selectionKey));
+                selectionKey.attach(session.getSignalingChannel().updateChannel(this, selectionKey));
                 sessionsManager.putSession(session);
             } catch (IOException ignored) {
             }

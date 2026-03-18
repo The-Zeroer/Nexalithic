@@ -6,6 +6,8 @@ import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
+import java.nio.channels.SelectionKey;
+
 /**
  * Nexalithic 会话
  *
@@ -20,11 +22,11 @@ public abstract class NexalithicSession <
         BC extends SessionChannel<BusinessPacket, S, ?>
     > {
     public static final int SESSION_ID_LENGTH = 32;
-    private final long creationTime;
-    private final SessionId sessionId;
+    protected final long creationTime;
+    protected final SessionId sessionId;
     protected final SC signalingChannel;
     protected final BC businessChannel;
-    private String sessionName;
+    protected String sessionName;
 
     public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
         this.sessionId = sessionId;
@@ -33,8 +35,56 @@ public abstract class NexalithicSession <
         this.creationTime = System.currentTimeMillis();
     }
 
-    protected abstract SC createSignaling(S session, SecretKeyContext key);
-    protected abstract BC createBusiness(S session, SecretKeyContext key);
+    public final boolean pushSignalingPacket(SignalingPacket packet) {
+        if (!signalingChannel.put(packet)) {
+            return false;
+        }
+        if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+            signalingChannel.localLoop().updateChannelInterest(signalingChannel);
+        }
+        return true;
+    }
+    public final boolean pushSignalingPacket(SignalingPacket... packets) {
+        if (!signalingChannel.fill(packets)) {
+            return false;
+        }
+        if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+            signalingChannel.localLoop().updateChannelInterest(signalingChannel);
+        }
+        return true;
+    }
+    public final boolean pushBusinessPacket(BusinessPacket packet) {
+        if (!businessChannel.put(packet)) {
+            return false;
+        }
+        switch (businessChannel.getState()) {
+            case Unconnected -> {
+                return onPushBusinessPacket();
+            }
+            case Connected -> {
+                if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    businessChannel.localLoop().updateChannelInterest(businessChannel);
+                }
+            }
+        }
+        return true;
+    }
+    public final boolean pushBusinessPacket(BusinessPacket... packets) {
+        if (!businessChannel.fill(packets)) {
+            return false;
+        }
+        switch (businessChannel.getState()) {
+            case Unconnected -> {
+                return onPushBusinessPacket();
+            }
+            case Connected -> {
+                if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    businessChannel.localLoop().updateChannelInterest(businessChannel);
+                }
+            }
+        }
+        return true;
+    }
 
     public final SC getSignalingChannel() {
         return signalingChannel;
@@ -77,4 +127,8 @@ public abstract class NexalithicSession <
             businessChannel.close();
         }
     }
+
+    protected abstract SC createSignaling(S session, SecretKeyContext key);
+    protected abstract BC createBusiness(S session, SecretKeyContext key);
+    protected abstract boolean onPushBusinessPacket();
 }

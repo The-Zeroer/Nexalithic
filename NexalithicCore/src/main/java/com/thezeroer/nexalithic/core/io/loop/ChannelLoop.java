@@ -16,15 +16,13 @@ import java.io.IOException;
  */
 public abstract class ChannelLoop<C extends SessionChannel<? extends P, ?, ?>, P extends AbstractPacket> extends AbstractLoop {
     public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("ChannelLoop_InterestQueue_Capacity", 1024);
-    protected final MpscArrayQueue<C> interestQueue;
+    protected final MpscArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
 
     public ChannelLoop() throws IOException {
         interestQueue = new MpscArrayQueue<>(InterestQueue_Capacity.value());
     }
 
-    public abstract boolean pushPacket(C channel, P packet);
-
-    public final void updateChannelInterest(C channel) {
+    public final void updateChannelInterest(SessionChannel<?, ?, ?> channel) {
         while (!interestQueue.offer(channel)) {
             Thread.onSpinWait();
         }

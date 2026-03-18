@@ -1,10 +1,7 @@
 package com.thezeroer.nexalithic.client.messaging;
 
-import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
-import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 
 import java.util.concurrent.ExecutorService;
 
@@ -16,8 +13,6 @@ import java.util.concurrent.ExecutorService;
  * @version 1.0.0
  */
 public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
-        ClientSessionChannel<BusinessPacket>,
-        GeneralLoop,
         ClientHandlerContext,
         ClientHandlerContext.Recyclable
     > {

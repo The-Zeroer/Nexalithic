@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
  * @since 2026/03/16
  * @version 1.0.0
  */
-public class HandlerRegistry<HC extends HandlerContext<?, ?, ?>> {
+public class HandlerRegistry<HC extends HandlerContext> {
     /**
      * 路径匹配器
      *
@@ -101,7 +101,7 @@ public class HandlerRegistry<HC extends HandlerContext<?, ?, ?>> {
      * Trie 树节点定义
      * 优化方案：显式区分精确匹配分支与通配符分支
      */
-    public static class TrieNode<HC extends HandlerContext<?, ?, ?>> {
+    public static class TrieNode<HC extends HandlerContext> {
         /** 精确匹配子节点：Key 为具体的协议 ID */
         private final TrieNodeChildrenStorage<HC> children;
         /** 通配符匹配子节点：如果当前层级匹配 *，则流向此节点 */
@@ -139,7 +139,7 @@ public class HandlerRegistry<HC extends HandlerContext<?, ?, ?>> {
      * @since 2026/03/16
      * @version 1.0.0
      */
-    public interface TrieNodeChildrenStorage<HC extends HandlerContext<?, ?, ?>> {
+    public interface TrieNodeChildrenStorage<HC extends HandlerContext> {
         /** 获取子节点 */
         TrieNode<HC> get(short key);
 
@@ -269,7 +269,7 @@ public class HandlerRegistry<HC extends HandlerContext<?, ?, ?>> {
      * @since 2026/03/16
      * @version 1.0.0
      */
-    public static class ArrayTrieNodeChildrenStorage<HC extends HandlerContext<?, ?, ?>> implements TrieNodeChildrenStorage<HC> {
+    public static class ArrayTrieNodeChildrenStorage<HC extends HandlerContext> implements TrieNodeChildrenStorage<HC> {
         private final TrieNode<HC>[] array;
         @SuppressWarnings("unchecked")
         public ArrayTrieNodeChildrenStorage(int size) {
@@ -295,7 +295,7 @@ public class HandlerRegistry<HC extends HandlerContext<?, ?, ?>> {
      * @since 2026/03/16
      * @version 1.0.0
      */
-    public static class MapTrieNodeChildrenStorage<HC extends HandlerContext<?, ?, ?>> implements TrieNodeChildrenStorage<HC> {
+    public static class MapTrieNodeChildrenStorage<HC extends HandlerContext> implements TrieNodeChildrenStorage<HC> {
         private final Map<Short, TrieNode<HC>> map = new HashMap<>();
         @Override
         public TrieNode<HC> get(short key) { return map.get(key); }

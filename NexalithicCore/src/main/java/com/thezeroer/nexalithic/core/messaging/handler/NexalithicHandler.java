@@ -17,7 +17,7 @@ import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
  * @since 2026/03/15
  * @see NexalithicTask
  */
-public class NexalithicHandler<HC extends HandlerContext<?, ?, ?>> {
+public class NexalithicHandler<HC extends HandlerContext> {
     private final HandlerFunction<HC> delegate;
     private final boolean defaultRequireAuth;
     private String name;

@@ -27,7 +27,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
     private final ServerBusinessPacketDispatcher dispatcher;
 
     public WorkerLoop(SessionsManager manager, ServerBusinessPacketDispatcher dispatcher) throws IOException {
-        super(manager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+        super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
         this.dispatcher = dispatcher;
     }
 
@@ -37,7 +37,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ServerSessionChannel<BusinessPacket> businessChannel = channel.getSession().getBusinessChannel();
-                selectionKey.attach(businessChannel.setLocalLoop(this).updateSelectionKey(selectionKey));
+                selectionKey.attach(businessChannel.updateChannel(this, selectionKey));
                 if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     businessChannel.applyTargetInterest();
                 }

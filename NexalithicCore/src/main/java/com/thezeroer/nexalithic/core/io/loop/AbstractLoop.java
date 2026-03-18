@@ -229,7 +229,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 try {
                     SelectionKey newKey = oldKey.channel().register(newSelector, oldKey.interestOps(), attachment);
                     if (attachment instanceof SessionChannel<?, ?, ?> sessionChannel) {
-                        sessionChannel.updateSelectionKey(newKey);
+                        sessionChannel.updateChannel(newKey);
                     }
                 } catch (Exception e) {
                     logger.error("[{}] Failed to migrate key for channel", name, e);

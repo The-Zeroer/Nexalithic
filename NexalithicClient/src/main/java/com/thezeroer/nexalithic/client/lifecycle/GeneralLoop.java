@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.client.lifecycle;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
+import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -42,7 +43,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
     private final NetworkRouter networkRouter;
     private ClientSession session;
 
-    public GeneralLoop(ClientSecurityPolicy securityPolicy) throws IOException {
+    public GeneralLoop(ClientSecurityPolicy securityPolicy, ClientBusinessPacketDispatcher dispatcher) throws IOException {
         this.securityPolicy = securityPolicy;
         this.eventQueue = new ConcurrentLinkedQueue<>();
         this.networkRouter = new NetworkRouter();
@@ -93,7 +94,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ClientSessionChannel<?> channel = (ClientSessionChannel<?>) session.getChannel(packetType);
-                selectionKey.attach(channel.setLocalLoop(GeneralLoop.this).updateSelectionKey(selectionKey));
+                selectionKey.attach(channel.updateChannel(GeneralLoop.this, selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
                 if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     channel.applyTargetInterest();
@@ -106,43 +107,8 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
         return true;
     }
 
-
-    @Override
-    public boolean pushPacket(ClientSessionChannel<? extends AbstractPacket> channel, AbstractPacket packet) {
-        return switch (packet) {
-            case SignalingPacket signalingPacket -> pushSignalingPacket(signalingPacket);
-            case BusinessPacket businessPacket -> pushBusinessPacket(businessPacket);
-            default -> throw new IllegalStateException("Unexpected value: " + packet);
-        };
-    }
-    public boolean pushSignalingPacket(SignalingPacket packet) {
-        ClientSessionChannel<SignalingPacket> channel = session.getSignalingChannel();
-        if (!channel.put(packet)) {
-            return false;
-        }
-        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-            updateChannelInterest(channel);
-        }
-        return true;
-    }
     public boolean pushBusinessPacket(BusinessPacket packet) {
-        ClientSessionChannel<BusinessPacket> channel = session.getBusinessChannel();
-        if (!channel.put(packet)) {
-            return false;
-        }
-        switch (channel.getState()) {
-            case Unconnected -> {
-                if (channel.becomeConnecting()) {
-                    return pushSignalingPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
-                }
-            }
-            case Connected -> {
-                if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                    updateChannelInterest(channel);
-                }
-            }
-        }
-        return false;
+        return session.pushBusinessPacket(packet);
     }
 
     @Override

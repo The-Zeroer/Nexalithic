@@ -34,6 +34,14 @@ public class ServerSession extends NexalithicSession<ServerSession, ServerSessio
         return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
+    @Override
+    protected boolean onPushBusinessPacket() {
+        if (businessChannel.becomeConnecting()) {
+            return pushSignalingPacket(serviceUnit.prepareChannelAccess(businessChannel));
+        }
+        return true;
+    }
+
     public void setServiceUnit(ServiceUnit serviceUnit) {
         this.serviceUnit = serviceUnit;
     }
