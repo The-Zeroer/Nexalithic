@@ -26,7 +26,7 @@ import java.security.SecureRandom;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class StewardLoop extends ServiceLoop<ServerSessionChannel<SignalingPacket>, SignalingPacket> {
+public class StewardLoop extends ServiceLoop<SignalingPacket> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
     private final NetworkRouter networkRouter;
     private final SecureRandom secureRandom = new SecureRandom();

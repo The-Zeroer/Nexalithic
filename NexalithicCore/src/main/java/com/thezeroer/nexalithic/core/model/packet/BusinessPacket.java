@@ -129,13 +129,13 @@ public class BusinessPacket extends AbstractPacket {
         }
         return (P) payloads.get(index);
     }
-    public final AbstractPayload<?> FirstPayload() {
+    public final AbstractPayload<?> firstPayload() {
         if (payloads == null || payloads.isEmpty()) {
             return null;
         }
         return payloads.getFirst();
     }
-    public final AbstractPayload<?> LastPayload() {
+    public final AbstractPayload<?> lastPayload() {
         if (payloads == null || payloads.isEmpty()) {
             return null;
         }

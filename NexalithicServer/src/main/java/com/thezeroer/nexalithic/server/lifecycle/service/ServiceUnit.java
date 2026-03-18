@@ -10,6 +10,7 @@ import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
+import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 
 import java.io.IOException;
 
@@ -27,11 +28,11 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     private final WorkerLoop[] workerLoops;
     private final LoadBalancer<Void, WorkerLoop> workerLoopBalancer;
 
-    public ServiceUnit(SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
-        stewardLoop = new StewardLoop(sessionsManager, networkRouter);
+    public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher) throws IOException {
+        stewardLoop = new StewardLoop(manager, router);
         workerLoops = new WorkerLoop[WorkerLoop_Count.value()];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(sessionsManager);
+            workerLoops[i] = new WorkerLoop(manager, dispatcher);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }
@@ -48,7 +49,7 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
 
     public boolean pushBusinessPacket(ServerSession session, BusinessPacket packet) {
         ServerSessionChannel<BusinessPacket> channel = session.getBusinessChannel();
-        ServiceLoop<ServerSessionChannel<BusinessPacket>, BusinessPacket> loop = channel.getServiceLoop();
+        ServiceLoop<BusinessPacket> loop = channel.localLoop();
         if (loop != null) {
             return loop.pushPacket(channel, packet);
         }

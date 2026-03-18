@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
+public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends AbstractPacket>, AbstractPacket> {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
@@ -93,7 +93,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ClientSessionChannel<?> channel = (ClientSessionChannel<?>) session.getChannel(packetType);
-                selectionKey.attach(channel.updateSelectionKey(selectionKey));
+                selectionKey.attach(channel.setLocalLoop(GeneralLoop.this).updateSelectionKey(selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
                 if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     channel.applyTargetInterest();
@@ -106,6 +106,15 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
         return true;
     }
 
+
+    @Override
+    public boolean pushPacket(ClientSessionChannel<? extends AbstractPacket> channel, AbstractPacket packet) {
+        return switch (packet) {
+            case SignalingPacket signalingPacket -> pushSignalingPacket(signalingPacket);
+            case BusinessPacket businessPacket -> pushBusinessPacket(businessPacket);
+            default -> throw new IllegalStateException("Unexpected value: " + packet);
+        };
+    }
     public boolean pushSignalingPacket(SignalingPacket packet) {
         ClientSessionChannel<SignalingPacket> channel = session.getSignalingChannel();
         if (!channel.put(packet)) {

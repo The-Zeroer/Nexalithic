@@ -1,11 +1,10 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
+import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 import org.jctools.queues.MpscArrayQueue;
 
 import javax.crypto.BadPaddingException;
@@ -23,11 +22,13 @@ import java.security.InvalidKeyException;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket>, BusinessPacket> {
+public class WorkerLoop extends ServiceLoop<BusinessPacket> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
+    private final ServerBusinessPacketDispatcher dispatcher;
 
-    public WorkerLoop(SessionsManager sessionsManager) throws IOException {
-        super(sessionsManager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+    public WorkerLoop(SessionsManager manager, ServerBusinessPacketDispatcher dispatcher) throws IOException {
+        super(manager, new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+        this.dispatcher = dispatcher;
     }
 
     @Override
@@ -36,8 +37,7 @@ public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket>
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ServerSessionChannel<BusinessPacket> businessChannel = channel.getSession().getBusinessChannel();
-                businessChannel.updateSelectionKey(selectionKey);
-                selectionKey.attach(businessChannel.setServiceLoop(this));
+                selectionKey.attach(businessChannel.setLocalLoop(this).updateSelectionKey(selectionKey));
                 if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     businessChannel.applyTargetInterest();
                 }
@@ -58,7 +58,7 @@ public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket>
                 }
                 BusinessPacket packet;
                 while ((packet = channel.get()) != null) {
-                    handleBusinessPacket(channel, packet);
+                    dispatcher.dispatch(packet, channel);
                 }
             } else if (key.isWritable()) {
                 if (channel.write() == -1) {
@@ -72,10 +72,6 @@ public class WorkerLoop extends ServiceLoop<ServerSessionChannel<BusinessPacket>
             logger.warn("ServerSessionChannel[{}] onReadyEvent[{}] error", channel, name, e);
             closeChannel(channel);
         }
-    }
-
-    private void handleBusinessPacket(ServerSessionChannel<BusinessPacket> channel, BusinessPacket packet) {
-
     }
 
     private void closeChannel(ServerSessionChannel<?> channel) {

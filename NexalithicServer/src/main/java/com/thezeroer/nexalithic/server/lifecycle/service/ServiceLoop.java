@@ -2,8 +2,8 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -17,7 +17,7 @@ import java.nio.channels.SelectionKey;
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class ServiceLoop<C extends SessionChannel<P, ?>, P extends AbstractPacket> extends ChannelLoop<C> {
+public abstract class ServiceLoop<P extends AbstractPacket> extends ChannelLoop<ServerSessionChannel<P>, P> {
     protected static final int MAX_DRAIN_LIMIT = 64;
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
     protected final SessionsManager sessionsManager;
@@ -36,7 +36,7 @@ public abstract class ServiceLoop<C extends SessionChannel<P, ?>, P extends Abst
         }
     }
 
-    public final boolean pushPacket(C channel, P packet) {
+    public final boolean pushPacket(ServerSessionChannel<P> channel, P packet) {
         if (!channel.put(packet)) {
             return false;
         }
@@ -48,7 +48,7 @@ public abstract class ServiceLoop<C extends SessionChannel<P, ?>, P extends Abst
     }
 
     @SafeVarargs
-    public final boolean pushPacket(C channel, P... packets) {
+    public final boolean pushPacket(ServerSessionChannel<P> channel, P... packets) {
         if (!channel.fill(packets)) {
             return false;
         }

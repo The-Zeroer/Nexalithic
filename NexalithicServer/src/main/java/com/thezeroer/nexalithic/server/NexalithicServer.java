@@ -2,6 +2,11 @@ package com.thezeroer.nexalithic.server;
 
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
+import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
+import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.util.BeanFactory;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
@@ -13,6 +18,8 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
+import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.server.messaging.ServerHandlerContext;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +31,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * Nexalithic 服务器
@@ -229,10 +237,14 @@ public class NexalithicServer {
 
     public static class Builder {
         private ServerSecurityPolicy securityPolicy;
+        private HandlerRegistry<ServerHandlerContext> registry;
         private ExecutorService handshakeLoopThreadPool;
+        private ExecutorService businessPacketDispatcherThreadPool;
 
         public Builder() {
             handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
+                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
         }
 
@@ -245,32 +257,61 @@ public class NexalithicServer {
             this.securityPolicy = securityPolicy;
             return this;
         }
+
+        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Supplier<HandlerRegistry.TrieNodeChildrenStorage<ServerHandlerContext>> factory) {
+            if (registry == null) {
+                registry = new HandlerRegistry<>(factory);
+            } else {
+                throw new IllegalStateException("handler registry has already been set");
+            }
+            return this;
+        }
+        public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
+            if (registry == null) {
+                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            }
+            HandlerScanner.scanAndRegister(packageName, factory, registry);
+            return this;
+        }
+        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ServerHandlerContext> handler) {
+            if (registry == null) {
+                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            }
+            registry.register(matcher, handler);
+            return this;
+        }
+
         public Builder handshakeLoopThreadPool(ExecutorService threadPool) {
             this.handshakeLoopThreadPool = threadPool;
+            return this;
+        }
+        public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
+            this.businessPacketDispatcherThreadPool = threadPool;
             return this;
         }
 
         public NexalithicServer build() throws IOException {
             verifyOptions();
-            SessionsManager sessionsManager = new SessionsManager();
-            NetworkRouter networkRouter = new NetworkRouter();
+            SessionsManager manager = new SessionsManager();
+            NetworkRouter router = new NetworkRouter();
+            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(registry, businessPacketDispatcherThreadPool);
 
             ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(sessionsManager, networkRouter).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(manager, router, dispatcher).addIdToLoopName(String.valueOf(i));
             }
             LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
 
             HandshakeLoop[] handshakeLoops = new HandshakeLoop[HandshakeLoop.Count.value()];
             for (int i = 0; i < handshakeLoops.length; i++) {
                 handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(serviceUnitLoadBalancer, securityPolicy,
-                        sessionsManager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
+                        manager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
             }
             LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer = new P2CBalancer<>(handshakeLoops);
 
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(handshakeLoopBalancer).addIdToName("0");
 
-            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), sessionsManager, networkRouter);
+            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), manager, router);
         }
 
         private void verifyOptions() {

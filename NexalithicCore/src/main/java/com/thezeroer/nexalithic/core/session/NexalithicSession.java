@@ -4,7 +4,6 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
-import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 /**
@@ -15,20 +14,27 @@ import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
  * @version 1.0.0
  */
 @SuppressWarnings("unchecked")
-public class NexalithicSession <S extends NexalithicSession<S, SC, BC>, SC extends SessionChannel<SignalingPacket, S>, BC extends SessionChannel<BusinessPacket, S>>{
+public abstract class NexalithicSession <
+        S extends NexalithicSession<S, SC, BC>,
+        SC extends SessionChannel<SignalingPacket, S, ?>,
+        BC extends SessionChannel<BusinessPacket, S, ?>
+    > {
     public static final int SESSION_ID_LENGTH = 32;
     private final long creationTime;
     private final SessionId sessionId;
-    private final SC signalingChannel;
-    private final BC businessChannel;
+    protected final SC signalingChannel;
+    protected final BC businessChannel;
     private String sessionName;
 
-    public NexalithicSession(SessionId sessionId, ChannelFactory<S, SC, BC> factory, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
+    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
         this.sessionId = sessionId;
-        this.signalingChannel = factory.createSignaling((S) this, signalingSecretKey);
-        this.businessChannel = factory.createBusiness((S) this, businessSecretKey);
+        this.signalingChannel = createSignaling((S) this, signalingSecretKey);
+        this.businessChannel = createBusiness((S) this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
     }
+
+    protected abstract SC createSignaling(S session, SecretKeyContext key);
+    protected abstract BC createBusiness(S session, SecretKeyContext key);
 
     public final SC getSignalingChannel() {
         return signalingChannel;
@@ -36,13 +42,13 @@ public class NexalithicSession <S extends NexalithicSession<S, SC, BC>, SC exten
     public final BC getBusinessChannel() {
         return businessChannel;
     }
-    public final SessionChannel<?, S> getChannel(AbstractPacket.PacketType packetType) {
+    public final SessionChannel<?, S, ?> getChannel(AbstractPacket.PacketType packetType) {
         return switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
     }
-    public final <C extends SessionChannel<?, S>> C asChannel(AbstractPacket.PacketType packetType) {
+    public final <C extends SessionChannel<?, S, ?>> C asChannel(AbstractPacket.PacketType packetType) {
         return (C) switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;

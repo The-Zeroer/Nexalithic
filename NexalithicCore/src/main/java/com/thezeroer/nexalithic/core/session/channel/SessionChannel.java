@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
+import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecurityChannel;
@@ -32,7 +33,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026/02/04
  * @version 1.0.0
  */
-public class SessionChannel<P extends AbstractPacket, S extends NexalithicSession<S, ?, ?>> extends SecurityChannel implements NexalithicChannel{
+public abstract class SessionChannel<
+        P extends AbstractPacket,
+        S extends NexalithicSession<S, ?, ?>,
+        L extends ChannelLoop<?, ?>
+    > extends SecurityChannel implements NexalithicChannel {
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
@@ -60,7 +65,7 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
     public final boolean becomeConnecting() {
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public final SessionChannel<P, S> updateSelectionKey(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, S, L> updateSelectionKey(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -185,6 +190,8 @@ public class SessionChannel<P extends AbstractPacket, S extends NexalithicSessio
     public final InetSocketAddress getRemoteAddress() {
         return remoteAddress;
     }
+
+    public abstract L localLoop();
 
     @Override
     public final void close() {

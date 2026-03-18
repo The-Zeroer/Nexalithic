@@ -7,7 +7,6 @@ import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.SessionId;
-import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 
 /**
@@ -18,22 +17,21 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
  * @version 1.0.0
  */
 public class ServerSession extends NexalithicSession<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket>> {
-    private static final ChannelFactory<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket>> FACTORY = new ChannelFactory<>() {
-        @Override
-        public ServerSessionChannel<SignalingPacket> createSignaling(ServerSession session, SecretKeyContext key) {
-            return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
-        }
-
-        @Override
-        public ServerSessionChannel<BusinessPacket> createBusiness(ServerSession session, SecretKeyContext key) {
-            return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
-        }
-    };
     private volatile ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
     public ServerSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
-        super(sessionId, FACTORY, signalingSecretKey, businessSecretKey);
+        super(sessionId, signalingSecretKey, businessSecretKey);
+    }
+
+    @Override
+    protected ServerSessionChannel<SignalingPacket> createSignaling(ServerSession session, SecretKeyContext key) {
+        return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
+    }
+
+    @Override
+    protected ServerSessionChannel<BusinessPacket> createBusiness(ServerSession session, SecretKeyContext key) {
+        return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
     public void setServiceUnit(ServiceUnit serviceUnit) {

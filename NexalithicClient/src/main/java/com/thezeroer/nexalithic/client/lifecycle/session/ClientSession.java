@@ -6,7 +6,6 @@ import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
-import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 
 /**
  * 客户端会话
@@ -16,21 +15,20 @@ import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
  * @version 1.0.0
  */
 public class ClientSession extends NexalithicSession<ClientSession, ClientSessionChannel<SignalingPacket>, ClientSessionChannel<BusinessPacket>> {
-    private static final ChannelFactory<ClientSession, ClientSessionChannel<SignalingPacket>, ClientSessionChannel<BusinessPacket>> FACTORY = new ChannelFactory<>() {
-        @Override
-        public ClientSessionChannel<SignalingPacket> createSignaling(ClientSession session, SecretKeyContext key) {
-            return new ClientSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
-        }
-
-        @Override
-        public ClientSessionChannel<BusinessPacket> createBusiness(ClientSession session, SecretKeyContext key) {
-            return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
-        }
-    };
     private volatile byte[] businessChannelToken;
 
     public ClientSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
-        super(sessionId, FACTORY, signalingSecretKey, businessSecretKey);
+        super(sessionId, signalingSecretKey, businessSecretKey);
+    }
+
+    @Override
+    protected ClientSessionChannel<SignalingPacket> createSignaling(ClientSession session, SecretKeyContext key) {
+        return new ClientSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
+    }
+
+    @Override
+    protected ClientSessionChannel<BusinessPacket> createBusiness(ClientSession session, SecretKeyContext key) {
+        return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
     public void setBusinessChannelToken(byte[] businessChannelToken) {

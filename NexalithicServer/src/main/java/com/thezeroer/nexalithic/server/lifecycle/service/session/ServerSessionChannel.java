@@ -12,18 +12,20 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ServerSessionChannel<P extends AbstractPacket> extends SessionChannel<P, ServerSession> {
-    private volatile ServiceLoop<ServerSessionChannel<P>, P> serviceLoop;
+public class ServerSessionChannel<P extends AbstractPacket> extends SessionChannel<P, ServerSession, ServiceLoop<P>> {
+    private volatile ServiceLoop<P> loop;
 
     public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, SecretKeyContext secretKeyContext) {
         super(packetType, session, secretKeyContext);
     }
 
-    public ServerSessionChannel<P> setServiceLoop(ServiceLoop<ServerSessionChannel<P>, P> serviceLoop) {
-        this.serviceLoop = serviceLoop;
+    public ServerSessionChannel<P> setLocalLoop(ServiceLoop<P> loop) {
+        this.loop = loop;
         return this;
     }
-    public ServiceLoop<ServerSessionChannel<P>, P> getServiceLoop() {
-        return serviceLoop;
+
+    @Override
+    public ServiceLoop<P> localLoop() {
+        return loop;
     }
 }
