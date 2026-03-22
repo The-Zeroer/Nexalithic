@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.core.session;
 
+import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -17,9 +18,11 @@ import java.nio.channels.SelectionKey;
  */
 @SuppressWarnings("unchecked")
 public abstract class NexalithicSession <
-        S extends NexalithicSession<S, SC, BC>,
-        SC extends SessionChannel<SignalingPacket, S, ?>,
-        BC extends SessionChannel<BusinessPacket, S, ?>
+        S extends NexalithicSession<S, SC, BC, SW, BW>,
+        SC extends SessionChannel<SignalingPacket, SW, S, ?>,
+        BC extends SessionChannel<BusinessPacket, BW, S, ?>,
+        SW extends FragmentWrapper<SignalingPacket>,
+        BW extends FragmentWrapper<BusinessPacket>
     > {
     public static final int SESSION_ID_LENGTH = 32;
     protected final long creationTime;
@@ -35,8 +38,8 @@ public abstract class NexalithicSession <
         this.creationTime = System.currentTimeMillis();
     }
 
-    public final boolean pushSignalingPacket(SignalingPacket packet) {
-        if (!signalingChannel.put(packet)) {
+    public final boolean pushSignalingPacketWrapper(SW wrapper) {
+        if (!signalingChannel.put(wrapper)) {
             return false;
         }
         if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
@@ -44,8 +47,8 @@ public abstract class NexalithicSession <
         }
         return true;
     }
-    public final boolean pushSignalingPacket(SignalingPacket... packets) {
-        if (!signalingChannel.fill(packets)) {
+    public final boolean pushSignalingPacketWrappers(SW... wrappers) {
+        if (!signalingChannel.fill(wrappers)) {
             return false;
         }
         if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
@@ -53,8 +56,8 @@ public abstract class NexalithicSession <
         }
         return true;
     }
-    public final boolean pushBusinessPacket(BusinessPacket packet) {
-        if (!businessChannel.put(packet)) {
+    public final boolean pushBusinessPacketWrapper(BW wrapper) {
+        if (!businessChannel.put(wrapper)) {
             return false;
         }
         switch (businessChannel.getState()) {
@@ -69,8 +72,8 @@ public abstract class NexalithicSession <
         }
         return true;
     }
-    public final boolean pushBusinessPacket(BusinessPacket... packets) {
-        if (!businessChannel.fill(packets)) {
+    public final boolean pushBusinessPacketWrappers(BW... wrappers) {
+        if (!businessChannel.fill(wrappers)) {
             return false;
         }
         switch (businessChannel.getState()) {
@@ -92,13 +95,13 @@ public abstract class NexalithicSession <
     public final BC getBusinessChannel() {
         return businessChannel;
     }
-    public final SessionChannel<?, S, ?> getChannel(AbstractPacket.PacketType packetType) {
+    public final SessionChannel<?, ?, S, ?> getChannel(AbstractPacket.PacketType packetType) {
         return switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
     }
-    public final <C extends SessionChannel<?, S, ?>> C asChannel(AbstractPacket.PacketType packetType) {
+    public final <C extends SessionChannel<?, ?, S, ?>> C asChannel(AbstractPacket.PacketType packetType) {
         return (C) switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;

@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.io.codec.wrapper;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
+import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
@@ -15,15 +17,20 @@ import java.util.List;
  * @since 2026/03/11
  * @version 1.0.0
  */
-public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> {
+public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> implements FragmentWrapper<BusinessPacket> {
     public static final int FRAME_HEADER_LENGTH = Short.BYTES + Long.BYTES;
     public static final int MAX_PAYLOAD_SIZE = 1024 * 16;
+    private final TaskRegistry taskRegistry;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
     private boolean headerWritten;
     private long remaining;
     private List<? extends AbstractPayload<?>> payloads;
     private int payloadIndex;
+
+    public BusinessPacketFragmentWrapper(TaskRegistry taskRegistry) {
+        this.taskRegistry = taskRegistry;
+    }
 
     @Override
     public void onWrap(BusinessPacket packet) {
@@ -34,7 +41,12 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     }
 
     public boolean hasFrame() {
-        return remaining > 0;
+        if (remaining > 0) {
+            return true;
+        } else {
+            taskRegistry.activate(target.getTaskId());
+            return false;
+        }
     }
     public int nextFrame(LoopBuffer output) throws IOException {
         int total = 0;
@@ -91,7 +103,6 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     }
     private void writePacketHeader(LoopBuffer output) {
         output.put(target.getTaskId());
-        output.put(target.getPacketIndex());
         output.put(target.getPacketSize());
         output.put(target.getWayCode());
         byte pathDepth = target.getPathDepth();

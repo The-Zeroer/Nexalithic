@@ -3,7 +3,6 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
-import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -22,11 +21,11 @@ import java.security.InvalidKeyException;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class WorkerLoop extends ServiceLoop<BusinessPacket> {
+public class WorkerLoop extends ServiceLoop {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
     private final ServerBusinessPacketDispatcher dispatcher;
 
-    public WorkerLoop(SessionsManager manager, ServerBusinessPacketDispatcher dispatcher) throws IOException {
+    public WorkerLoop(ServerBusinessPacketDispatcher dispatcher) throws IOException {
         super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
         this.dispatcher = dispatcher;
     }
@@ -36,12 +35,14 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSessionChannel<BusinessPacket> businessChannel = channel.getSession().getBusinessChannel();
+                ServerSessionChannel<BusinessPacket, ?> businessChannel = channel.getSession().getBusinessChannel();
                 selectionKey.attach(businessChannel.updateChannel(this, selectionKey));
                 if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     businessChannel.applyTargetInterest();
                 }
             } catch (IOException ignored) {
+            } finally {
+                channel.recycle();
             }
         }, MAX_DRAIN_LIMIT);
         return dispatchQueue.isEmpty();
@@ -50,7 +51,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
     @Override
     @SuppressWarnings("unchecked")
     protected void onReadyEvent(SelectionKey key) throws IOException {
-        ServerSessionChannel<BusinessPacket> channel = (ServerSessionChannel<BusinessPacket>) key.attachment();
+        ServerSessionChannel<BusinessPacket, ?> channel = (ServerSessionChannel<BusinessPacket, ?>) key.attachment();
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -58,7 +59,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
                 }
                 BusinessPacket packet;
                 while ((packet = channel.get()) != null) {
-                    dispatcher.dispatch(packet, channel);
+                    dispatcher.dispatch(packet, channel.session());
                 }
             } else if (key.isWritable()) {
                 if (channel.write() == -1) {
@@ -74,7 +75,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket> {
         }
     }
 
-    private void closeChannel(ServerSessionChannel<?> channel) {
+    private void closeChannel(ServerSessionChannel<?, ?> channel) {
         loadScore.decrement();
         channel.close();
     }

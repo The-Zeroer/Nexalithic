@@ -14,7 +14,7 @@ import java.util.List;
  */
 public class BusinessPacket extends AbstractPacket {
     public static final int MAX_PATH_DEPTH = Byte.MAX_VALUE;
-    public static final int BASE_HEADER_SIZE = Byte.BYTES * 3 + Short.BYTES + Long.BYTES * 2;
+    public static final int BASE_HEADER_SIZE = Byte.BYTES * 2 + Short.BYTES + Long.BYTES * 2;
 
     public enum Way {
         DEFAULT,
@@ -40,7 +40,6 @@ public class BusinessPacket extends AbstractPacket {
     private static final Way[] WAYS = Way.values();
 
     private long taskId;
-    private byte packetIndex;
     private long packetSize;
     private short way;
     private byte pathDepth;
@@ -170,13 +169,6 @@ public class BusinessPacket extends AbstractPacket {
         return getPacketSize() - getHeaderSize();
     }
 
-    public final BusinessPacket setPacketIndex(byte packetIndex) {
-        this.packetIndex = packetIndex;
-        return this;
-    }
-    public final byte getPacketIndex() {
-        return packetIndex;
-    }
     public final BusinessPacket setTaskId(long taskId) {
         this.taskId = taskId;
         return this;
@@ -192,7 +184,6 @@ public class BusinessPacket extends AbstractPacket {
 
     public static class Builder {
         public long taskId;
-        public byte packetIndex;
         public long packetSize;
         public short way;
         public byte pathDepth;
@@ -204,7 +195,6 @@ public class BusinessPacket extends AbstractPacket {
         public BusinessPacket build() {
             BusinessPacket packet = new BusinessPacket();
             packet.taskId = taskId;
-            packet.packetIndex = packetIndex;
             packet.packetSize = packetSize;
             packet.way = way;
             packet.pathDepth = pathDepth;
@@ -217,7 +207,6 @@ public class BusinessPacket extends AbstractPacket {
 
         public void clear() {
             taskId = 0;
-            packetIndex = 0;
             packetSize = 0;
             way = 0;
             pathDepth = 0;

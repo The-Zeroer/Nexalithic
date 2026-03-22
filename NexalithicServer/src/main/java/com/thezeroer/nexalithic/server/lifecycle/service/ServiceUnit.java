@@ -6,14 +6,17 @@ import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.security.SecureRandom;
 
 /**
@@ -36,10 +39,10 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher) throws IOException {
         this.manager = manager;
         this.router = router;
-        stewardLoop = new StewardLoop(manager, router);
+        stewardLoop = new StewardLoop(manager, this);
         workerLoops = new WorkerLoop[WorkerLoop_Count.value()];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(manager, dispatcher);
+            workerLoops[i] = new WorkerLoop(dispatcher);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }
@@ -62,14 +65,14 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
         return this;
     }
 
-    public SignalingPacket[] prepareChannelAccess(ServerSessionChannel<?> channel) {
+    public SignalingPacket[] prepareChannelAccess(ServerSession session, AbstractPacket.PacketType type, InetAddress remoteAddress) {
         byte[] channelToken = new byte[SessionChannel.CHANNEL_TOKEN_LENGTH];
         random.nextBytes(channelToken);
-        manager.relateChannelToken(channelToken, channel.session());
+        manager.relateChannelToken(channelToken, session);
         return new SignalingPacket[] {
                 new SignalingPacket(SignalingPacket.Signal.BusinessChannelToken, channelToken),
                 new SignalingPacket(SignalingPacket.Signal.ResponseBusinessPort, AbstractPacket.intToBytes(
-                        router.choosePort(channel.getType(), channel.getRemoteAddress().getAddress()))),
+                        router.choosePort(type, remoteAddress))),
         };
     }
 

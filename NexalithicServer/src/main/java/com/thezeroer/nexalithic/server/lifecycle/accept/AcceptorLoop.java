@@ -45,16 +45,16 @@ public class AcceptorLoop extends AbstractLoop {
 
     public AcceptorLoop(LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
         this.handshakeLoopBalancer = handshakeLoopBalancer;
-        filtrationContextPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(new MpscArrayQueue<>(FiltrationContextPool_Capacity.value()), FiltrationContextPool_Capacity.value()),
-                PoolStrategy.blocking(FiltrationContextPool_Limit.value()),
-                () -> new FiltrationContext(handshakeLoopBalancer)
-        ).warmUp(FiltrationContextPool_PrefillRatio.value());
         pendingChannelPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(new MpscArrayQueue<>(PendingChannelPool_Capacity.value()), PendingChannelPool_Capacity.value()),
                 PoolStrategy.blocking(PendingChannelPool_Limit.value()),
                 PendingChannel::new
         ).warmUp(PendingChannelPool_PrefillRatio.value());
+        filtrationContextPool = new SelfStaticWrapperPool<>(
+                PoolStorage.of(new MpscArrayQueue<>(FiltrationContextPool_Capacity.value()), FiltrationContextPool_Capacity.value()),
+                PoolStrategy.blocking(FiltrationContextPool_Limit.value()),
+                () -> new FiltrationContext(handshakeLoopBalancer, pendingChannelPool)
+        ).warmUp(FiltrationContextPool_PrefillRatio.value());
     }
 
     public void dispatch(AbstractPacket.PacketType packetType, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
@@ -96,7 +96,7 @@ public class AcceptorLoop extends AbstractLoop {
             logger.debug("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
         }
         if (filtrationStrategy.enable()) {
-            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().init(filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
+            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());
         } else {
             handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());
         }

@@ -34,20 +34,18 @@ import java.nio.channels.SocketChannel;
  */
 public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
+    private final WrapperPool<PendingChannel> pendingChannelPool;
     private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
-    private PendingChannel cachedPendingChannel;
 
-    public FiltrationContext(LoadBalancer<Void, HandshakeLoop> balancer)  {
+    public FiltrationContext(LoadBalancer<Void, HandshakeLoop> balancer, WrapperPool<PendingChannel> pendingChannelPool)  {
         this.handshakeLoopBalancer = balancer;
+        this.pendingChannelPool = pendingChannelPool;
     }
 
-    public FiltrationContext init(AbstractPacket.PacketType packetType, SocketChannel socketChannel, WrapperPool<PendingChannel> pendingChannelPool) {
+    public FiltrationContext init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
         this.packetType = packetType;
         this.socketChannel = socketChannel;
-        if (this.cachedPendingChannel == null) {
-            this.cachedPendingChannel = pendingChannelPool.acquire();
-        }
         return this;
     }
 
@@ -66,10 +64,8 @@ public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableW
     public void approve() {
         if (this.socketChannel == null) return;
         try {
-            handshakeLoopBalancer.select(null).dispatch(cachedPendingChannel.init(packetType, socketChannel).unwrap());
-            cachedPendingChannel = null;
-        } catch (Exception e) {
-            reject();
+            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().init(packetType, socketChannel).unwrap());
+        } catch (Exception ignored) {
         } finally {
             recycle();
         }
@@ -100,10 +96,5 @@ public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableW
     protected void onRecycle() {
         packetType = null;
         socketChannel = null;
-    }
-
-    @Override
-    protected void onOverflow() {
-        cachedPendingChannel.recycle();
     }
 }

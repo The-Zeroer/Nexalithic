@@ -2,9 +2,10 @@ package com.thezeroer.nexalithic.server;
 
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -46,11 +47,13 @@ public class NexalithicServer {
     private final LifecycleManager lifecycleManager;
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
+    private final ServerBusinessPacketDispatcher businessPacketDispatcher;
 
-    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter) {
+    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter, TaskRegistry taskRegistry, ServerBusinessPacketDispatcher businessPacketDispatcher) {
         this.lifecycleManager = lifecycleManager;
         this.sessionsManager = sessionsManager;
         this.networkRouter = networkRouter;
+        this.businessPacketDispatcher = businessPacketDispatcher;
     }
 
     public static Builder builder() {
@@ -227,17 +230,25 @@ public class NexalithicServer {
         }
     }
 
+    public boolean submit(NexalithicTask task, String sessionName) {
+        ServerSession session = sessionsManager.getSession(sessionName);
+        if (session == null) {
+            return false;
+        }
+        return businessPacketDispatcher.submitNexalithicTask(session, task);
+    }
+
     public boolean push(String sessionName, BusinessPacket packet) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return false;
         }
-        return session.pushBusinessPacket(packet);
+        return businessPacketDispatcher.pushBusinessPacket(session, packet);
     }
 
     public static class Builder {
         private ServerSecurityPolicy securityPolicy;
-        private HandlerRegistry<ServerHandlerContext> registry;
+        private HandlerRegistry<ServerHandlerContext> handlerRegistry;
         private ExecutorService handshakeLoopThreadPool;
         private ExecutorService businessPacketDispatcherThreadPool;
 
@@ -259,25 +270,25 @@ public class NexalithicServer {
         }
 
         public Builder handlerRegistryTrieNodeChildrenStorageFactory(Supplier<HandlerRegistry.TrieNodeChildrenStorage<ServerHandlerContext>> factory) {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(factory);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(factory);
             } else {
                 throw new IllegalStateException("handler registry has already been set");
             }
             return this;
         }
         public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            HandlerScanner.scanAndRegister(packageName, factory, registry);
+            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistry);
             return this;
         }
         public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ServerHandlerContext> handler) {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            registry.register(matcher, handler);
+            handlerRegistry.register(matcher, handler);
             return this;
         }
 
@@ -294,10 +305,11 @@ public class NexalithicServer {
             verifyOptions();
             SessionsManager manager = new SessionsManager();
             NetworkRouter router = new NetworkRouter();
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(registry, businessPacketDispatcherThreadPool);
+            TaskRegistry taskRegistry = new TaskRegistry();
+            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(taskRegistry, handlerRegistry, businessPacketDispatcherThreadPool);
 
             ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];
             for (int i = 0; i < serviceUnits.length; i++) {
@@ -313,8 +325,9 @@ public class NexalithicServer {
             LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer = new P2CBalancer<>(handshakeLoops);
 
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(handshakeLoopBalancer).addIdToName("0");
+            LifecycleManager lifecycleManager = new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer);
 
-            return new NexalithicServer(new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer), manager, router);
+            return new NexalithicServer(lifecycleManager, manager, router, taskRegistry, dispatcher);
         }
 
         private void verifyOptions() {

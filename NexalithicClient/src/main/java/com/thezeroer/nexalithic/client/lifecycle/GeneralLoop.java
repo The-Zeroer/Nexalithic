@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -36,17 +37,19 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends AbstractPacket>, AbstractPacket> {
+public class GeneralLoop extends ChannelLoop {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
     private final NetworkRouter networkRouter;
-    private ClientSession session;
+    private final ClientBusinessPacketDispatcher dispatcher;
+    private volatile ClientSession session;
 
     public GeneralLoop(ClientSecurityPolicy securityPolicy, ClientBusinessPacketDispatcher dispatcher) throws IOException {
         this.securityPolicy = securityPolicy;
         this.eventQueue = new ConcurrentLinkedQueue<>();
         this.networkRouter = new NetworkRouter();
+        this.dispatcher = dispatcher;
     }
 
     public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException,
@@ -93,7 +96,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
         eventQueue.add(() -> {
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ClientSessionChannel<?> channel = (ClientSessionChannel<?>) session.getChannel(packetType);
+                ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) session.getChannel(packetType);
                 selectionKey.attach(channel.updateChannel(GeneralLoop.this, selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
                 if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
@@ -107,10 +110,6 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
         return true;
     }
 
-    public boolean pushBusinessPacket(BusinessPacket packet) {
-        return session.pushBusinessPacket(packet);
-    }
-
     @Override
     public boolean onAsyncEvent() {
         while (!eventQueue.isEmpty()) {
@@ -121,7 +120,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
 
     @Override
     public void onReadyEvent(SelectionKey selectionKey) throws IOException {
-        ClientSessionChannel<?> channel = (ClientSessionChannel<?>) selectionKey.attachment();
+        ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) selectionKey.attachment();
         try {
             if (selectionKey.isReadable()) {
                 if (channel.read() == -1) {
@@ -134,7 +133,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
-                        handleBusinessPacket(packet);
+                        dispatcher.dispatch(packet, session);
                     }
                 }
             } else if (selectionKey.isWritable()) {
@@ -161,14 +160,6 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
             throw new RuntimeException(e);
         }
     }
-    private void handleBusinessPacket(BusinessPacket packet) {
-
-    }
-
-    @Override
-    public void onTerminated() {
-
-    }
 
     public ClientSession getSession() {
         return session;
@@ -177,7 +168,11 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<? extends Abst
         return networkRouter;
     }
 
-    private void closeChannel(ClientSessionChannel<?> channel) {
-        channel.close();
+    private void closeChannel(ClientSessionChannel<?, ?> channel) {
+        if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+            channel.session().close();
+        } else {
+            channel.close();
+        }
     }
 }

@@ -9,6 +9,6 @@ package com.thezeroer.nexalithic.server.lifecycle.accept.filter;
  * @since 2026/03/11
  */
 public interface FiltrationContextView {
-    public void approve();
-    public void reject();
+    void approve();
+    void reject();
 }

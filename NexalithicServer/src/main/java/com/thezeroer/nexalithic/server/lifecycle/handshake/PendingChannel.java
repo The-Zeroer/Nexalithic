@@ -95,8 +95,8 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     protected void onRecycle() {
         packetType = null;
         socketChannel = null;
-        readBuffers[0] = null;
-        readBuffers[1] = null;
+        readBuffers[0].clear();
+        readBuffers[1].clear();
         writeBuffers[0] = null;
         writeBuffers[1] = null;
         privateKey = null;

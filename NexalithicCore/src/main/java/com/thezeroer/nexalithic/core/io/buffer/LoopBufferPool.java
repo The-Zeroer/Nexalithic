@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.function.Supplier;
 
 /**
@@ -19,7 +20,7 @@ public class LoopBufferPool extends SelfStaticWrapperPool<LoopBuffer> {
     public static final LoopBufferPool INSTANCE = new LoopBufferPool(
             PoolStorage.of(new MpscArrayQueue<>(1024), 1024),
             PoolStrategy.alwaysCreate(),
-            () -> new LoopBuffer(ByteBuffer.allocate(1024 * 64)));
+            () -> new LoopBuffer(ByteBuffer.allocate(1024 * 64).order(ByteOrder.BIG_ENDIAN)));
 
     public LoopBufferPool(PoolStorage<LoopBuffer> storage, PoolStrategy<LoopBuffer> strategy, Supplier<LoopBuffer> factory) {
         super(storage, strategy, factory);

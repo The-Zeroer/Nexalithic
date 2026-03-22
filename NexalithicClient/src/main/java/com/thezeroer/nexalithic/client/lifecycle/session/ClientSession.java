@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.client.lifecycle.session;
 
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -14,7 +15,11 @@ import com.thezeroer.nexalithic.core.session.SessionId;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ClientSession extends NexalithicSession<ClientSession, ClientSessionChannel<SignalingPacket>, ClientSessionChannel<BusinessPacket>> {
+public class ClientSession extends NexalithicSession<ClientSession,
+        ClientSessionChannel<SignalingPacket, SignalingPacket>,
+        ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
+        SignalingPacket,
+        BusinessPacketFragmentWrapper> {
     private volatile byte[] businessChannelToken;
 
     public ClientSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
@@ -22,19 +27,19 @@ public class ClientSession extends NexalithicSession<ClientSession, ClientSessio
     }
 
     @Override
-    protected ClientSessionChannel<SignalingPacket> createSignaling(ClientSession session, SecretKeyContext key) {
+    protected ClientSessionChannel<SignalingPacket, SignalingPacket> createSignaling(ClientSession session, SecretKeyContext key) {
         return new ClientSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
     }
 
     @Override
-    protected ClientSessionChannel<BusinessPacket> createBusiness(ClientSession session, SecretKeyContext key) {
+    protected ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> createBusiness(ClientSession session, SecretKeyContext key) {
         return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
     @Override
     protected boolean onPushBusinessPacket() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacket(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
+            return pushSignalingPacketWrapper(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
         }
         return true;
     }

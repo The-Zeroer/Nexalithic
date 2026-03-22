@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle.service.session;
 
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -16,7 +17,13 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ServerSession extends NexalithicSession<ServerSession, ServerSessionChannel<SignalingPacket>, ServerSessionChannel<BusinessPacket>> {
+public class ServerSession extends NexalithicSession<
+        ServerSession,
+        ServerSessionChannel<SignalingPacket, SignalingPacket>,
+        ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
+        SignalingPacket,
+        BusinessPacketFragmentWrapper
+    > {
     private volatile ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
@@ -25,19 +32,19 @@ public class ServerSession extends NexalithicSession<ServerSession, ServerSessio
     }
 
     @Override
-    protected ServerSessionChannel<SignalingPacket> createSignaling(ServerSession session, SecretKeyContext key) {
+    protected ServerSessionChannel<SignalingPacket, SignalingPacket> createSignaling(ServerSession session, SecretKeyContext key) {
         return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
     }
 
     @Override
-    protected ServerSessionChannel<BusinessPacket> createBusiness(ServerSession session, SecretKeyContext key) {
+    protected ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> createBusiness(ServerSession session, SecretKeyContext key) {
         return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
     }
 
     @Override
     protected boolean onPushBusinessPacket() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacket(serviceUnit.prepareChannelAccess(businessChannel));
+            return pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress()));
         }
         return true;
     }

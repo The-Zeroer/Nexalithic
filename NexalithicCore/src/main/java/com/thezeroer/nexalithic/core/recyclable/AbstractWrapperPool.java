@@ -2,6 +2,8 @@ package com.thezeroer.nexalithic.core.recyclable;
 
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 
+import java.util.function.Consumer;
+
 /**
  * 抽象包装池
  *
@@ -23,11 +25,16 @@ public abstract class AbstractWrapperPool<T, W extends RecyclableWrapper<T>> imp
     private final ProxyRecycler<W> recycler;
     private final PoolStorage<W> storage;
     private final PoolStrategy<W> strategy;
+    private Consumer<W> postCreateListener;
 
     protected AbstractWrapperPool(PoolStorage<W> storage, PoolStrategy<W> strategy) {
         this.storage = storage;
         this.strategy = strategy;
         this.recycler = new InternalRecycler<>(storage, strategy);
+    }
+
+    public void setPostCreateListener(Consumer<W> listener) {
+        this.postCreateListener = listener;
     }
 
     /**
@@ -113,7 +120,15 @@ public abstract class AbstractWrapperPool<T, W extends RecyclableWrapper<T>> imp
      *
      * @return {@link W }
      */
-    protected abstract W create();
+    protected abstract W onCreate();
+
+    private W create() {
+        W w = onCreate();
+        if (postCreateListener != null) {
+            postCreateListener.accept(w);
+        }
+        return w;
+    }
 
     private record InternalRecycler<W extends RecyclableWrapper<?>>(PoolStorage<W> storage, PoolStrategy<W> strategy) implements ProxyRecycler<W> {
         @Override

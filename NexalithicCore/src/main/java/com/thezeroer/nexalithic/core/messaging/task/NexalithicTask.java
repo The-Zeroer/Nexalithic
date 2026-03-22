@@ -1,6 +1,9 @@
 package com.thezeroer.nexalithic.core.messaging.task;
 
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * <h1>Nexalithic 异步任务 (Task)</h1>
@@ -16,6 +19,39 @@ import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
  * @since 2026/03/15
  * @see NexalithicHandler
  */
-public abstract class NexalithicTask {
+public class NexalithicTask {
+    public enum State {
 
+    }
+    private static final AtomicLong COUNTER = new AtomicLong(0);
+    private final TaskFunction delegate;
+    private final long taskId;
+
+    public NexalithicTask(TaskFunction delegate) {
+        this.delegate = delegate;
+        this.taskId = COUNTER.getAndIncrement();
+    }
+
+    public final BusinessPacket request() {
+        return delegate.request();
+    }
+    public final void response(BusinessPacket packet) {
+        delegate.response(packet);
+    }
+    public final void timeout() {
+        delegate.timeout();
+    }
+    public final void cancel() {
+        delegate.cancel();
+    }
+    public final void finish() {
+        delegate.finish();
+    }
+    public final void exception(Exception e) {
+        delegate.exception(e);
+    }
+
+    public final long getTaskId() {
+        return taskId;
+    }
 }

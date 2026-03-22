@@ -2,6 +2,7 @@ package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -24,13 +25,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @version 1.0.0
  */
 public class FragmenterFactory {
-    public static final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperPool_Capacity", 4096);
     public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperQueue_Capacity", 64);
 
-
     @SuppressWarnings("unchecked")
-    public static <P extends AbstractPacket> PacketsFragmenter<P> create(AbstractPacket.PacketType packetType) {
-        return (PacketsFragmenter<P>) switch (packetType) {
+    public static <W extends FragmentWrapper<?>> PacketsFragmenter<W> create(AbstractPacket.PacketType packetType) {
+        return (PacketsFragmenter<W>) switch (packetType) {
             case SIGNALING -> new SignalingPacketsFragmenter();
             case BUSINESS -> new BusinessPacketsFragmenter();
         };
@@ -42,18 +41,18 @@ public class FragmenterFactory {
         private SignalingPacket currentPacket;
 
         @Override
-        public boolean feed(SignalingPacket packet) {
-            return packets.offer(packet);
+        public boolean feed(SignalingPacket wrapper) {
+            return packets.offer(wrapper);
         }
 
         @Override
-        public boolean fill(SignalingPacket... packets) {
-            int length = packets.length;
+        public boolean fill(SignalingPacket... wrappers) {
+            int length = wrappers.length;
             if (QUEUE_CAPACITY - this.packets.size() < length * 4) {
                 return false;
             }
             final int[] cursor = {0};
-            int result = this.packets.fill(() -> packets[cursor[0]++], length);
+            int result = this.packets.fill(() -> wrappers[cursor[0]++], length);
             if (result != length) {
                 throw new IllegalStateException(String.format(
                         "Nexalithic Fatal: Partial fill in MpscQueue! Expected %d, but only %d queued. Check concurrency or capacity.",
@@ -98,27 +97,22 @@ public class FragmenterFactory {
         }
     }
 
-    static class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPacket> {
+    static class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPacketFragmentWrapper> {
         public static final int MAX_LINKED_COUNT = 64;
-        private static final WrapperPool<BusinessPacketFragmentWrapper> WRAPPER_POOL = new TargetDynamicWrapperPool<>(
-            PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
-            PoolStrategy.alwaysCreate(),
-            BusinessPacketFragmentWrapper::new
-        );
         private final MpscArrayQueue<BusinessPacketFragmentWrapper> packets = new MpscArrayQueue<>(WrapperQueue_Capacity.value());
         private final AtomicInteger currentLinkedCount = new AtomicInteger(0);
         private BusinessPacketFragmentWrapper head, last;
 
         @Override
-        public boolean feed(BusinessPacket packet) {
+        public boolean feed(BusinessPacketFragmentWrapper wrapper) {
             if (currentLinkedCount.get() >= MAX_LINKED_COUNT) {
                 return false;
             }
-            return packets.offer((BusinessPacketFragmentWrapper) WRAPPER_POOL.acquire().wrap(packet));
+            return packets.offer(wrapper);
         }
 
         @Override
-        public boolean fill(BusinessPacket... p) {
+        public boolean fill(BusinessPacketFragmentWrapper... wrappers) {
             return false;
         }
 

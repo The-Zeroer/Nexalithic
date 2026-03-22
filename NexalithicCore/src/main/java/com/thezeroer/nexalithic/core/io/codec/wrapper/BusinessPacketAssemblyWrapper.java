@@ -17,7 +17,7 @@ import java.util.List;
  * @since 2026/03/15
  * @version 1.0.0
  */
-public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper>{
+public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> {
     public static final int FRAME_HEADER_LENGTH = BusinessPacketFragmentWrapper.FRAME_HEADER_LENGTH;
     public static final int MAX_PAYLOAD_SIZE = BusinessPacketFragmentWrapper.MAX_PAYLOAD_SIZE;
     private final BusinessPacket.Builder packetBuilder = new BusinessPacket.Builder();
@@ -62,7 +62,6 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private int readPacketHeader(LoopBuffer.LimitedReadableView input) {
         int read = BusinessPacket.BASE_HEADER_SIZE;
         packetBuilder.taskId = input.getLong();
-        packetBuilder.packetIndex = input.getByte();
         packetBuilder.packetSize = input.getLong();
         remaining = packetBuilder.packetSize;
         packetBuilder.way = input.getShort();

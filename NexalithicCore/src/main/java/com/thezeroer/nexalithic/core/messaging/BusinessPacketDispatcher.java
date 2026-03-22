@@ -3,19 +3,13 @@ package com.thezeroer.nexalithic.core.messaging;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.TargetStaticWrapperPool;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
-import org.jctools.queues.MpmcArrayQueue;
 
 import java.util.concurrent.ExecutorService;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * 业务包分发器
@@ -25,33 +19,39 @@ import java.util.function.Supplier;
  * @version 1.0.0
  */
 public class BusinessPacketDispatcher<
-        HC extends HandlerContext,
-        HR extends HandlerContext.Recyclable<HC, HR>
+        S extends NexalithicSession<?, ?, ?, ?, ?>,
+        HC extends HandlerContext<S>,
+        HR extends HandlerContext.Recyclable<S, HC, HR>
     > {
-    public static final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create("BusinessPacketDispatcher_HandlerContextPool_Capacity", 1024);
-    public static final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create("BusinessPacketDispatcher_HandlerContextPool_PrefillRatio", 0.5);
-    private final HandlerRegistry<HC> handlerRegistry;
-    private final WrapperPool<HR> handlerContextPool;
-    private final ExecutorService threadPool;
+    protected final TaskRegistry taskRegistry;
+    protected final HandlerRegistry<HC> handlerRegistry;
+    protected final WrapperPool<HR> handlerContextPool;
+    protected final ExecutorService threadPool;
 
     public BusinessPacketDispatcher(
-            HandlerRegistry<HC> registry,
-            Supplier<HC> contextFactory,
-            Function<HC, HR> wrapperFactory,
+            TaskRegistry taskRegistry,
+            HandlerRegistry<HC> handlerRegistry,
+            WrapperPool<HR> handlerContextPool,
             ExecutorService threadPool
     ) {
-        this.handlerRegistry = registry;
+        this.taskRegistry = taskRegistry;
+        this.handlerRegistry = handlerRegistry;
+        this.handlerContextPool = handlerContextPool;
         this.threadPool = threadPool;
-        handlerContextPool = new TargetStaticWrapperPool<>(
-                PoolStorage.of(new MpmcArrayQueue<>(HandlerContextPool_Capacity.value()), HandlerContextPool_Capacity.value()),
-                PoolStrategy.alwaysCreate(),
-                contextFactory,
-                wrapperFactory
-        ).warmUp(HandlerContextPool_PrefillRatio.value());
     }
 
-    public final void dispatch(BusinessPacket packet, SessionChannel<?, ?, ?> channel) {
-        NexalithicSession<?, ?, ?> session = channel.session();
+    public final void dispatch(BusinessPacket packet, S session) {
+        NexalithicTask task = taskRegistry.trigger(packet.getTaskId());
+        if (task != null) {
+            try {
+                task.response(packet);
+            } catch (Exception e) {
+                task.exception(e);
+            } finally {
+                task.finish();
+            }
+            return;
+        }
         NexalithicHandler<HC> handler = handlerRegistry.match(packet.getPath());
         if (handler == null) {
 
@@ -61,6 +61,10 @@ public class BusinessPacketDispatcher<
 
             return;
         }
-        threadPool.execute(() -> handler.handle(handlerContextPool.acquire().initTarget(packet, session).unwrap()));
+        threadPool.execute(() -> {
+            HR recyclable = handlerContextPool.acquire().initTarget(packet, session);
+            handler.handle(recyclable.unwrap());
+            recyclable.recycle();
+        });
     }
 }

@@ -3,10 +3,8 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
-import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -17,7 +15,6 @@ import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
-import java.security.SecureRandom;
 
 /**
  * 主选择器
@@ -26,16 +23,15 @@ import java.security.SecureRandom;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class StewardLoop extends ServiceLoop<SignalingPacket> {
+public class StewardLoop extends ServiceLoop {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
-    private final SecureRandom secureRandom = new SecureRandom();
-    private final NetworkRouter networkRouter;
     private final SessionsManager sessionsManager;
+    private final ServiceUnit serviceUnit;
 
-    public StewardLoop(SessionsManager sessionsManager, NetworkRouter networkRouter) throws IOException {
+    public StewardLoop(SessionsManager sessionsManager, ServiceUnit serviceUnit) throws IOException {
         super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
-        this.networkRouter = networkRouter;
         this.sessionsManager = sessionsManager;
+        this.serviceUnit = serviceUnit;
     }
 
     @Override
@@ -47,6 +43,8 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
                 selectionKey.attach(session.getSignalingChannel().updateChannel(this, selectionKey));
                 sessionsManager.putSession(session);
             } catch (IOException ignored) {
+            } finally {
+                channel.recycle();
             }
         }, MAX_DRAIN_LIMIT);
         return dispatchQueue.isEmpty();
@@ -55,7 +53,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
     @Override
     @SuppressWarnings("unchecked")
     protected void onReadyEvent(SelectionKey key) throws IOException {
-        ServerSessionChannel<SignalingPacket> channel = (ServerSessionChannel<SignalingPacket>) key.attachment();
+        ServerSessionChannel<SignalingPacket, ?> channel = (ServerSessionChannel<SignalingPacket, ?>) key.attachment();
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -79,37 +77,22 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> {
         }
     }
 
-    private void handleSignalPacket(ServerSessionChannel<SignalingPacket> channel, SignalingPacket packet) {
+    private void handleSignalPacket(ServerSessionChannel<SignalingPacket, ?> channel, SignalingPacket packet) {
         switch (packet.getSignal()) {
             case SignalingPacket.Signal.HeartBeat -> {
 
             }
-            case SignalingPacket.Signal.RequestBusinessPort -> privateBecomeChannelConnecting(channel, channel.session().getBusinessChannel());
-        }
-    }
-    private void privatePushPackets(ServerSessionChannel<SignalingPacket> channel, SignalingPacket... packets) {
-        if (channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-            channel.applyTargetInterest();
-        }
-        for (int i = 0; i != packets.length; ++i) {
-            if (!channel.put(packets[i])) {
-                logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
-                closeChannel(channel);
+            case SignalingPacket.Signal.RequestBusinessPort -> {
+                ServerSession session = channel.session();
+                if (!session.pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress()))) {
+                    logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
+                    closeChannel(channel);
+                }
             }
         }
     }
-    private void privateBecomeChannelConnecting(ServerSessionChannel<SignalingPacket> signalingChannel, ServerSessionChannel<?> targetChannel) {
-        if (targetChannel.becomeConnecting()) {
-            byte[] channelToken = new byte[SessionChannel.CHANNEL_TOKEN_LENGTH];
-            secureRandom.nextBytes(channelToken);
-            sessionsManager.relateChannelToken(channelToken, signalingChannel.session());
-            privatePushPackets(signalingChannel, new SignalingPacket(SignalingPacket.Signal.BusinessChannelToken, channelToken),
-                    new SignalingPacket(SignalingPacket.Signal.ResponseBusinessPort, AbstractPacket.intToBytes(networkRouter
-                            .choosePort(AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress()))));
-        }
-    }
 
-    private void closeChannel(ServerSessionChannel<?> channel) {
+    private void closeChannel(ServerSessionChannel<?, ?> channel) {
         ServerSession session = channel.session();
         sessionsManager.removeSession(session);
         loadScore.decrement();

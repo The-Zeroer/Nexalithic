@@ -5,6 +5,8 @@ import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
@@ -41,9 +43,11 @@ import java.util.function.Supplier;
 public class NexalithicClient {
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
     private final GeneralLoop generalLoop;
+    private final ClientBusinessPacketDispatcher businessPacketDispatcher;
 
-    private NexalithicClient(GeneralLoop generalLoop) {
+    private NexalithicClient(GeneralLoop generalLoop, ClientBusinessPacketDispatcher businessPacketDispatcher) {
         this.generalLoop = generalLoop;
+        this.businessPacketDispatcher = businessPacketDispatcher;
     }
 
     public static Builder builder() {
@@ -67,8 +71,12 @@ public class NexalithicClient {
         generalLoop.getNetworkRouter().setServerHost(remote.getAddress().getHostAddress());
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
+
+    public boolean submit(NexalithicTask task) {
+        return businessPacketDispatcher.submitNexalithicTask(generalLoop.getSession(), task);
+    }
     public boolean push(BusinessPacket packet) {
-        return generalLoop.pushBusinessPacket(packet);
+        return businessPacketDispatcher.pushBusinessPacket(generalLoop.getSession(), packet);
     }
 
     public static class Builder {
@@ -125,10 +133,11 @@ public class NexalithicClient {
             if (registry == null) {
                 registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(registry, businessPacketDispatcherThreadPool);
+            TaskRegistry taskRegistry = new TaskRegistry();
+            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(taskRegistry, registry, businessPacketDispatcherThreadPool);
             GeneralLoop generalLoop = new GeneralLoop(securityPolicy, dispatcher);
 
-            return new NexalithicClient(generalLoop);
+            return new NexalithicClient(generalLoop, dispatcher);
         }
 
         private void verifyOptions() {

@@ -27,7 +27,7 @@ public class TargetDynamicWrapperPool <T, W extends TargetDynamicWrapperPool.Int
     }
 
     @Override
-    protected final W create() {
+    protected final W onCreate() {
         return wrapperFactory.get();
     }
 
@@ -60,6 +60,9 @@ public class TargetDynamicWrapperPool <T, W extends TargetDynamicWrapperPool.Int
                 this.recycler = loopThread.consumeProxyRecycler();
             } else {
                 this.recycler = (ProxyRecycler<? super W>) INJECTOR.get();
+            }
+            if (recycler == null) {
+                throw new NullPointerException("recycler is null");
             }
             self = (W) this;
         }

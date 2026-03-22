@@ -30,7 +30,7 @@ public class TargetStaticWrapperPool<T, W extends TargetStaticWrapperPool.Interi
     }
 
     @Override
-    protected final W create() {
+    protected final W onCreate() {
         return wrapperFactory.apply(targetFactory.get());
     }
 
@@ -65,6 +65,9 @@ public class TargetStaticWrapperPool<T, W extends TargetStaticWrapperPool.Interi
                 this.recycler = loopThread.consumeProxyRecycler();
             } else {
                 this.recycler = (ProxyRecycler<? super W>) INJECTOR.get();
+            }
+            if (recycler == null) {
+                throw new NullPointerException("recycler is null");
             }
             self = (W) this;
         }

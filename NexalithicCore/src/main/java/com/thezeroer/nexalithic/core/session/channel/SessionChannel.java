@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
@@ -35,16 +36,17 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public abstract class SessionChannel<
         P extends AbstractPacket,
-        S extends NexalithicSession<S, ?, ?>,
-        L extends ChannelLoop<?, ?>
-    > extends SecurityChannel implements NexalithicChannel {
+        W extends FragmentWrapper<P>,
+        S extends NexalithicSession<S, ?, ?, ?, ?>,
+        L extends ChannelLoop
+        > extends SecurityChannel implements NexalithicChannel {
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
     private static final int INTEREST_MASK = ~DIRTY_BIT;
     private final S session;
     private final AbstractPacket.PacketType type;
-    private final PacketsFragmenter<P> fragmenter;
+    private final PacketsFragmenter<W> fragmenter;
     private final PacketsAssembler<P> assembler;
     private volatile L loop;
     private volatile SelectionKey selectionKey;
@@ -66,7 +68,7 @@ public abstract class SessionChannel<
     public final boolean becomeConnecting() {
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public final SessionChannel<P, S, L> updateChannel(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, W, S, L> updateChannel(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -85,7 +87,7 @@ public abstract class SessionChannel<
         this.state.set(State.Connected);
         return this;
     }
-    public final SessionChannel<P, S, L> updateChannel(L loop, SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, W, S, L> updateChannel(L loop, SelectionKey selectionKey) throws IOException {
         this.loop = loop;
         return updateChannel(selectionKey);
     }
@@ -127,12 +129,12 @@ public abstract class SessionChannel<
         }
     }
 
-    public final boolean put(P packet) {
-        return fragmenter.feed(packet);
+    public final boolean put(W wrapper) {
+        return fragmenter.feed(wrapper);
     }
     @SafeVarargs
-    public final boolean fill(P... packets) {
-        return fragmenter.fill(packets);
+    public final boolean fill(W... wrappers) {
+        return fragmenter.fill(wrappers);
     }
     public final P get() {
         return assembler.drain();

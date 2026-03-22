@@ -51,7 +51,10 @@ public class SessionsManager {
 
     public void removeSession(ServerSession session) {
         idToSessions.remove(session.getSessionId());
-        nameToSessions.remove(session.getSessionName());
+        String sessionName = session.getSessionName();
+        if (sessionName != null) {
+            nameToSessions.remove(sessionName);
+        }
     }
     public void removeSession(String sessionName) {
         ServerSession session = nameToSessions.remove(sessionName);

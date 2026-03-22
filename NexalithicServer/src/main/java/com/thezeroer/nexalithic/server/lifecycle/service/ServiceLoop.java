@@ -1,9 +1,7 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
-import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.io.IOException;
@@ -15,7 +13,7 @@ import java.io.IOException;
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class ServiceLoop<P extends AbstractPacket> extends ChannelLoop<ServerSessionChannel<P>, P> {
+public abstract class ServiceLoop extends ChannelLoop {
     protected static final int MAX_DRAIN_LIMIT = 64;
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
 

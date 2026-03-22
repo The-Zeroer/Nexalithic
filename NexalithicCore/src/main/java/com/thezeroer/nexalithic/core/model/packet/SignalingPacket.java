@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.core.model.packet;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 
 /**
  * 信令包
@@ -9,7 +10,7 @@ import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
  * @since 2026/02/02
  * @version 1.0.0
  */
-public class SignalingPacket extends AbstractPacket {
+public class SignalingPacket extends AbstractPacket implements FragmentWrapper<SignalingPacket> {
     public static class Signal {
         public static final byte HeartBeat = 0x00;
         public static final byte BusinessChannelToken = 0x01;
