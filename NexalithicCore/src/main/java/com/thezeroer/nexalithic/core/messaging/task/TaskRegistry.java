@@ -1,7 +1,9 @@
 package com.thezeroer.nexalithic.core.messaging.task;
 
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 任务注册表
@@ -11,17 +13,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * @version 1.0.0
  */
 public class TaskRegistry {
-    private final Map<Long, NexalithicTask> tasks = new ConcurrentHashMap<>();
-
-    public boolean register(NexalithicTask task) {
-        return tasks.putIfAbsent(task.getTaskId(), task) == null;
+    private final Map<Long, NexalithicTask> taskMap = new ConcurrentHashMap<>();
+    /** 追踪已发送的任务 */
+    public boolean track(NexalithicTask task) {
+        return taskMap.putIfAbsent(task.getTaskId(), task) == null;
     }
 
     public void activate(long taskId) {
 
     }
+    /** 释放已完成的任务 */
+    public NexalithicTask pick(long taskId) {
+        return taskMap.remove(taskId);
+    }
 
-    public NexalithicTask trigger(long taskId) {
-        return tasks.remove(taskId);
+    public boolean hasTrackingTasks() {
+        return !taskMap.isEmpty();
     }
 }

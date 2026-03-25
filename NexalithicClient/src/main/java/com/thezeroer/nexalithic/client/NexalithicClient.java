@@ -72,8 +72,8 @@ public class NexalithicClient {
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
 
-    public boolean submit(NexalithicTask task) {
-        return businessPacketDispatcher.submitNexalithicTask(generalLoop.getSession(), task);
+    public boolean submit(NexalithicTask.Builder taskBuilder) {
+        return businessPacketDispatcher.submitNexalithicTask(generalLoop.getSession(), taskBuilder.build());
     }
     public boolean push(BusinessPacket packet) {
         return businessPacketDispatcher.pushBusinessPacket(generalLoop.getSession(), packet);

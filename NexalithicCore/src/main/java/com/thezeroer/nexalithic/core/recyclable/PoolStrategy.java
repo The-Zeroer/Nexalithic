@@ -16,7 +16,7 @@ public interface PoolStrategy<W> {
 
     /**
      * 在尝试从存储容器（Storage）获取资源之前调用。
-     * <p>常用于记录获取请求的原始频率（Request Rate）。</p>
+     * <p>常用于记录获取请求的原始频率（RequestAction Rate）。</p>
      */
     default void beforeAcquire() {}
 
@@ -216,7 +216,7 @@ public interface PoolStrategy<W> {
                 return true;
             }
             throw new IllegalStateException(
-                    String.format("Nexalithic Pool Timeout: Failed to acquire resource within %d ms. [Available: %d]",
+                    String.format("Nexalithic Pool TimeoutAction: Failed to acquire resource within %d ms. [Available: %d]",
                             timeoutMillis, semaphore.availablePermits())
             );
         }
