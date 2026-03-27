@@ -20,7 +20,7 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
 
     @Override
     public boolean pushResponse(BusinessPacket response) {
-        return dispatcher.pushBusinessPacket(session, response);
+        return dispatcher.pushBusinessPacket(session, response.setTaskId(request.getTaskId()));
     }
 
     public static class Recyclable extends HandlerContext.Recyclable<

@@ -76,6 +76,9 @@ public abstract class BusinessPacketDispatcher<
     }
 
     public TaskFuture submitNexalithicTask(S session, NexalithicTask task) {
+        if (session == null) {
+            return null;
+        }
         switch (task.getStrategy()) {
             case ASYNC -> threadPool.submit(() -> onTaskRequest(task, session));
             case SYNC_WAIT -> {

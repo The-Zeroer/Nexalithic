@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.client;
 
+import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
@@ -31,6 +32,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 
 /**
@@ -74,10 +76,29 @@ public class NexalithicClient {
     }
 
     public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
-        return businessPacketDispatcher.submitNexalithicTask(generalLoop.getSession(), taskBuilder.build());
+        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder.build());
     }
     public boolean push(BusinessPacket packet) {
-        return businessPacketDispatcher.pushBusinessPacket(generalLoop.getSession(), packet);
+        return businessPacketDispatcher.pushBusinessPacket(getSession(), packet);
+    }
+
+    private ClientSession getSession() {
+        ClientSession session = generalLoop.getSession();
+        if (session == null) {
+            for (int i = 0; i < 100; i++) {
+                if (session != null) {
+                    return session;
+                } else {
+                    if (i < 50) {
+                        Thread.onSpinWait();
+                    } else {
+                        LockSupport.parkNanos(i * 1_000_000L);
+                    }
+                }
+                session = generalLoop.getSession();
+            }
+        }
+        return session;
     }
 
     public static class Builder {

@@ -54,6 +54,9 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
 
     @Override
     public boolean pushBusinessPacket(ClientSession session, BusinessPacket packet) {
+        if (session == null) {
+            return false;
+        }
         BusinessPacketFragmentWrapper wrapper = packetWrapperPool.acquire();
         wrapper.wrap(packet);
         return session.pushBusinessPacketWrapper(wrapper);

@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.core.io.buffer;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.nio.ByteBuffer;
@@ -18,7 +19,7 @@ import java.util.function.Supplier;
  */
 public class LoopBufferPool extends SelfStaticWrapperPool<LoopBuffer> {
     public static final LoopBufferPool INSTANCE = new LoopBufferPool(
-            PoolStorage.of(new MpscArrayQueue<>(1024), 1024),
+            PoolStorage.of(new MpmcArrayQueue<>(1024), 1024),
             PoolStrategy.alwaysCreate(),
             () -> new LoopBuffer(ByteBuffer.allocate(1024 * 64).order(ByteOrder.BIG_ENDIAN)));
 

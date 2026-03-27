@@ -4,7 +4,6 @@ import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -129,10 +128,16 @@ public class GeneralLoop extends ChannelLoop {
                 }
                 if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
                     while (channel.get() instanceof SignalingPacket packet) {
+                        if (logger.isTraceEnabled()) {
+                            logger.trace("[{}] received SIGNALING packet", packet);
+                        }
                         handleSignalPacket(packet);
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
+                        if (logger.isTraceEnabled()) {
+                            logger.trace("[{}] received BUSINESS packet", packet);
+                        }
                         dispatcher.dispatch(packet, session);
                     }
                 }
