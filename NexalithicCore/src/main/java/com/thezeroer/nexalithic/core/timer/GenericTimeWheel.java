@@ -14,6 +14,9 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
     public GenericTimeWheel(long tick, int slot, WrapperPool<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> wrapperPool) {
         super(tick, slot, wrapperPool);
     }
+    public GenericTimeWheel(long tick, int slot, WrapperPool<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> wrapperPool, String name) {
+        super(tick, slot, wrapperPool, name);
+    }
 
     @SuppressWarnings("unchecked")
     public <T extends Expirable> void schedule(T expirable, TimerExecutor<T> executor) {
@@ -33,7 +36,7 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
         }
     }
 
-    public static class GenericScheduleWrapper<E extends Expirable> extends ScheduleWrapper {
+    public static class GenericScheduleWrapper<E extends Expirable> extends ScheduleWrapper<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> {
         private volatile E expirable;
         private volatile TimerExecutor<E> executor;
 

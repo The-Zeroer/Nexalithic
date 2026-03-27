@@ -111,93 +111,98 @@ public class HandshakeLoop extends AbstractLoop {
     @Override
     public void onReadyEvent(SelectionKey key) throws IOException {
         PendingChannel channel = (PendingChannel) key.attachment();
-        SocketChannel socketChannel = channel.getSocketChannel();
-        if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
-            if (key.isWritable()) {
-                switch (channel.getState()) {
-                    case STEP_0 -> {
+        try {
+            SocketChannel socketChannel = channel.getSocketChannel();
+            if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                if (key.isWritable()) {
+                    switch (channel.getState()) {
+                        case STEP_0 -> {
+                            closeChannel(key, channel);
+                            return;
+                        }
+                        case STEP_1 -> {
+                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
+                            socketChannel.write(writeBuffers);
+                            if (!writeBuffers[1].hasRemaining()) {
+                                key.interestOps(SelectionKey.OP_READ);
+                            }
+                        }
+                        case STEP_2 -> {
+                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
+                            socketChannel.write(writeBuffers);
+                            if (!writeBuffers[1].hasRemaining()) {
+                                key.cancel();
+                                loadScore.decrement();
+                                ServiceUnit serviceUnit = serviceUnitLoadBalancer.select(null);
+                                channel.getSession().setServiceUnit(serviceUnit);
+                                serviceUnit.getStewardLoop().dispatch(channel);
+                                return;
+                            }
+                        }
+                    }
+                }
+                if (key.isReadable()) {
+                    ByteBuffer[] readBuffers = channel.getReadBuffers();
+                    if (socketChannel.read(readBuffers) == -1) {
                         closeChannel(key, channel);
                         return;
                     }
-                    case STEP_1 -> {
-                        ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                        socketChannel.write(writeBuffers);
-                        if (!writeBuffers[1].hasRemaining()) {
-                            key.interestOps(SelectionKey.OP_READ);
+                    if (!readBuffers[1].hasRemaining()) {
+                        MessageDigest transcriptHash = channel.getTranscriptHash();
+                        transcriptHash.update(readBuffers[0].flip());
+                        try {
+                            byte[] secret = SecretKeyUtils.compactSecret(channel.getPrivateKey(), readBuffers[0].array());
+                            byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
+                            SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_SIGNALING, SecretKeyUtils.LABEL_CLIENT_SIGNALING);
+                            byte[] remoteFinished = signalingSecretKey.decrypt(readBuffers[1].array());
+                            if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
+                                closeChannel(key, channel);
+                                logger.warn("Finished verification failed");
+                                return;
+                            }
+                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
+                            writeBuffers[0] = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
+                            byte[] sessionIdBytes = new byte[ServerSession.SESSION_ID_LENGTH];
+                            secureRandom.nextBytes(sessionIdBytes);
+                            writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
+                            channel.setSession(new ServerSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
+                                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS,
+                                            SecretKeyUtils.LABEL_CLIENT_BUSINESS))).setState(PendingChannel.State.STEP_2);
+                            key.interestOps(SelectionKey.OP_WRITE);
+                        } catch (BadPaddingException | IllegalBlockSizeException e) {
+                            String remoteAddress = socketChannel.getRemoteAddress().toString();
+                            closeChannel(key, channel);
+                            logger.warn("Security verification failed: [reason: {}] [remote: {}]", e.getMessage(), remoteAddress);
+                        } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeySpecException e) {
+                            closeChannel(key, channel);
+                            logger.error("Cryptographic environment fatal error: ensure JCE provider (e.g., BouncyCastle) is correctly configured", e);
+                        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+                            closeChannel(key, channel);
+                            logger.error("Invalid cryptographic parameters detected : {}", e.getMessage(), e);
                         }
                     }
-                    case STEP_2 -> {
-                        ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                        socketChannel.write(writeBuffers);
-                        if (!writeBuffers[1].hasRemaining()) {
+                }
+            } else {
+                if (key.isReadable()) {
+                    ByteBuffer[] readBuffers = channel.getReadBuffers();
+                    if (socketChannel.read(readBuffers[0]) == -1) {
+                        closeChannel(key, channel);
+                    }
+                    if (!readBuffers[0].hasRemaining()) {
+                        ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
+                        if (session != null) {
                             key.cancel();
                             loadScore.decrement();
-                            ServiceUnit serviceUnit = serviceUnitLoadBalancer.select(null);
-                            channel.getSession().setServiceUnit(serviceUnit);
-                            serviceUnit.getStewardLoop().dispatch(channel);
-                            return;
-                        }
-                    }
-                }
-            }
-            if (key.isReadable()) {
-                ByteBuffer[] readBuffers = channel.getReadBuffers();
-                if (socketChannel.read(readBuffers) == -1) {
-                    closeChannel(key, channel);
-                    return;
-                }
-                if (!readBuffers[1].hasRemaining()) {
-                    MessageDigest transcriptHash = channel.getTranscriptHash();
-                    transcriptHash.update(readBuffers[0].flip());
-                    try {
-                        byte[] secret = SecretKeyUtils.compactSecret(channel.getPrivateKey(), readBuffers[0].array());
-                        byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
-                        SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_SIGNALING, SecretKeyUtils.LABEL_CLIENT_SIGNALING);
-                        byte[] remoteFinished = signalingSecretKey.decrypt(readBuffers[1].array());
-                        if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
+                            session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
+                        } else {
                             closeChannel(key, channel);
-                            logger.warn("Finished verification failed");
-                            return;
                         }
-                        ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                        writeBuffers[0] = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
-                        byte[] sessionIdBytes = new byte[ServerSession.SESSION_ID_LENGTH];
-                        secureRandom.nextBytes(sessionIdBytes);
-                        writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
-                        channel.setSession(new ServerSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
-                                SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS,
-                                        SecretKeyUtils.LABEL_CLIENT_BUSINESS))).setState(PendingChannel.State.STEP_2);
-                        key.interestOps(SelectionKey.OP_WRITE);
-                    } catch (BadPaddingException | IllegalBlockSizeException e) {
-                        String remoteAddress = socketChannel.getRemoteAddress().toString();
-                        closeChannel(key, channel);
-                        logger.warn("Security verification failed: [reason: {}] [remote: {}]", e.getMessage(), remoteAddress);
-                    } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeySpecException e) {
-                        closeChannel(key, channel);
-                        logger.error("Cryptographic environment fatal error: ensure JCE provider (e.g., BouncyCastle) is correctly configured", e);
-                    } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-                        closeChannel(key, channel);
-                        logger.error("Invalid cryptographic parameters detected : {}", e.getMessage(), e);
                     }
                 }
             }
-        } else {
-            if (key.isReadable()) {
-                ByteBuffer[] readBuffers = channel.getReadBuffers();
-                if (socketChannel.read(readBuffers[0]) == -1) {
-                    closeChannel(key, channel);
-                }
-                if (!readBuffers[0].hasRemaining()) {
-                    ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
-                    if (session != null) {
-                        key.cancel();
-                        loadScore.decrement();
-                        session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
-                    } else {
-                        closeChannel(key, channel);
-                    }
-                }
-            }
+        } catch (Exception e) {
+            closeChannel(key, channel);
+            throw e;
         }
     }
 

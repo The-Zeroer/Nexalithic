@@ -16,6 +16,10 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
         super(tick, slot, wrapperPool);
         this.executor = executor;
     }
+    public DedicatedTimeWheel(long tick, int slot, WrapperPool<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> wrapperPool, TimerExecutor<E> executor, String name) {
+        super(tick, slot, wrapperPool, name);
+        this.executor = executor;
+    }
 
     public void schedule(E expirable) {
         mountWrapper(wrapperPool.acquire().wrap(expirable));
@@ -31,7 +35,7 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
         }
     }
 
-    public static class DedicatedScheduleWrapper<E extends Expirable> extends ScheduleWrapper {
+    public static class DedicatedScheduleWrapper<E extends Expirable> extends ScheduleWrapper<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> {
         private volatile E expirable;
 
         public DedicatedScheduleWrapper<E> wrap(E expirable) {

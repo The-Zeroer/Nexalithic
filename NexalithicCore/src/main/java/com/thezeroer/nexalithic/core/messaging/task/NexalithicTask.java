@@ -2,10 +2,12 @@ package com.thezeroer.nexalithic.core.messaging.task;
 
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.timer.Expirable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * <h1>Nexalithic 异步任务 (Task)</h1>
@@ -21,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
  * @since 2026/03/15
  * @see NexalithicHandler
  */
-public class NexalithicTask {
+public class NexalithicTask implements Expirable {
     public enum Pattern {
         /** 只有请求，无回执。发送完即销毁。 */
         ONE_WAY,
@@ -29,7 +31,7 @@ public class NexalithicTask {
         /** 标准请求-响应。收到一个回执或超时后销毁。 */
         REQUEST_RESPONSE,
 
-        /** 流模式。持续接收回执，直到手动取消或收到结束帧。 */
+        /** 流模式。持续接收回执，直到手动取消。 */
         STREAM
     }
     public enum Strategy {
@@ -49,6 +51,7 @@ public class NexalithicTask {
         /** 策略相关：正在排队等待发送（Strategy.SEQUENTIAL_QUEUE 特有） */
         ENQUEUED,
 
+        /** 正在生成请求包 */
         REQUESTING,
 
         /** 正在发送或已提交至网络缓冲区 */
@@ -63,31 +66,49 @@ public class NexalithicTask {
         /** 已收到响应包，正在执行 ResponseAction 业务逻辑 */
         RESPONDING,
 
+        /** 执行完响应 */
         COMPLETED,
 
+        /** 未收到响应，超时 */
         TIMEOUT,
 
+        /** 其他过程中出现异常 */
         FAILED,
 
+        /** 任务取消 */
         CANCELLED,
 
+        /** 结束 */
         FINISHED,
     }
+    public static final Logger logger = LoggerFactory.getLogger(NexalithicTask.class);
     private static final AtomicLong COUNTER = new AtomicLong(0);
     private final long taskId;
+    private final AtomicReference<State> state = new  AtomicReference<>(State.NEW);
     private TaskFunction.RequestAction requestAction;
     private TaskFunction.ResponseAction responseAction;
     private TaskFunction.FinishAction finishAction;
     private TaskFunction.TimeoutAction timeoutAction;
     private TaskFunction.CancelAction cancelAction;
     private TaskFunction.ExceptionAction exceptionAction;
-    private AtomicReference<State> state = new  AtomicReference<>(State.NEW);
     private Pattern pattern;
     private Strategy strategy;
     private long waitTime = 3000;
 
+    private final TaskFuture future;
+
     private NexalithicTask() {
         this.taskId = COUNTER.getAndIncrement();
+        pattern = Pattern.REQUEST_RESPONSE;
+        strategy = Strategy.ASYNC;
+        responseAction = packet -> {};
+        finishAction = () -> {};
+        timeoutAction = () -> {};
+        cancelAction = () -> {};
+        exceptionAction = exception -> {
+            logger.error("Exception in NexalithicTask", exception);
+        };
+        future = new TaskFuture(this);
     }
 
     public static Builder builder() {
@@ -100,46 +121,66 @@ public class NexalithicTask {
         } else {
             throw new IllegalStateException("State " + state.get() + " is not in NEW or ENQUEUED state");
         }
-        BusinessPacket request = requestAction.execute();
-        if (request == null) {
-            finish();
-        }
-        return request;
+        return requestAction.execute();
     }
     public final void response(BusinessPacket packet) {
         if (pattern.equals(Pattern.REQUEST_RESPONSE)) {
             if (state.compareAndSet(State.WAITING, State.RESPONDING)) {
-                responseAction.execute(packet);
-                state.compareAndSet(State.RESPONDING, State.CANCELLED);
+                try {
+                    responseAction.execute(packet);
+                    state.compareAndSet(State.RESPONDING, State.COMPLETED);
+                } catch (Exception e) {
+                    exception(e);
+                } finally {
+                    finish();
+                }
             }
         } else {
-            if (state.get() == State.WAITING) {
-                state.set(State.STREAMING);
-                responseAction.execute(packet);
-            } else if (state.get() == State.STREAMING) {
-                responseAction.execute(packet);
+            try {
+                if (state.get() == State.WAITING) {
+                    state.set(State.STREAMING);
+                    responseAction.execute(packet);
+                } else if (state.get() == State.STREAMING) {
+                    responseAction.execute(packet);
+                }
+            } catch (Exception e) {
+                exception(e);
             }
         }
     }
     public final void finish() {
         if (state.get() != State.FINISHED) {
             state.set(State.FINISHED);
+            finishAction.execute();
         }
+        future.internalComplete();
     }
     public final void timeout() {
         if (state.compareAndSet(State.WAITING, State.TIMEOUT)) {
             timeoutAction.execute();
         }
+        finish();
     }
     public final void cancel() {
-        cancelAction.execute();
+        if (state.get() != State.CANCELLED) {
+            state.set(State.CANCELLED);
+            cancelAction.execute();
+        }
+        finish();
     }
     public final void exception(Exception e) {
-        exceptionAction.execute(e);
+        if (state.get() != State.FAILED) {
+            state.set(State.FAILED);
+            exceptionAction.execute(e);
+        }
     }
 
-    public boolean transitTo(State newState) {
-        return false;
+    public void transitTo(State newState) {
+        state.set(newState);
+    }
+
+    public final TaskFuture getFuture() {
+        return future;
     }
 
     public final long getTaskId() {
@@ -154,8 +195,15 @@ public class NexalithicTask {
     public final State getState() {
         return state.get();
     }
-    public final long getWaitTime() {
-        return waitTime;
+
+    @Override
+    public long getExpiryTime() {
+        return System.currentTimeMillis() + waitTime;
+    }
+
+    @Override
+    public boolean onExpiryTriggered() {
+        return true;
     }
 
     public static class Builder {
@@ -206,21 +254,6 @@ public class NexalithicTask {
         public NexalithicTask build() {
             if (task.requestAction == null) {
                 throw new IllegalArgumentException("requestAction is required");
-            }
-            if (task.responseAction == null) {
-                task.responseAction = packet -> {};
-            }
-            if (task.finishAction == null) {
-                task.finishAction = () -> {};
-            }
-            if (task.timeoutAction == null) {
-                task.timeoutAction = () -> {};
-            }
-            if (task.cancelAction == null) {
-                task.cancelAction = () -> {};
-            }
-            if (task.exceptionAction == null) {
-                task.exceptionAction = e -> {};
             }
             return task;
         }

@@ -3,7 +3,6 @@ package com.thezeroer.nexalithic.server.messaging;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
-import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
@@ -28,8 +27,7 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
 
     public static final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create("ServerBusinessPacketDispatcher_HandlerContextPool_Capacity", 1024);
     public static final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create("ServerBusinessPacketDispatcher_HandlerContextPool_PrefillRatio", 0.5);
-    public static final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create("ServerBusinessPacketDispatcher_BusinessPacketWrapperPool_Capacity", 4096);
-    private final WrapperPool<BusinessPacketFragmentWrapper> WRAPPER_POOL;
+    public static final NexalithicOption<Integer> PacketWrapperPool_Capacity = NexalithicOption.create("ServerBusinessPacketDispatcher_BusinessPacketWrapperPool_Capacity", 4096);
 
     public ServerBusinessPacketDispatcher(TaskRegistry taskRegistry, HandlerRegistry<ServerHandlerContext> handlerRegistry, ExecutorService threadPool) {
         this(taskRegistry, handlerRegistry, threadPool, new ServerBusinessPacketDispatcher[1]);
@@ -44,20 +42,20 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
                         () -> new ServerHandlerContext(holder[0]),
                         ServerHandlerContext.Recyclable::new
                 ),
+                new TargetDynamicWrapperPool<>(
+                        PoolStorage.of(new MpmcArrayQueue<>(PacketWrapperPool_Capacity.value()), PacketWrapperPool_Capacity.value()),
+                        PoolStrategy.alwaysCreate(),
+                        () -> new BusinessPacketFragmentWrapper(taskRegistry)
+                ),
                 threadPool
         );
         holder[0] = this;
-        this.WRAPPER_POOL = new TargetDynamicWrapperPool<>(
-                PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
-                PoolStrategy.alwaysCreate(),
-                () -> new BusinessPacketFragmentWrapper(taskRegistry)
-        );
         this.handlerContextPool.warmUp(HandlerContextPool_PrefillRatio.value());
     }
 
     @Override
     public boolean pushBusinessPacket(ServerSession session, BusinessPacket packet) {
-        BusinessPacketFragmentWrapper wrapper = WRAPPER_POOL.acquire();
+        BusinessPacketFragmentWrapper wrapper = packetWrapperPool.acquire();
         wrapper.wrap(packet);
         return session.pushBusinessPacketWrapper(wrapper);
     }

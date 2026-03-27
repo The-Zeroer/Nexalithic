@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -72,7 +73,7 @@ public class NexalithicClient {
         return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
     }
 
-    public boolean submit(NexalithicTask.Builder taskBuilder) {
+    public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
         return businessPacketDispatcher.submitNexalithicTask(generalLoop.getSession(), taskBuilder.build());
     }
     public boolean push(BusinessPacket packet) {

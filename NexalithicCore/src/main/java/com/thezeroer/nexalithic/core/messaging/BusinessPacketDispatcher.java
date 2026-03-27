@@ -1,9 +1,11 @@
 package com.thezeroer.nexalithic.core.messaging;
 
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
@@ -28,6 +30,7 @@ public abstract class BusinessPacketDispatcher<
     protected final TaskRegistry taskRegistry;
     protected final HandlerRegistry<HC> handlerRegistry;
     protected final WrapperPool<HR> handlerContextPool;
+    protected final WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool;
     protected final ExecutorService threadPool;
     protected final Queue<Runnable> waitQueue;
 
@@ -35,11 +38,13 @@ public abstract class BusinessPacketDispatcher<
             TaskRegistry taskRegistry,
             HandlerRegistry<HC> handlerRegistry,
             WrapperPool<HR> handlerContextPool,
+            WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool,
             ExecutorService threadPool
     ) {
         this.taskRegistry = taskRegistry;
         this.handlerRegistry = handlerRegistry;
         this.handlerContextPool = handlerContextPool;
+        this.packetWrapperPool = packetWrapperPool;
         this.threadPool = threadPool;
         this.waitQueue = new ConcurrentLinkedQueue<>();
     }
@@ -70,16 +75,12 @@ public abstract class BusinessPacketDispatcher<
         });
     }
 
-    public boolean submitNexalithicTask(S session, NexalithicTask task) {
+    public TaskFuture submitNexalithicTask(S session, NexalithicTask task) {
         switch (task.getStrategy()) {
             case ASYNC -> threadPool.submit(() -> onTaskRequest(task, session));
             case SYNC_WAIT -> {
                 onTaskRequest(task, session);
-                synchronized (task) {
-                    try {
-                        task.wait();
-                    } catch (InterruptedException ignored) {}
-                }
+                task.getFuture().waitFinish();
             }
             case SEQUENTIAL_QUEUE -> {
                 if (taskRegistry.hasTrackingTasks()) {
@@ -89,7 +90,7 @@ public abstract class BusinessPacketDispatcher<
                 }
             }
         }
-        return false;
+        return task.getFuture();
     }
 
     private boolean onTaskRequest(NexalithicTask task, S session) {
@@ -104,6 +105,7 @@ public abstract class BusinessPacketDispatcher<
                 if (!taskRegistry.track(task)) {
                     throw new RuntimeException("Task " + task.getTaskId() + " already registered");
                 }
+                task.transitTo(NexalithicTask.State.WAITING);
             }
             return pushed = pushBusinessPacket(session, packet.setTaskId(task.getTaskId()));
         } catch (Exception e) {
@@ -119,14 +121,7 @@ public abstract class BusinessPacketDispatcher<
         }
     }
     private void onTaskResponse(NexalithicTask task, BusinessPacket packet) {
-
-        try {
-            task.response(packet);
-        } catch (Exception e) {
-            task.exception(e);
-        } finally {
-            task.finish();
-        }
+        task.response(packet);
     }
 
     public abstract boolean pushBusinessPacket(S session, BusinessPacket packet);

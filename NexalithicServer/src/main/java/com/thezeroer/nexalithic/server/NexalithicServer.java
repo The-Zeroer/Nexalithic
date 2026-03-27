@@ -5,6 +5,7 @@ import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
@@ -230,10 +231,10 @@ public class NexalithicServer {
         }
     }
 
-    public boolean submit(NexalithicTask task, String sessionName) {
+    public TaskFuture submit(NexalithicTask task, String sessionName) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
-            return false;
+            return null;
         }
         return businessPacketDispatcher.submitNexalithicTask(session, task);
     }

@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.core.session;
 
 import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -8,6 +9,7 @@ import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 import java.nio.channels.SelectionKey;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Nexalithic 会话
@@ -43,16 +45,16 @@ public abstract class NexalithicSession <
             return false;
         }
         if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-            signalingChannel.localLoop().updateChannelInterest(signalingChannel);
+            return updateChannelInterest(signalingChannel);
         }
-        return true;
+        return false;
     }
     public final boolean pushSignalingPacketWrappers(SW... wrappers) {
         if (!signalingChannel.fill(wrappers)) {
             return false;
         }
         if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-            signalingChannel.localLoop().updateChannelInterest(signalingChannel);
+            return updateChannelInterest(signalingChannel);
         }
         return true;
     }
@@ -66,7 +68,7 @@ public abstract class NexalithicSession <
             }
             case Connected -> {
                 if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                    businessChannel.localLoop().updateChannelInterest(businessChannel);
+                    return updateChannelInterest(businessChannel);
                 }
             }
         }
@@ -82,7 +84,7 @@ public abstract class NexalithicSession <
             }
             case Connected -> {
                 if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                    businessChannel.localLoop().updateChannelInterest(businessChannel);
+                    return updateChannelInterest(businessChannel);
                 }
             }
         }
@@ -129,6 +131,29 @@ public abstract class NexalithicSession <
         if (businessChannel != null) {
             businessChannel.close();
         }
+    }
+
+    private boolean updateChannelInterest(SessionChannel<?, ?, ?, ?> channel) {
+        ChannelLoop loop = channel.localLoop();
+        if (loop != null) {
+            loop.updateChannelInterest(channel);
+            return true;
+        } else {
+            for (int i = 0; i < 100; i++) {
+                if (loop != null) {
+                    loop.updateChannelInterest(channel);
+                    return true;
+                } else {
+                    if (i < 50) {
+                        Thread.onSpinWait();
+                    } else {
+                        LockSupport.parkNanos(i * 1_000_000L);
+                    }
+                }
+                loop = channel.localLoop();
+            }
+        }
+        return false;
     }
 
     protected abstract SC createSignaling(S session, SecretKeyContext key);

@@ -16,7 +16,7 @@ import java.util.concurrent.locks.LockSupport;
  * @since 2026/03/25
  * @version 1.0.0
  */
-public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
+public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
     private static final Logger logger = LoggerFactory.getLogger(TimeWheel.class);
     protected final long tick;
     protected final int mask;
@@ -26,8 +26,11 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
     private final AtomicLong currentTick = new AtomicLong(0);
     private final AtomicLong targetTick = new AtomicLong(0);
 
-    @SuppressWarnings("unchecked")
     public TimeWheel(long tick, int slot, WrapperPool<W> wrapperPool) {
+        this(tick, slot, wrapperPool, null);
+    }
+    @SuppressWarnings("unchecked")
+    public TimeWheel(long tick, int slot, WrapperPool<W> wrapperPool, String name) {
         this.tick = tick;
         this.mask = normalize(slot) - 1;
         this.wrapperPool = wrapperPool;
@@ -35,7 +38,11 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
         for (int i = 0; i < buckets.length; i++) {
             buckets[i] = new AtomicReference<>();
         }
-        this.worker = new Worker();
+        if (name != null) {
+            this.worker = new Worker(name);
+        } else {
+            this.worker = new Worker();
+        }
     }
 
     protected void mountWrapper(W wrapper) {
@@ -99,8 +106,8 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
         } while (!buckets[slot].compareAndSet(currentHead, unexpiredHead));
     }
 
-    public static abstract class ScheduleWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<ScheduleWrapper> {
-        private volatile ScheduleWrapper prev, next;
+    public static abstract class ScheduleWrapper<W extends ScheduleWrapper<W>> extends SelfStaticWrapperPool.InteriorRecyclableWrapper<W> {
+        private volatile ScheduleWrapper<W> prev, next;
         private volatile int remainingRounds;
 
         void setRemainingRounds(int remainingRounds) {
@@ -112,16 +119,16 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
 
         public abstract long getDeadline();
 
-        public void setPrev(ScheduleWrapper prev) {
+        public void setPrev(ScheduleWrapper<W> prev) {
             this.prev = prev;
         }
-        public void setNext(ScheduleWrapper next) {
+        public void setNext(ScheduleWrapper<W> next) {
             this.next = next;
         }
-        public ScheduleWrapper getPrev() {
+        public ScheduleWrapper<W> getPrev() {
             return prev;
         }
-        public ScheduleWrapper getNext() {
+        public ScheduleWrapper<W> getNext() {
             return next;
         }
 
@@ -143,9 +150,16 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
             startTime = System.nanoTime();
             start();
         }
+        public Worker(String name) {
+            setDaemon(true);
+            setName("TimeWheel-Worker: " + name);
+            startTime = System.nanoTime();
+            start();
+        }
 
         @Override
         public void run() {
+            logger.debug("[{}] started", getName());
             while (!isInterrupted()) {
                 long now = waitNextTick();
                 if (now < 0) {
@@ -160,6 +174,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper> {
                 }
                 currentTick.set(current);
             }
+            logger.debug("[{}] stopped", getName());
         }
 
         private long waitNextTick() {
