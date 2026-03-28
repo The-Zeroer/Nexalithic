@@ -2,15 +2,18 @@ package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketAssemblyWrapper;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.recyclable.*;
+import com.thezeroer.nexalithic.core.timer.TimerExecutor;
 import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -26,9 +29,20 @@ import java.util.Map;
 public class AssemblerFactory {
     public static final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create("BusinessPacketsAssembler_WrapperPool_Capacity", 4096);
     public static final NexalithicOption<Integer> PacketQueue_Capacity = NexalithicOption.create("BusinessPacketsAssembler_PacketQueue_Capacity", 64);
+    private static final Logger logger = LoggerFactory.getLogger(AssemblerFactory.class);
+
+    private final WrapperPool<BusinessPacketAssemblyWrapper> WRAPPER_POOL;
+
+    public AssemblerFactory(PayloadRegistry payloadRegistry) {
+        WRAPPER_POOL = new SelfStaticWrapperPool<>(
+                PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
+                PoolStrategy.alwaysCreate(),
+                () -> new BusinessPacketAssemblyWrapper(payloadRegistry)
+        );
+    }
 
     @SuppressWarnings("unchecked")
-    public static <P extends AbstractPacket> PacketsAssembler<P> create(AbstractPacket.PacketType packetType) {
+    public <P extends AbstractPacket> PacketsAssembler<P> create(AbstractPacket.PacketType packetType) {
         return (PacketsAssembler<P>) switch (packetType) {
             case SIGNALING -> new SignalingPacketsAssembler();
             case BUSINESS -> new BusinessPacketsAssembler();
@@ -40,14 +54,12 @@ public class AssemblerFactory {
         private SignalingPacket pendingPacket;
 
         @Override
-        public int feed(LoopBuffer source) {
-            int count = 0;
+        public void feed(LoopBuffer source) {
             if (pendingPacket != null) {
                 if (packets.offer(pendingPacket)) {
-                    count++;
                     pendingPacket = null;
                 } else {
-                    return count;
+                    return;
                 }
             }
             while (true) {
@@ -65,19 +77,23 @@ public class AssemblerFactory {
                 byte[] content = new byte[length];
                 source.unsafeGetBytes(content, length);
                 SignalingPacket packet = new SignalingPacket(signal, content);
+                if (logger.isTraceEnabled()) {
+                    logger.trace("[{}] received SIGNALING packet", packet);
+                }
                 if (packets.offer(packet)) {
-                    count++;
                     source.dropMarkHead();
                 } else {
                     this.pendingPacket = packet;
                     break;
                 }
             }
-            return count;
         }
 
         @Override
         public SignalingPacket drain() {
+            if (pendingPacket != null && packets.offer(pendingPacket)) {
+                pendingPacket = null;
+            }
             return packets.poll();
         }
 
@@ -88,26 +104,21 @@ public class AssemblerFactory {
         }
     }
 
-    static class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket> {
-        private static final WrapperPool<BusinessPacketAssemblyWrapper> WRAPPER_POOL = new SelfStaticWrapperPool<>(
-                PoolStorage.of(new MpmcArrayQueue<>(WrapperPool_Capacity.value()), WrapperPool_Capacity.value()),
-                PoolStrategy.alwaysCreate(),
-                BusinessPacketAssemblyWrapper::new
-        );
+    class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket>, TimerExecutor<BusinessPacketAssemblyWrapper> {
         private final Map<Long, BusinessPacketAssemblyWrapper> assemblingMap = new HashMap<>();
         private final MpscArrayQueue<BusinessPacket> completedPackets = new MpscArrayQueue<>(PacketQueue_Capacity.value());
         private BusinessPacket pendingPacket;
 
         @Override
-        public int feed(LoopBuffer source) throws IOException {
+        public void feed(LoopBuffer source) throws IOException {
             if (pendingPacket != null) {
                 if (completedPackets.offer(pendingPacket)) {
                     pendingPacket = null;
                 } else {
-                    return 0;
+                    return;
                 }
             }
-            int total = 0, read;
+            int read;
             while (source.readableBytes() > BusinessPacketAssemblyWrapper.FRAME_HEADER_LENGTH) {
                 source.markHead();
                 short payloadLength = source.unsafeGetShort();
@@ -116,13 +127,15 @@ public class AssemblerFactory {
                     break;
                 }
                 long packetId = source.unsafeGetLong();
-                total += BusinessPacketAssemblyWrapper.FRAME_HEADER_LENGTH;
                 BusinessPacketAssemblyWrapper wrapper = assemblingMap.computeIfAbsent(packetId, id -> WRAPPER_POOL.acquire().setPacketId(id));
                 LoopBuffer.LimitedReadableView readableView = source.unsafeLimitedReadableView(payloadLength);
                 read = wrapper.onFrame(readableView);
                 if (!wrapper.hasFrame()) {
                     assemblingMap.remove(packetId);
                     BusinessPacket packet = wrapper.getPacket();
+                    if (logger.isTraceEnabled()) {
+                        logger.trace("[{}] received BUSINESS packet", packet);
+                    }
                     wrapper.recycle();
                     if (!completedPackets.offer(packet)) {
                         pendingPacket = packet;
@@ -132,9 +145,7 @@ public class AssemblerFactory {
                 if (read == 0) {
                     break;
                 }
-                total += read;
             }
-            return total;
         }
 
         @Override
@@ -147,7 +158,18 @@ public class AssemblerFactory {
 
         @Override
         public void clear() {
+            pendingPacket = null;
+            completedPackets.clear();
+            for(BusinessPacketAssemblyWrapper wrapper : assemblingMap.values()) {
+                wrapper.recycle();
+            }
+            assemblingMap.clear();
+        }
 
+        @Override
+        public void trigger(BusinessPacketAssemblyWrapper wrapper) {
+            assemblingMap.remove(wrapper.getPacketId());
+            wrapper.recycle();
         }
     }
 }

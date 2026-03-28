@@ -6,7 +6,7 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
-import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
+import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
@@ -27,7 +27,7 @@ public abstract class BusinessPacketDispatcher<
         HC extends HandlerContext<S>,
         HR extends HandlerContext.Recyclable<S, HC, HR>
     > {
-    protected final TaskRegistry taskRegistry;
+    protected final TaskTracer taskTracer;
     protected final HandlerRegistry<HC> handlerRegistry;
     protected final WrapperPool<HR> handlerContextPool;
     protected final WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool;
@@ -35,13 +35,13 @@ public abstract class BusinessPacketDispatcher<
     protected final Queue<Runnable> waitQueue;
 
     public BusinessPacketDispatcher(
-            TaskRegistry taskRegistry,
+            TaskTracer taskTracer,
             HandlerRegistry<HC> handlerRegistry,
             WrapperPool<HR> handlerContextPool,
             WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool,
             ExecutorService threadPool
     ) {
-        this.taskRegistry = taskRegistry;
+        this.taskTracer = taskTracer;
         this.handlerRegistry = handlerRegistry;
         this.handlerContextPool = handlerContextPool;
         this.packetWrapperPool = packetWrapperPool;
@@ -50,7 +50,7 @@ public abstract class BusinessPacketDispatcher<
     }
 
     public final void dispatch(BusinessPacket packet, S session) {
-        NexalithicTask task = taskRegistry.pick(packet.getTaskId());
+        NexalithicTask task = taskTracer.pick(packet.getTaskId());
         if (task != null) {
             threadPool.submit(() -> onTaskResponse(task, packet));
             Runnable runnable = waitQueue.poll();
@@ -75,7 +75,7 @@ public abstract class BusinessPacketDispatcher<
         });
     }
 
-    public TaskFuture submitNexalithicTask(S session, NexalithicTask task) {
+    public final TaskFuture submitNexalithicTask(S session, NexalithicTask task) {
         if (session == null) {
             return null;
         }
@@ -86,7 +86,7 @@ public abstract class BusinessPacketDispatcher<
                 task.getFuture().waitFinish();
             }
             case SEQUENTIAL_QUEUE -> {
-                if (taskRegistry.hasTrackingTasks()) {
+                if (taskTracer.hasTrackingTasks()) {
                     waitQueue.offer(() -> onTaskRequest(task, session));
                 } else {
                     threadPool.submit(() -> onTaskRequest(task, session));
@@ -105,7 +105,7 @@ public abstract class BusinessPacketDispatcher<
                 return false;
             }
             if (task.getPattern() != NexalithicTask.Pattern.ONE_WAY) {
-                if (!taskRegistry.track(task)) {
+                if (!taskTracer.track(task)) {
                     throw new RuntimeException("Task " + task.getTaskId() + " already registered");
                 }
                 task.transitTo(NexalithicTask.State.WAITING);
@@ -118,7 +118,7 @@ public abstract class BusinessPacketDispatcher<
             if (packet == null) {
                 task.finish();
             } else if (!pushed) {
-                taskRegistry.pick(task.getTaskId());
+                taskTracer.pick(task.getTaskId());
                 task.finish();
             }
         }

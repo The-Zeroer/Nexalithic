@@ -1,10 +1,12 @@
 package com.thezeroer.nexalithic.core.io.codec.wrapper;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.timer.Expirable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -17,16 +19,20 @@ import java.util.List;
  * @since 2026/03/15
  * @version 1.0.0
  */
-public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> {
+public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> implements AssemblyWrapper<BusinessPacket>, Expirable {
     public static final int FRAME_HEADER_LENGTH = BusinessPacketFragmentWrapper.FRAME_HEADER_LENGTH;
-    public static final int MAX_PAYLOAD_SIZE = BusinessPacketFragmentWrapper.MAX_PAYLOAD_SIZE;
     private final BusinessPacket.Builder packetBuilder = new BusinessPacket.Builder();
+    private final PayloadRegistry payloadRegistry;
     private BusinessPacket packet;
     private long packetId;
     private long remaining;
     private int payloadIndex;
     private boolean headerRead;
     private long lastActiveTime;
+
+    public BusinessPacketAssemblyWrapper(PayloadRegistry payloadRegistry) {
+        this.payloadRegistry = payloadRegistry;
+    }
 
     public boolean hasFrame() {
         return remaining > 0;
@@ -44,7 +50,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         while (input.remaining() > 0) {
             AbstractPayload<?> payload = payloads.get(payloadIndex);
             if (payload.getProcessedSize() == 0) {
-                payload.prepareDecode(packetBuilder.payloadsMeta[payloadIndex * 2 + 1]);
+                payload.prepareDecode(packetBuilder.payloadsMeta[payloadIndex]);
             }
             read = payload.decode(input);
             if (payload.getProcessedSize() == payload.getTotalSize()) {
@@ -78,13 +84,16 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         packetBuilder.payloadCount = count;
         if (count > 0) {
             packetBuilder.payloads = new ArrayList<>(count);
-            packetBuilder.payloadsMeta = new long[count *= 2];
-            for (int i = 0; i < count;) {
-                packetBuilder.payloads.add(new TextPayload());
-                packetBuilder.payloadsMeta[i++] = input.getLong();
-                packetBuilder.payloadsMeta[i++] = input.getLong();
+            packetBuilder.payloadsMeta = new long[count];
+            for (int i = 0; i < count; i++) {
+                AbstractPayload<?> payload = payloadRegistry.get(input.getLong());
+                if (payload == null) {
+                    throw new RuntimeException("Payload not found, UID: " + input.getLong());
+                }
+                packetBuilder.payloads.add(payload);
+                packetBuilder.payloadsMeta[i] = input.getLong();
             }
-            read += count * Long.BYTES;
+            read += count * Long.BYTES * 2;
         }
         return read;
     }
@@ -112,5 +121,15 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         lastActiveTime = 0;
         headerRead = false;
         payloadIndex = 0;
+    }
+
+    @Override
+    public long getExpiryTime() {
+        return 0;
+    }
+
+    @Override
+    public boolean onExpiryTriggered() {
+        return true;
     }
 }

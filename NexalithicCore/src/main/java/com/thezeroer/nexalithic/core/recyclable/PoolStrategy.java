@@ -60,6 +60,10 @@ public interface PoolStrategy<W> {
     static <W> PoolStrategy<W> alwaysCreate() {
         return (PoolStrategy<W>) AlwaysCreateStrategy.INSTANCE;
     }
+    @SuppressWarnings("unchecked")
+    static <W> PoolStrategy<W> skip() {
+        return (PoolStrategy<W>) SkipStrategy.INSTANCE;
+    }
     static <W> PoolStrategy<W> failFast(int max) {
         return new FailFastStrategy<>(max);
     }
@@ -81,7 +85,22 @@ public interface PoolStrategy<W> {
      * @version 1.0.0
      */
     record AlwaysCreateStrategy<W>() implements PoolStrategy<W> {
-        public static final AlwaysCreateStrategy<Object> INSTANCE = new AlwaysCreateStrategy<>();
+        private static final AlwaysCreateStrategy<Object> INSTANCE = new AlwaysCreateStrategy<>();
+    }
+
+    /**
+     * 跳过策略：不允许创建，让池直接返回null
+     *
+     * @author tbrtz647@outlook.com
+     * @version 1.0.0
+     * @since 2026/03/27
+     */
+    class SkipStrategy<W> implements PoolStrategy<W> {
+        private static final SkipStrategy<Object> INSTANCE = new SkipStrategy<>();
+        @Override
+        public boolean allowCreate() {
+            return false;
+        }
     }
 
     /**

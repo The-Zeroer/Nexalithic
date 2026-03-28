@@ -13,6 +13,8 @@ import java.io.IOException;
  * @version 1.0.0
  */
 public class FilePayload extends AbstractPayload<File> {
+    public static final long UID = 2;
+
     @Override
     public int encode(LoopBuffer.LimitedWritableView output) throws IOException {
         return 0;
@@ -25,6 +27,6 @@ public class FilePayload extends AbstractPayload<File> {
 
     @Override
     public long getPayloadUID() {
-        return 2;
+        return UID;
     }
 }

@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
@@ -27,14 +28,16 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         STEP_2,
     }
 
-    private AbstractPacket.PacketType packetType;
-    private SocketChannel socketChannel;
-    private State state;
+    private volatile AbstractPacket.PacketType packetType;
+    private volatile SocketChannel socketChannel;
+    private volatile State state;
     private final ByteBuffer[] readBuffers = new ByteBuffer[2];
     private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
-    private PrivateKey privateKey;
-    private MessageDigest transcriptHash;
-    private ServerSession session;
+    private volatile PrivateKey privateKey;
+    private volatile MessageDigest transcriptHash;
+    private volatile ServerSession session;
+    private volatile SessionId sessionId;
+    private volatile SecretKeyContext signalingSecretContext, businessSecretContext;
 
     public PendingChannel() {
         readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
@@ -91,6 +94,28 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         return session;
     }
 
+    public PendingChannel setSessionId(SessionId sessionId) {
+        this.sessionId = sessionId;
+        return this;
+    }
+    public SessionId getSessionId() {
+        return sessionId;
+    }
+    public PendingChannel setSignalingSecretContext(SecretKeyContext signalingSecretContext) {
+        this.signalingSecretContext = signalingSecretContext;
+        return this;
+    }
+    public SecretKeyContext getSignalingSecretContext() {
+        return signalingSecretContext;
+    }
+    public PendingChannel setBusinessSecretContext(SecretKeyContext businessSecretContext) {
+        this.businessSecretContext = businessSecretContext;
+        return this;
+    }
+    public SecretKeyContext getBusinessSecretContext() {
+        return businessSecretContext;
+    }
+
     @Override
     protected void onRecycle() {
         packetType = null;
@@ -102,6 +127,9 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         privateKey = null;
         transcriptHash = null;
         session = null;
+        sessionId = null;
+        signalingSecretContext = null;
+        businessSecretContext = null;
     }
 
     public void close() {

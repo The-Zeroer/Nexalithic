@@ -1,5 +1,7 @@
 package com.thezeroer.nexalithic.server.lifecycle.service.session;
 
+import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
+import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
@@ -15,8 +17,7 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
  */
 public class ServerSessionChannel<P extends AbstractPacket, W extends FragmentWrapper<P>> extends SessionChannel<P, W, ServerSession, ServiceLoop> {
 
-    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, SecretKeyContext secretKeyContext) {
-        super(packetType, session, secretKeyContext);
+    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext context) {
+        super(packetType, session, loop, fragmenter, assembler, context);
     }
-
 }

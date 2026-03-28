@@ -105,9 +105,7 @@ public class NexalithicTask implements Expirable {
         finishAction = () -> {};
         timeoutAction = () -> {};
         cancelAction = () -> {};
-        exceptionAction = exception -> {
-            logger.error("Exception in NexalithicTask", exception);
-        };
+        exceptionAction = exception -> logger.error("Exception in NexalithicTask", exception);
         future = new TaskFuture(this);
     }
 

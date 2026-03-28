@@ -92,8 +92,8 @@ public class AcceptorLoop extends AbstractLoop {
             return;
         }
         FiltrationStrategy filtrationStrategy = (FiltrationStrategy) selectionKey.attachment();
-        if (logger.isDebugEnabled()) {
-            logger.debug("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
+        if (logger.isTraceEnabled()) {
+            logger.trace("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
         }
         if (filtrationStrategy.enable()) {
             filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());

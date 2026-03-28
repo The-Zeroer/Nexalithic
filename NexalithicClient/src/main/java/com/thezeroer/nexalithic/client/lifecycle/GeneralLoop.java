@@ -5,6 +5,7 @@ import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -38,17 +39,19 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class GeneralLoop extends ChannelLoop {
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
-    private final ClientSecurityPolicy securityPolicy;
+    private final ClientSecurityPolicy policy;
     private final Queue<Runnable> eventQueue;
-    private final NetworkRouter networkRouter;
+    private final NetworkRouter router;
     private final ClientBusinessPacketDispatcher dispatcher;
+    private final ClientSession.ClientChannelFactory factory;
     private volatile ClientSession session;
 
-    public GeneralLoop(ClientSecurityPolicy securityPolicy, ClientBusinessPacketDispatcher dispatcher) throws IOException {
-        this.securityPolicy = securityPolicy;
-        this.eventQueue = new ConcurrentLinkedQueue<>();
-        this.networkRouter = new NetworkRouter();
+    public GeneralLoop(ClientSecurityPolicy policy, ClientBusinessPacketDispatcher dispatcher, PayloadRegistry registry) throws IOException {
+        this.policy = policy;
         this.dispatcher = dispatcher;
+        this.eventQueue = new ConcurrentLinkedQueue<>();
+        this.router = new NetworkRouter();
+        this.factory = new ClientSession.ClientChannelFactory(this, registry);
     }
 
     public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException,
@@ -56,15 +59,15 @@ public class GeneralLoop extends ChannelLoop {
             InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         if (packetType == AbstractPacket.PacketType.SIGNALING) {
             MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
-            ByteBuffer buffer1 = ByteBuffer.allocate(securityPolicy.getServerCertificatesLength());
-            ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength());
+            ByteBuffer buffer1 = ByteBuffer.allocate(policy.getServerCertificatesLength());
+            ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + policy.signatureLength());
             if (socketChannel.read(new ByteBuffer[]{buffer1, buffer2}) == -1) {
                 return false;
             }
             transcriptHash.update(buffer1.flip());
             transcriptHash.update(buffer2.flip());
-            securityPolicy.CertificatesFormBuffer(buffer1.flip());
-            if (!securityPolicy.verifyOfLeafCertificate(buffer2.flip())) {
+            policy.CertificatesFormBuffer(buffer1.flip());
+            if (!policy.verifyOfLeafCertificate(buffer2.flip())) {
                 logger.warn("Certificate verification failed");
                 throw new SecurityException("Certificate verification failed");
             }
@@ -87,7 +90,7 @@ public class GeneralLoop extends ChannelLoop {
                 throw new SecurityException("Finished verification failed");
             }
             session = new ClientSession(new SessionId.Immutable(signalingSecretKey.decrypt(buffer5.array())), signalingSecretKey,
-                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS));
+                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS), factory);
             logger.info("Link server succeeded");
         } else {
             socketChannel.write(ByteBuffer.wrap(session.getBusinessChannelToken()));
@@ -96,7 +99,7 @@ public class GeneralLoop extends ChannelLoop {
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) session.getChannel(packetType);
-                selectionKey.attach(channel.updateChannel(GeneralLoop.this, selectionKey));
+                selectionKey.attach(channel.updateChannel(selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
                 if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     channel.applyTargetInterest();
@@ -128,16 +131,10 @@ public class GeneralLoop extends ChannelLoop {
                 }
                 if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
                     while (channel.get() instanceof SignalingPacket packet) {
-                        if (logger.isTraceEnabled()) {
-                            logger.trace("[{}] received SIGNALING packet", packet);
-                        }
                         handleSignalPacket(packet);
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
-                        if (logger.isTraceEnabled()) {
-                            logger.trace("[{}] received BUSINESS packet", packet);
-                        }
                         dispatcher.dispatch(packet, session);
                     }
                 }
@@ -159,7 +156,7 @@ public class GeneralLoop extends ChannelLoop {
             switch (packet.getSignal()) {
                 case SignalingPacket.Signal.BusinessChannelToken -> session.setBusinessChannelToken(packet.getContent());
                 case SignalingPacket.Signal.ResponseBusinessPort -> dispatch(AbstractPacket.PacketType.BUSINESS, SocketChannel
-                        .open(new InetSocketAddress(networkRouter.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
+                        .open(new InetSocketAddress(router.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -170,7 +167,7 @@ public class GeneralLoop extends ChannelLoop {
         return session;
     }
     public NetworkRouter getNetworkRouter() {
-        return networkRouter;
+        return router;
     }
 
     private void closeChannel(ClientSessionChannel<?, ?> channel) {

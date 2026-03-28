@@ -1,8 +1,7 @@
 package com.thezeroer.nexalithic.core.io.codec.wrapper;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
@@ -20,7 +19,7 @@ import java.util.List;
 public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> implements FragmentWrapper<BusinessPacket> {
     public static final int FRAME_HEADER_LENGTH = Short.BYTES + Long.BYTES;
     public static final int MAX_PAYLOAD_SIZE = 1024 * 16;
-    private final TaskRegistry taskRegistry;
+    private final TaskTracer taskTracer;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
     private boolean headerWritten;
@@ -28,8 +27,8 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     private List<? extends AbstractPayload<?>> payloads;
     private int payloadIndex;
 
-    public BusinessPacketFragmentWrapper(TaskRegistry taskRegistry) {
-        this.taskRegistry = taskRegistry;
+    public BusinessPacketFragmentWrapper(TaskTracer taskTracer) {
+        this.taskTracer = taskTracer;
     }
 
     @Override
@@ -44,7 +43,7 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
         if (remaining > 0) {
             return true;
         } else {
-            taskRegistry.activate(target.getTaskId());
+            taskTracer.activate(target.getTaskId());
             return false;
         }
     }

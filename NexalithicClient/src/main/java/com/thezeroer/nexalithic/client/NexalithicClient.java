@@ -6,11 +6,16 @@ import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadConstructorStorage;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
-import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
+import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -103,10 +108,15 @@ public class NexalithicClient {
 
     public static class Builder {
         private ClientSecurityPolicy securityPolicy;
-        private HandlerRegistry<ClientHandlerContext> registry;
+        private HandlerRegistry<ClientHandlerContext> handlerRegistry;
+        private final PayloadRegistry.Builder payloadRegistryBuilder;
+
         private ExecutorService businessPacketDispatcherThreadPool;
 
         public Builder() {
+            payloadRegistryBuilder = PayloadRegistry.builder();
+            payloadRegistryBuilder.register(TextPayload::new);
+            payloadRegistryBuilder.register(FilePayload::new);
             businessPacketDispatcherThreadPool = new ThreadPoolExecutor(4, 8,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
         }
@@ -122,25 +132,34 @@ public class NexalithicClient {
         }
 
         public Builder handlerRegistryTrieNodeChildrenStorageFactory(Supplier<HandlerRegistry.TrieNodeChildrenStorage<ClientHandlerContext>> factory) {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(factory);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(factory);
             } else {
                 throw new IllegalStateException("handler registry has already been set");
             }
             return this;
         }
-        public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ClientHandlerContext> handler) {
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            HandlerScanner.scanAndRegister(packageName, factory, registry);
+            handlerRegistry.register(matcher, handler);
             return this;
         }
-        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ClientHandlerContext> handler) {
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+        public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            registry.register(matcher, handler);
+            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistry);
+            return this;
+        }
+
+        public Builder payloadRegistryPayloadConstructorStorageFactory(Supplier<PayloadConstructorStorage> factory) {
+            payloadRegistryBuilder.withStorage(factory.get());
+            return this;
+        }
+        public Builder registerPayload(Supplier<? extends AbstractPayload<?>> constructor) {
+            payloadRegistryBuilder.register(constructor);
             return this;
         }
 
@@ -152,12 +171,12 @@ public class NexalithicClient {
         public NexalithicClient build() throws Exception {
             verifyOptions();
 
-            if (registry == null) {
-                registry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            TaskRegistry taskRegistry = new TaskRegistry();
-            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(taskRegistry, registry, businessPacketDispatcherThreadPool);
-            GeneralLoop generalLoop = new GeneralLoop(securityPolicy, dispatcher);
+            TaskTracer taskTracer = new TaskTracer();
+            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(taskTracer, handlerRegistry, businessPacketDispatcherThreadPool);
+            GeneralLoop generalLoop = new GeneralLoop(securityPolicy, dispatcher, payloadRegistryBuilder.build());
 
             return new NexalithicClient(generalLoop, dispatcher);
         }

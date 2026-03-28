@@ -1,39 +1,35 @@
 package com.thezeroer.nexalithic.client.lifecycle.session;
 
+import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
+import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
+import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 
 /**
  * 客户端会话
  *
  * @author tbrtz647@outlook.com
- * @since 2026/03/09
  * @version 1.0.0
+ * @since 2026/03/09
  */
-public class ClientSession extends NexalithicSession<ClientSession,
+public class ClientSession extends NexalithicSession<
+        ClientSession,
         ClientSessionChannel<SignalingPacket, SignalingPacket>,
         ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
         SignalingPacket,
         BusinessPacketFragmentWrapper> {
     private volatile byte[] businessChannelToken;
 
-    public ClientSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
-        super(sessionId, signalingSecretKey, businessSecretKey);
-    }
-
-    @Override
-    protected ClientSessionChannel<SignalingPacket, SignalingPacket> createSignaling(ClientSession session, SecretKeyContext key) {
-        return new ClientSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, key);
-    }
-
-    @Override
-    protected ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> createBusiness(ClientSession session, SecretKeyContext key) {
-        return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, key);
+    public ClientSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ClientChannelFactory factory) {
+        super(sessionId, signalingSecretKey, businessSecretKey, factory);
     }
 
     @Override
@@ -47,6 +43,7 @@ public class ClientSession extends NexalithicSession<ClientSession,
     public void setBusinessChannelToken(byte[] businessChannelToken) {
         this.businessChannelToken = businessChannelToken;
     }
+
     public byte[] getBusinessChannelToken() {
         byte[] token = businessChannelToken;
         businessChannelToken = null;
@@ -57,5 +54,39 @@ public class ClientSession extends NexalithicSession<ClientSession,
     public void close() {
         super.close();
         businessChannelToken = null;
+    }
+
+    public static class ClientChannelFactory implements ChannelFactory<
+            ClientSession,
+            ClientSessionChannel<SignalingPacket, SignalingPacket>,
+            ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
+            SignalingPacket,
+            BusinessPacketFragmentWrapper> {
+
+        private final GeneralLoop loop;
+        private final FragmenterFactory fragmenterFactory;
+        private final AssemblerFactory assemblerFactory;
+
+        public ClientChannelFactory(GeneralLoop loop, PayloadRegistry registry) {
+            this.loop = loop;
+            this.fragmenterFactory = new FragmenterFactory();
+            this.assemblerFactory = new AssemblerFactory(registry);
+        }
+
+        @Override
+        public ClientSessionChannel<SignalingPacket, SignalingPacket> createSignalingChannel(ClientSession session, SecretKeyContext context) {
+            return new ClientSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, loop,
+                    fragmenterFactory.create(AbstractPacket.PacketType.SIGNALING),
+                    assemblerFactory.create(AbstractPacket.PacketType.SIGNALING),
+                    context);
+        }
+
+        @Override
+        public ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> createBusinessChannel(ClientSession session, SecretKeyContext context) {
+            return new ClientSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, loop,
+                    fragmenterFactory.create(AbstractPacket.PacketType.BUSINESS),
+                    assemblerFactory.create(AbstractPacket.PacketType.BUSINESS),
+                    context);
+        }
     }
 }

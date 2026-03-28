@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
  * @version 1.0.0
  */
 public class TextPayload extends AbstractPayload<String> {
+    public static final long UID = 1;
     private byte[] bytes;
 
     public TextPayload() {}
@@ -55,6 +56,6 @@ public class TextPayload extends AbstractPayload<String> {
 
     @Override
     public long getPayloadUID() {
-        return 1;
+        return UID;
     }
 }

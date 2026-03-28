@@ -5,14 +5,10 @@ import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrap
 import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
-import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
-import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,9 +22,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class FragmenterFactory {
     public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperQueue_Capacity", 64);
+    private static final Logger logger = LoggerFactory.getLogger(FragmenterFactory.class);
 
     @SuppressWarnings("unchecked")
-    public static <W extends FragmentWrapper<?>> PacketsFragmenter<W> create(AbstractPacket.PacketType packetType) {
+    public <W extends FragmentWrapper<?>> PacketsFragmenter<W> create(AbstractPacket.PacketType packetType) {
         return (PacketsFragmenter<W>) switch (packetType) {
             case SIGNALING -> new SignalingPacketsFragmenter();
             case BUSINESS -> new BusinessPacketsFragmenter();
@@ -79,6 +76,9 @@ public class FragmenterFactory {
                     return total;
                 }
                 packet.unsafeToBuffer(target);
+                if (logger.isTraceEnabled()) {
+                    logger.trace("[{}] sent SIGNALING packet", packet);
+                }
                 packet = null;
                 total += totalRequired;
             }
@@ -131,6 +131,9 @@ public class FragmenterFactory {
                     head.setPrev(wrapper);
                     currentLinkedCount.incrementAndGet();
                 } else {
+                    if (logger.isTraceEnabled()) {
+                        logger.trace("[{}] sent BUSINESS packet", wrapper.unwrap());
+                    }
                     wrapper.recycle();
                 }
                 if (written == 0) {
@@ -147,6 +150,9 @@ public class FragmenterFactory {
                 if (wrapper.hasFrame()) {
                     wrapper = wrapper.getNext();
                 } else {
+                    if (logger.isTraceEnabled()) {
+                        logger.trace("[{}] sent BUSINESS packet", wrapper.unwrap());
+                    }
                     BusinessPacketFragmentWrapper next = wrapper.removeSelfAndGetNext();
                     currentLinkedCount.decrementAndGet();
                     if (next == null) {

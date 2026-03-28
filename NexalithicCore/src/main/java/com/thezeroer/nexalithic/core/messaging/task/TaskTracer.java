@@ -9,25 +9,23 @@ import com.thezeroer.nexalithic.core.timer.TimerExecutor;
 import org.jctools.queues.SpmcArrayQueue;
 
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * 任务注册表
+ * 任务追踪表
  *
  * @author tbrtz647@outlook.com
  * @since 2026/03/21
  * @version 1.0.0
  */
-public class TaskRegistry implements TimerExecutor<NexalithicTask> {
+public class TaskTracer implements TimerExecutor<NexalithicTask> {
     public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("TaskRegistry_TimeWheel_Tick", 1000L);
     public static final NexalithicOption<Integer> TimeWheel_Slot = NexalithicOption.create("TaskRegistry_TimeWheel_Slot", 30);
     public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("TaskRegistry_TimeWheel_WrapperPool_Capacity", 128);
     private final Map<Long, NexalithicTask> taskMap = new ConcurrentHashMap<>();
     private final DedicatedTimeWheel<NexalithicTask> timeWheel;
 
-    public TaskRegistry() {
+    public TaskTracer() {
         this.timeWheel = new DedicatedTimeWheel<>(
                 TimeWheel_Tick.value(),
                 TimeWheel_Slot.value(),
@@ -37,7 +35,7 @@ public class TaskRegistry implements TimerExecutor<NexalithicTask> {
                         DedicatedTimeWheel.DedicatedScheduleWrapper<NexalithicTask>::new
                 ),
                 this,
-                "TaskRegistry"
+                "TaskTracer"
         );
     }
 

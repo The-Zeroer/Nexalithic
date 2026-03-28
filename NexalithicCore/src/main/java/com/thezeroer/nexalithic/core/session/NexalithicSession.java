@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 
 import java.nio.channels.SelectionKey;
@@ -33,10 +34,10 @@ public abstract class NexalithicSession <
     protected final BC businessChannel;
     protected String sessionName;
 
-    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey) {
+    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ChannelFactory<S, SC, BC, SW, BW> factory) {
         this.sessionId = sessionId;
-        this.signalingChannel = createSignaling((S) this, signalingSecretKey);
-        this.businessChannel = createBusiness((S) this, businessSecretKey);
+        this.signalingChannel = factory.createSignalingChannel((S) this, signalingSecretKey);
+        this.businessChannel = factory.createBusinessChannel((S) this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
     }
 
@@ -156,7 +157,5 @@ public abstract class NexalithicSession <
         return false;
     }
 
-    protected abstract SC createSignaling(S session, SecretKeyContext key);
-    protected abstract BC createBusiness(S session, SecretKeyContext key);
     protected abstract boolean onPushBusinessPacket();
 }

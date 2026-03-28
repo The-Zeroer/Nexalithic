@@ -1,13 +1,13 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.buffer.LoopBufferPool;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
+import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecurityChannel;
@@ -57,12 +57,13 @@ public abstract class SessionChannel<
     private LoopBuffer readPlainBuffer, writeCipheBuffer;
     private LoopBuffer readCipheBuffer, writePlainBuffer;
 
-    public SessionChannel(AbstractPacket.PacketType packetType, S session, SecretKeyContext secretKeyContext) {
+    public SessionChannel(AbstractPacket.PacketType packetType, S session, L loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
         super(secretKeyContext);
         this.session = session;
         this.type = packetType;
-        fragmenter = FragmenterFactory.create(packetType);
-        assembler = AssemblerFactory.create(packetType);
+        this.loop = loop;
+        this.fragmenter = fragmenter;
+        this.assembler = assembler;
     }
 
     public final boolean becomeConnecting() {
@@ -146,8 +147,14 @@ public abstract class SessionChannel<
 
     public final long write() throws IOException, InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         if (readPlainBuffer == null) {
-            readPlainBuffer = LoopBufferPool.INSTANCE.acquire();
-            writeCipheBuffer = LoopBufferPool.INSTANCE.acquire();
+            if (Thread.currentThread() instanceof LoopThread loopThread) {
+                readPlainBuffer = loopThread.aquireLoopBuffer();
+                writeCipheBuffer = loopThread.aquireLoopBuffer();
+            } else {
+                throw new IllegalStateException(
+                        String.format("Thread safety violation: [Session-%s] read/write must be performed in LoopThread. Current thread: %s",
+                                session.getSessionId(), Thread.currentThread().getName()));
+            }
         }
         if (fragmenter.drain(readPlainBuffer) > 0) {
             encrypt(readPlainBuffer, writeCipheBuffer);
@@ -165,8 +172,14 @@ public abstract class SessionChannel<
     }
     public final long read() throws IOException, InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
         if (readCipheBuffer == null) {
-            readCipheBuffer = LoopBufferPool.INSTANCE.acquire();
-            writePlainBuffer = LoopBufferPool.INSTANCE.acquire();
+            if (Thread.currentThread() instanceof LoopThread loopThread) {
+                readCipheBuffer = loopThread.aquireLoopBuffer();
+                writePlainBuffer = loopThread.aquireLoopBuffer();
+            } else {
+                throw new IllegalStateException(
+                        String.format("Thread safety violation: [Session-%s] read/write must be performed in LoopThread. Current thread: %s",
+                                session.getSessionId(), Thread.currentThread().getName()));
+            }
         }
         long read = readCipheBuffer.readFromChannel(socketChannel);
         if (read > 0) {
@@ -201,29 +214,34 @@ public abstract class SessionChannel<
         return remoteAddress;
     }
 
-
     @Override
     public final void close() {
         if (state.compareAndSet(State.Connected, State.Unconnected) || state.compareAndSet(State.Connecting, State.Unconnected)) {
             try {
                 if (selectionKey != null) {
                     selectionKey.cancel();
+                    selectionKey = null;
                 }
                 if (socketChannel != null) {
                     socketChannel.close();
+                    socketChannel = null;
                 }
             } catch (IOException ignored) {}
             if (readPlainBuffer != null) {
                 readPlainBuffer.recycle();
+                readPlainBuffer = null;
             }
             if (writeCipheBuffer != null) {
                 writeCipheBuffer.recycle();
+                writeCipheBuffer = null;
             }
             if (readCipheBuffer != null) {
                 readCipheBuffer.recycle();
+                readCipheBuffer = null;
             }
             if (writePlainBuffer != null) {
                 writePlainBuffer.recycle();
+                writePlainBuffer = null;
             }
             fragmenter.clear();
             assembler.clear();

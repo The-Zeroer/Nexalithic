@@ -8,19 +8,19 @@ import com.thezeroer.nexalithic.core.exception.NexalithicException;
 public class PayloadCollisionException extends NexalithicException {
     private final long conflictedId;
     private final Class<?> existingClass;
-    private final Class<?> newClass;
+    private final Class<?> conflicting;
 
-    public PayloadCollisionException(long id, Class<?> existing, Class<?> clazz) {
+    public PayloadCollisionException(long id, Class<?> existing, Class<?> conflicting) {
         super(String.format(
                 "Payload ID Collision Detected! ID [%d] is already occupied. Existing Class: %s, Conflicting Class: %s",
-                id, existing.getName(), clazz.getName()
+                id, existing.getName(), conflicting.getName()
         ));
         this.conflictedId = id;
         this.existingClass = existing;
-        this.newClass = clazz;
+        this.conflicting = conflicting;
     }
 
     public long getConflictedId() { return conflictedId; }
     public Class<?> getExistingClass() { return existingClass; }
-    public Class<?> getNewClass() { return newClass; }
+    public Class<?> getConflicting() { return conflicting; }
 }

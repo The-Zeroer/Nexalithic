@@ -3,14 +3,13 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
-import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
@@ -36,10 +35,10 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     private final NetworkRouter router;
     private final SessionsManager manager;
 
-    public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher) throws IOException {
+    public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher, PayloadRegistry registry) throws IOException {
         this.manager = manager;
         this.router = router;
-        stewardLoop = new StewardLoop(manager, this);
+        stewardLoop = new StewardLoop(manager, this, registry);
         workerLoops = new WorkerLoop[WorkerLoop_Count.value()];
         for (int i = 0; i < workerLoops.length; i++) {
             workerLoops[i] = new WorkerLoop(dispatcher);

@@ -132,10 +132,8 @@ public class HandshakeLoop extends AbstractLoop {
                             socketChannel.write(writeBuffers);
                             if (!writeBuffers[1].hasRemaining()) {
                                 key.cancel();
+                                serviceUnitLoadBalancer.select(null).getStewardLoop().dispatch(channel);
                                 loadScore.decrement();
-                                ServiceUnit serviceUnit = serviceUnitLoadBalancer.select(null);
-                                channel.getSession().setServiceUnit(serviceUnit);
-                                serviceUnit.getStewardLoop().dispatch(channel);
                                 return;
                             }
                         }
@@ -165,9 +163,11 @@ public class HandshakeLoop extends AbstractLoop {
                             byte[] sessionIdBytes = new byte[ServerSession.SESSION_ID_LENGTH];
                             secureRandom.nextBytes(sessionIdBytes);
                             writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
-                            channel.setSession(new ServerSession(new SessionId.Immutable(sessionIdBytes), signalingSecretKey,
-                                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS,
-                                            SecretKeyUtils.LABEL_CLIENT_BUSINESS))).setState(PendingChannel.State.STEP_2);
+                            channel.setSessionId(new SessionId.Immutable(sessionIdBytes))
+                                    .setSignalingSecretContext(signalingSecretKey)
+                                    .setBusinessSecretContext(SecretKeyUtils.generateSessionSecretKey(secret,
+                                            SecretKeyUtils.LABEL_SERVER_BUSINESS, SecretKeyUtils.LABEL_CLIENT_BUSINESS))
+                                    .setState(PendingChannel.State.STEP_2);
                             key.interestOps(SelectionKey.OP_WRITE);
                         } catch (BadPaddingException | IllegalBlockSizeException e) {
                             String remoteAddress = socketChannel.getRemoteAddress().toString();

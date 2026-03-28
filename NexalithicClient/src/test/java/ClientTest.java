@@ -1,5 +1,6 @@
 import com.thezeroer.nexalithic.client.NexalithicClient;
 import com.thezeroer.nexalithic.client.security.DefaultClientSecurityPolicy;
+import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -14,7 +15,9 @@ public class ClientTest {
     public static final Logger logger = LoggerFactory.getLogger(ClientTest.class);
 
     public static void main(String[] args) throws Exception {
-        for (int i = 0; i < 1000000; i++) {
+        LoopThread.GlobalLoopBufferPool_Capacity.set(2);
+        LoopThread.LocalLoopBufferPool_Capacity.set(2);
+        for (int i = 0; i < 1; i++) {
             System.out.println(i);
             NexalithicClient nexalithicClient = NexalithicClient.builder()
                     .securityPolicy(new DefaultClientSecurityPolicy() {
@@ -36,7 +39,7 @@ public class ClientTest {
                     .build();
             nexalithicClient.start();
             nexalithicClient.link(new InetSocketAddress("127.0.0.1", 7709));
-            for (int ii = 0; ii < 100; ii++) {
+            for (int ii = 0; ii < 1; ii++) {
                 TaskFuture future = nexalithicClient.submit(NexalithicTask.builder()
                         .onRequest(() -> BusinessPacket.build(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Server!")))
                         .onResponse(response -> {

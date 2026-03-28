@@ -13,5 +13,6 @@
     <inspection_tool class="ExtractMethodRecommender" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="minLength" value="675" />
     </inspection_tool>
+    <inspection_tool class="LoggingSimilarMessage" enabled="true" level="INFORMATION" enabled_by_default="true" />
   </profile>
 </component>

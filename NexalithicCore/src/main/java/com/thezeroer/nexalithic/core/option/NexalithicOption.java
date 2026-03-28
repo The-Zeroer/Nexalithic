@@ -18,7 +18,7 @@ public class NexalithicOption<T> {
     }
 
     public static <T> NexalithicOption<T> create(String name, T defaultValue) {
-        return new NexalithicOption<T>(name, defaultValue);
+        return new NexalithicOption<>(name, defaultValue);
     }
 
     public final String name() {

@@ -191,9 +191,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                     logger.debug("[{}] stopped", name);
                     running = false;
                 }
-                default -> {
-                    running = false;
-                }
+                default -> running = false;
             }
         }
         onTerminated();

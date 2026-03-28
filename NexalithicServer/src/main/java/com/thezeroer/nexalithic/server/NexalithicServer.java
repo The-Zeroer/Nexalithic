@@ -4,9 +4,14 @@ import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadConstructorStorage;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
-import com.thezeroer.nexalithic.core.messaging.task.TaskRegistry;
+import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -50,7 +55,7 @@ public class NexalithicServer {
     private final NetworkRouter networkRouter;
     private final ServerBusinessPacketDispatcher businessPacketDispatcher;
 
-    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter, TaskRegistry taskRegistry, ServerBusinessPacketDispatcher businessPacketDispatcher) {
+    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter, TaskTracer taskTracer, ServerBusinessPacketDispatcher businessPacketDispatcher) {
         this.lifecycleManager = lifecycleManager;
         this.sessionsManager = sessionsManager;
         this.networkRouter = networkRouter;
@@ -250,10 +255,15 @@ public class NexalithicServer {
     public static class Builder {
         private ServerSecurityPolicy securityPolicy;
         private HandlerRegistry<ServerHandlerContext> handlerRegistry;
+        private final PayloadRegistry.Builder payloadRegistryBuilder;
+
         private ExecutorService handshakeLoopThreadPool;
         private ExecutorService businessPacketDispatcherThreadPool;
 
         public Builder() {
+            payloadRegistryBuilder = PayloadRegistry.builder();
+            payloadRegistryBuilder.register(TextPayload::new);
+            payloadRegistryBuilder.register(FilePayload::new);
             handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
             businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
@@ -278,6 +288,13 @@ public class NexalithicServer {
             }
             return this;
         }
+        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ServerHandlerContext> handler) {
+            if (handlerRegistry == null) {
+                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
+            }
+            handlerRegistry.register(matcher, handler);
+            return this;
+        }
         public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
             if (handlerRegistry == null) {
                 handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
@@ -285,11 +302,13 @@ public class NexalithicServer {
             HandlerScanner.scanAndRegister(packageName, factory, handlerRegistry);
             return this;
         }
-        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ServerHandlerContext> handler) {
-            if (handlerRegistry == null) {
-                handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
-            }
-            handlerRegistry.register(matcher, handler);
+
+        public Builder payloadRegistryPayloadConstructorStorageFactory(Supplier<PayloadConstructorStorage> factory) {
+            payloadRegistryBuilder.withStorage(factory.get());
+            return this;
+        }
+        public Builder registerPayload(Supplier<? extends AbstractPayload<?>> constructor) {
+            payloadRegistryBuilder.register(constructor);
             return this;
         }
 
@@ -309,12 +328,13 @@ public class NexalithicServer {
             if (handlerRegistry == null) {
                 handlerRegistry = new HandlerRegistry<>(HandlerRegistry.MapTrieNodeChildrenStorage::new);
             }
-            TaskRegistry taskRegistry = new TaskRegistry();
-            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(taskRegistry, handlerRegistry, businessPacketDispatcherThreadPool);
+            TaskTracer taskTracer = new TaskTracer();
+            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(taskTracer, handlerRegistry, businessPacketDispatcherThreadPool);
 
+            PayloadRegistry payloadRegistry = payloadRegistryBuilder.build();
             ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(manager, router, dispatcher).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(manager, router, dispatcher, payloadRegistry).addIdToLoopName(String.valueOf(i));
             }
             LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
 
@@ -328,7 +348,8 @@ public class NexalithicServer {
             AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(handshakeLoopBalancer).addIdToName("0");
             LifecycleManager lifecycleManager = new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer);
 
-            return new NexalithicServer(lifecycleManager, manager, router, taskRegistry, dispatcher);
+
+            return new NexalithicServer(lifecycleManager, manager, router, taskTracer, dispatcher);
         }
 
         private void verifyOptions() {

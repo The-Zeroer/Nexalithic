@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
@@ -27,11 +28,13 @@ public class StewardLoop extends ServiceLoop {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
     private final SessionsManager sessionsManager;
     private final ServiceUnit serviceUnit;
+    private final ServerSession.ServerChannelFactory factory;
 
-    public StewardLoop(SessionsManager sessionsManager, ServiceUnit serviceUnit) throws IOException {
+    public StewardLoop(SessionsManager manager, ServiceUnit unit, PayloadRegistry registry) throws IOException {
         super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
-        this.sessionsManager = sessionsManager;
-        this.serviceUnit = serviceUnit;
+        this.sessionsManager = manager;
+        this.serviceUnit = unit;
+        this.factory = new ServerSession.ServerChannelFactory(this, registry);
     }
 
     @Override
@@ -39,8 +42,8 @@ public class StewardLoop extends ServiceLoop {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSession session = channel.getSession();
-                selectionKey.attach(session.getSignalingChannel().updateChannel(this, selectionKey));
+                ServerSession session = new ServerSession(channel.getSessionId(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory);
+                selectionKey.attach(session.setServiceUnit(serviceUnit).getSignalingChannel().updateChannel(selectionKey));
                 sessionsManager.putSession(session);
             } catch (IOException ignored) {
             } finally {

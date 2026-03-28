@@ -21,8 +21,8 @@ public class ServerTest {
     public static void main(String[] args) throws Exception {
         NexalithicServer nexalithicServer = NexalithicServer.builder()
                 .securityPolicy(new DefaultServerSecurityPolicy() {
-                    KeyPair signingKeyPair = KeyPairGenerator.getInstance(SIGNATURE_ALGORITHM).generateKeyPair();
-                    Certificate certificate = new Certificate() {
+                    final KeyPair signingKeyPair = KeyPairGenerator.getInstance(SIGNATURE_ALGORITHM).generateKeyPair();
+                    final Certificate certificate = new Certificate() {
 
                         @Override
                         public int version() {
