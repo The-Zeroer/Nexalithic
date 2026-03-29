@@ -58,7 +58,7 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
             return false;
         }
         BusinessPacketFragmentWrapper wrapper = packetWrapperPool.acquire();
-        wrapper.wrap(packet);
+        wrapper.wrap(packet.seal());
         return session.pushBusinessPacketWrapper(wrapper);
     }
 }

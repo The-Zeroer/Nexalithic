@@ -6,7 +6,6 @@ import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.security.Certificate;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
-import com.thezeroer.nexalithic.server.messaging.ServerHandlerContext;
 import com.thezeroer.nexalithic.server.security.DefaultServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,7 +80,7 @@ public class ServerTest {
                     if (context.getRequest().firstPayload() instanceof TextPayload textPayload) {
                         logger.debug(textPayload.value());
                     }
-                    context.pushResponse(BusinessPacket.build(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Client!")));
+                    context.pushResponse(BusinessPacket.create(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Client!")));
                 }), false))
                 .build();
         nexalithicServer.start();

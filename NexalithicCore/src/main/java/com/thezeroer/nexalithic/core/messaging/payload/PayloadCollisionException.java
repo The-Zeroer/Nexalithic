@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.model.packet;
+package com.thezeroer.nexalithic.core.messaging.payload;
 
 import com.thezeroer.nexalithic.core.exception.NexalithicException;
 

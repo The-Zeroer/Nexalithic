@@ -2,6 +2,7 @@ package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketAssemblyWrapper;
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -119,7 +120,7 @@ public class AssemblerFactory {
                 }
             }
             int read;
-            while (source.readableBytes() > BusinessPacketAssemblyWrapper.FRAME_HEADER_LENGTH) {
+            while (source.readableBytes() > BusinessPacketFragmentWrapper.FRAME_HEADER_LENGTH) {
                 source.markHead();
                 short payloadLength = source.unsafeGetShort();
                 if (source.readableBytes() < payloadLength) {

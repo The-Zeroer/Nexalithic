@@ -1,6 +1,5 @@
 package com.thezeroer.nexalithic.core.messaging.payload;
 
-import com.thezeroer.nexalithic.core.model.packet.PayloadCollisionException;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 
 import java.util.*;
@@ -52,5 +51,4 @@ public class PayloadRegistry {
             return new PayloadRegistry(storage.freeze(map));
         }
     }
-
 }

@@ -3,6 +3,8 @@ package com.thezeroer.nexalithic.core.model.packet;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -38,6 +40,7 @@ public class BusinessPacket extends AbstractPacket {
     }
 
     private static final Way[] WAYS = Way.values();
+    private volatile boolean sealed = false;
 
     private long taskId;
     private long packetSize;
@@ -56,65 +59,98 @@ public class BusinessPacket extends AbstractPacket {
                 throw new IllegalArgumentException("path length exceeds maximum of " + MAX_PATH_DEPTH);
             }
             this.path = path;
-            this.pathDepth = (byte) path.length;
         }
-        packetSize = BASE_HEADER_SIZE + pathDepth * Short.BYTES;
     }
-    public static BusinessPacket build(Way way) {
-        return new BusinessPacket(way);
-    }
-    public static BusinessPacket build(Way way, short... path) {
+    public static BusinessPacket create(Way way, short... path) {
         return new BusinessPacket(way, path);
     }
-
+    public final BusinessPacket attach(AbstractPayload<?> payload) {
+        if (sealed) {
+            throw new IllegalStateException("Cannot attach payload to a sealed packet.");
+        }
+        if (payload != null) {
+            if (this.payloads == null) {
+                this.payloads = new ArrayList<>();
+            }
+            if (payloadCount + 1 > MAX_PAYLOAD_COUNT) {
+                throw new PayloadOverflowException(payloadCount, 1, MAX_PAYLOAD_COUNT);
+            }
+            this.payloads.add(payload);
+        }
+        return this;
+    }
     public final BusinessPacket attach(AbstractPayload<?>... payloads) {
-        if (this.payloads == null) {
-            this.payloads = new ArrayList<>();
+        if (sealed) {
+            throw new IllegalStateException("Cannot attach payload to a sealed packet.");
         }
         if (payloads != null && payloads.length > 0) {
+            if (this.payloads == null) {
+                this.payloads = new ArrayList<>();
+            }
             int newCount = payloads.length;
             if (payloadCount + newCount > MAX_PAYLOAD_COUNT) {
                 throw new PayloadOverflowException(payloadCount, newCount, MAX_PAYLOAD_COUNT);
             }
-            long[] tmp = new long[(payloadCount + newCount) * 2];
-            if (payloadsMeta != null) {
-                System.arraycopy(payloadsMeta, 0, tmp, 0, payloadsMeta.length);
+            for (AbstractPayload<?> payload : payloads) {
+                if (payload != null) {
+                    this.payloads.add(payload);
+                }
             }
-            for (int i = 0; i < newCount; i++) {
-                AbstractPayload<?> p = payloads[i];
-                int index = payloadCount + i;
-                tmp[index * 2] = p.getPayloadUID();
-                tmp[index * 2 + 1] = p.getTotalSize();
-                this.payloads.add(p);
-                this.packetSize += (Long.BYTES * 2 + p.getTotalSize());
-            }
-            this.payloadsMeta = tmp;
-            this.payloadCount = (byte) this.payloads.size();
         }
         return this;
     }
-    public final BusinessPacket attach(AbstractPayload<?> payload) {
-        if (this.payloads == null) {
-            this.payloads = new ArrayList<>();
+    public final BusinessPacket attach(Collection<AbstractPayload<?>> payloads) {
+        if (sealed) {
+            throw new IllegalStateException("Cannot attach payload to a sealed packet.");
         }
-        if (payload != null) {
-            if (payloadCount + 1 > MAX_PAYLOAD_COUNT) {
-                throw new PayloadOverflowException(payloadCount, 1, MAX_PAYLOAD_COUNT);
+        if (payloads != null && !payloads.isEmpty()) {
+            if (this.payloads == null) {
+                this.payloads = new ArrayList<>();
             }
-            int index = payloadCount;
-            this.payloads.add(payload);
-            this.payloadCount = (byte) this.payloads.size();
-            if (payloadsMeta == null) {
-                payloadsMeta = new long[payloadCount * 2];
-            } else {
-                long[] tmp = new long[payloadCount * 2];
-                System.arraycopy(payloadsMeta, 0, tmp, 0, payloadsMeta.length);
-                payloadsMeta = tmp;
+            int newCount = payloads.size();
+            if (payloadCount + newCount > MAX_PAYLOAD_COUNT) {
+                throw new PayloadOverflowException(payloadCount, newCount, MAX_PAYLOAD_COUNT);
             }
-            payloadsMeta[index * 2] = payload.getPayloadUID();
-            payloadsMeta[index * 2 + 1] = payload.getTotalSize();
-            this.packetSize += (Long.BYTES * 2 + payload.getTotalSize());
+            for (AbstractPayload<?> payload : payloads) {
+                if (payload != null) {
+                    this.payloads.add(payload);
+                }
+            }
         }
+        return this;
+    }
+
+    /**
+     * 封存报文：执行最后的一次性大小计算，并禁止后续修改。
+     */
+    public final BusinessPacket seal() {
+        if (sealed) {
+            return this;
+        }
+        long packetSize = BASE_HEADER_SIZE;
+        if (path != null) {
+            pathDepth = (byte) path.length;
+            packetSize += (long) pathDepth * Short.BYTES;
+        } else {
+            pathDepth = 0;
+        }
+        if (payloads != null && !payloads.isEmpty()) {
+            int count = payloads.size();
+            payloadCount = (byte) count;
+            payloadsMeta = new long[count * 2];
+            for (int i = 0; i < count; i++) {
+                AbstractPayload<?> payload = payloads.get(i);
+                long payloadSize = payload.getTotalSize();
+                payloadsMeta[i * 2] = payload.getPayloadUID();
+                payloadsMeta[i * 2 + 1] = payloadSize;
+                packetSize += payloadSize;
+            }
+            packetSize += (long) payloadsMeta.length * Long.BYTES;
+        } else {
+            payloadCount = 0;
+        }
+        this.packetSize = packetSize;
+        this.sealed = true;
         return this;
     }
 
@@ -180,40 +216,5 @@ public class BusinessPacket extends AbstractPacket {
     @Override
     public final PacketType packetType() {
         return PacketType.BUSINESS;
-    }
-
-    public static class Builder {
-        public long taskId;
-        public long packetSize;
-        public short way;
-        public byte pathDepth;
-        public short[] path;
-        public byte payloadCount;
-        public long[] payloadsMeta;
-        public List<AbstractPayload<?>> payloads;
-
-        public BusinessPacket build() {
-            BusinessPacket packet = new BusinessPacket();
-            packet.taskId = taskId;
-            packet.packetSize = packetSize;
-            packet.way = way;
-            packet.pathDepth = pathDepth;
-            packet.path = path;
-            packet.payloadCount = payloadCount;
-            packet.payloadsMeta = payloadsMeta;
-            packet.payloads = payloads;
-            return packet;
-        }
-
-        public void clear() {
-            taskId = 0;
-            packetSize = 0;
-            way = 0;
-            pathDepth = 0;
-            path = null;
-            payloadCount = 0;
-            payloadsMeta = null;
-            payloads = null;
-        }
     }
 }

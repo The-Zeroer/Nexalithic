@@ -41,7 +41,7 @@ public class ClientTest {
             nexalithicClient.link(new InetSocketAddress("127.0.0.1", 7709));
             for (int ii = 0; ii < 1; ii++) {
                 TaskFuture future = nexalithicClient.submit(NexalithicTask.builder()
-                        .onRequest(() -> BusinessPacket.build(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Server!")))
+                        .onRequest(() -> BusinessPacket.create(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Server!")))
                         .onResponse(response -> {
                             if (response.firstPayload() instanceof TextPayload textPayload) {
                                 logger.debug(textPayload.value());
