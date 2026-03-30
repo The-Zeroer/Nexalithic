@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class HandlerScanner {
 
-    public static <HC extends HandlerContext<?>> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry<HC> registry) throws Throwable {
+    public static <HC extends HandlerContext<?>> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry.Builder<HC> builder) throws Throwable {
         List<Class<?>> classes = ClassScanner.scan(packageName);
         for (Class<?> clazz : classes) {
             HandlerMapping classAnnotation = clazz.getAnnotation(HandlerMapping.class);
@@ -33,7 +33,7 @@ public class HandlerScanner {
                 HandlerRegistry.PathMatcher methodMatcher = HandlerRegistry.parse(methodAnnotation);
                 HandlerRegistry.PathMatcher fullMatcher = new HandlerRegistry.PathMatcher();
                 fullMatcher.combine(classMatcher).combine(methodMatcher);
-                registry.register(fullMatcher, createHandler(bean, method));
+                builder.register(fullMatcher, createHandler(bean, method));
             }
         }
     }

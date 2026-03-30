@@ -19,6 +19,7 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
      * @since 2026/03/16
      * @version 1.0.0
      */
+    @SuppressWarnings("UnusedReturnValue")
     public static class PathMatcher {
         // 每一层 List 代表一个层级，内层 List 存储该层级的所有可选 Short 值
         private final List<List<Short>> levels = new ArrayList<>();
@@ -105,57 +106,33 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
         /** 精确匹配子节点：Key 为具体的协议 ID */
         private final TrieNodeChildrenStorage<HC> children;
         /** 通配符匹配子节点：如果当前层级匹配 *，则流向此节点 */
-        private TrieNode<HC> wildcardChild;
+        private final TrieNode<HC> wildcard;
         /** 绑定的处理器实例 */
-        private NexalithicHandler<HC> handler;
-
-        private TrieNode(TrieNodeChildrenStorage<HC> children) {
+        private final NexalithicHandler<HC> handler;
+        public TrieNode(TrieNodeChildrenStorage<HC> children, TrieNode<HC> wildcard, NexalithicHandler<HC> handler) {
             this.children = children;
+            this.wildcard = wildcard;
+            this.handler = handler;
         }
-
         private TrieNodeChildrenStorage<HC> getChildren() {
             return children;
         }
-        private void  setWildcardChild(TrieNode<HC> wildcardChild) {
-            this.wildcardChild = wildcardChild;
-        }
-        private TrieNode<HC> getWildcardChild() {
-            return wildcardChild;
-        }
-        private void setHandler(NexalithicHandler<HC> handler) {
-            if (this.handler != null) {
-                throw new IllegalStateException("TrieNode has already been set");
-            }
-            this.handler = handler;
+        private TrieNode<HC> getWildcard() {
+            return wildcard;
         }
         private NexalithicHandler<HC> getHandler() {
             return handler;
         }
     }
-    /**
-     * TrieNode 子节点储藏
-     *
-     * @author tbrtz647@outlook.com
-     * @since 2026/03/16
-     * @version 1.0.0
-     */
-    public interface TrieNodeChildrenStorage<HC extends HandlerContext<?>> {
-        /** 获取子节点 */
-        TrieNode<HC> get(short key);
 
-        /** 存入子节点 */
-        void put(short key, TrieNode<HC> node);
-
-        /** 获取所有子节点 */
-        Collection<TrieNode<HC>> all();
-    }
-
-    private final Supplier<TrieNodeChildrenStorage<HC>> factory;
     private final TrieNode<HC> root;
 
-    public HandlerRegistry(Supplier<TrieNodeChildrenStorage<HC>> factory) {
-        this.factory = factory;
-        this.root = new TrieNode<>(factory.get());
+    public static <HC extends HandlerContext<?>> Builder<HC> builder() {
+        return new Builder<>();
+    }
+
+    private HandlerRegistry(TrieNode<HC> root) {
+        this.root = root;
     }
 
     public static PathMatcher parse(HandlerMapping mapping) {
@@ -174,55 +151,6 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             }
         }
         return matcher;
-    }
-
-    /**
-     * 注册路径匹配器关联的处理器
-     * @param matcher 路径匹配器（包含多级深度、广度及通配符逻辑）
-     * @param handler 业务逻辑处理器
-     */
-    public void register(PathMatcher matcher, NexalithicHandler<HC> handler) {
-        if (matcher == null || handler == null) {
-            return;
-        }
-        List<List<Short>> levels = matcher.getLevels();
-        if (levels.isEmpty()) {
-            root.setHandler(handler);
-            return;
-        }
-        doRegister(this.root, levels, 0, handler);
-        if (handler.getName() == null) {
-            handler.setName(matcher.formatPath());
-        }
-    }
-    /**
-     * 递归执行路径展开与节点创建
-     */
-    private void doRegister(TrieNode<HC> parent, List<List<Short>> levels, int depth, NexalithicHandler<HC> handler) {
-        for (Short key : levels.get(depth)) {
-            TrieNode<HC> childNode = getOrCreateChild(parent, key);
-            if (depth == levels.size() - 1) {
-                childNode.setHandler(handler);
-            } else {
-                doRegister(childNode, levels, depth + 1, handler);
-            }
-        }
-    }
-    private TrieNode<HC> getOrCreateChild(TrieNode<HC> parent, Short key) {
-        if (key == null) {
-            TrieNode<HC> wildcardChild = parent.getWildcardChild();
-            if (wildcardChild == null) {
-                wildcardChild = new TrieNode<>(factory.get());
-                parent.setWildcardChild(wildcardChild);
-            }
-            return wildcardChild;
-        }
-        TrieNode<HC> child = parent.getChildren().get(key);
-        if (child == null) {
-            child = new TrieNode<>(factory.get());
-            parent.getChildren().put(key, child);
-        }
-        return child;
     }
 
     /**
@@ -254,7 +182,7 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             handler = doMatch(nextNode, path, depth + 1);
         }
         if (handler == null) {
-            TrieNode<HC> wildcardNode = current.getWildcardChild();
+            TrieNode<HC> wildcardNode = current.getWildcard();
             if (wildcardNode != null) {
                 handler = doMatch(wildcardNode, path, depth + 1);
             }
@@ -262,46 +190,69 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
         return handler;
     }
 
-    /**
-     * 数组 trie 节点子存储</br>
-     * 适用于 ID 范围固定且连续的情况（如 0-255）
-     * @author tbrtz647@outlook.com
-     * @since 2026/03/16
-     * @version 1.0.0
-     */
-    public static class ArrayTrieNodeChildrenStorage<HC extends HandlerContext<?>> implements TrieNodeChildrenStorage<HC> {
-        private final TrieNode<HC>[] array;
-        @SuppressWarnings("unchecked")
-        public ArrayTrieNodeChildrenStorage(int size) {
-            this.array = (TrieNode<HC>[]) new TrieNode[size];
+    public static class Builder<HC extends HandlerContext<?>> {
+        private Supplier<TrieNodeChildrenStorage<HC>> factory = TrieNodeChildrenStorage.MapTrieNodeChildrenStorage::new;
+        private final MutableNode<HC> root = new MutableNode<>();
+
+        /**
+         * 注册路径匹配器关联的处理器
+         * @param matcher 路径匹配器（包含多级深度、广度及通配符逻辑）
+         * @param handler 业务逻辑处理器
+         */
+        public void register(PathMatcher matcher, NexalithicHandler<HC> handler) {
+            if (matcher == null || handler == null) {
+                return;
+            }
+            List<List<Short>> levels = matcher.getLevels();
+            if (levels.isEmpty()) {
+                root.handler = handler;
+                return;
+            }
+            doRegister(root, levels, 0, handler);
+            if (handler.getName() == null) {
+                handler.setName(matcher.formatPath());
+            }
         }
-        @Override
-        public TrieNode<HC> get(short key) {
-            return (key >= 0 && key < array.length) ? array[key] : null;
+        private void doRegister(MutableNode<HC> parent, List<List<Short>> levels, int depth, NexalithicHandler<HC> handler) {
+            for (Short key : levels.get(depth)) {
+                MutableNode<HC> child = (key == null) ? parent.getOrCreateWildcard() : parent.getOrCreateChild(key);
+                if (depth == levels.size() - 1) {
+                    child.handler = handler;
+                } else {
+                    doRegister(child, levels, depth + 1, handler);
+                }
+            }
         }
-        @Override
-        public void put(short key, TrieNode<HC> node) {
-            if (key >= 0 && key < array.length) array[key] = node;
+
+        public void factory(Supplier<TrieNodeChildrenStorage<HC>> factory) {
+            this.factory = factory;
         }
-        @Override
-        public Collection<TrieNode<HC>> all() {
-            return Arrays.stream(array).filter(Objects::nonNull).toList();
+
+        public HandlerRegistry<HC> build() {
+            return new HandlerRegistry<>(freeze(root));
+        }
+        private TrieNode<HC> freeze(MutableNode<HC> mutable) {
+            TrieNodeChildrenStorage<HC> storage = factory.get();
+            for (Map.Entry<Short, MutableNode<HC>> entry : mutable.children.entrySet()) {
+                storage.put(entry.getKey(), freeze(entry.getValue()));
+            }
+            TrieNode<HC> wildcard = (mutable.wildcard != null) ? freeze(mutable.wildcard) : null;
+            return new TrieNode<>(storage, wildcard, mutable.handler);
         }
     }
-    /**
-     * 映射 Trie 节点子存储</br>
-     * 适用于 ID 极其分散或范围无法预知的情况
-     * @author tbrtz647@outlook.com
-     * @since 2026/03/16
-     * @version 1.0.0
-     */
-    public static class MapTrieNodeChildrenStorage<HC extends HandlerContext<?>> implements TrieNodeChildrenStorage<HC> {
-        private final Map<Short, TrieNode<HC>> map = new HashMap<>();
-        @Override
-        public TrieNode<HC> get(short key) { return map.get(key); }
-        @Override
-        public void put(short key, TrieNode<HC> node) { map.put(key, node); }
-        @Override
-        public Collection<TrieNode<HC>> all() { return map.values(); }
+    private static class MutableNode<HC extends HandlerContext<?>> {
+        final Map<Short, MutableNode<HC>> children = new HashMap<>();
+        MutableNode<HC> wildcard;
+        NexalithicHandler<HC> handler;
+
+        MutableNode<HC> getOrCreateChild(short key) {
+            return children.computeIfAbsent(key, k -> new MutableNode<>());
+        }
+        MutableNode<HC> getOrCreateWildcard() {
+            if (wildcard == null) {
+                wildcard = new MutableNode<>();
+            }
+            return wildcard;
+        }
     }
 }
