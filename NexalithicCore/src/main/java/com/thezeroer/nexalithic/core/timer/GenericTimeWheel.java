@@ -11,16 +11,13 @@ import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
  */
 public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> {
 
-    public GenericTimeWheel(long tick, int slot, WrapperPool<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> wrapperPool) {
-        super(tick, slot, wrapperPool);
-    }
     public GenericTimeWheel(long tick, int slot, WrapperPool<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> wrapperPool, String name) {
         super(tick, slot, wrapperPool, name);
     }
 
     @SuppressWarnings("unchecked")
     public <T extends Expirable> void schedule(T expirable, TimerExecutor<T> executor) {
-        mountWrapper(((GenericScheduleWrapper<T>) wrapperPool.acquire()).wrap(expirable, executor));
+        queue.offer(((GenericScheduleWrapper<T>) wrapperPool.acquire()).wrap(expirable, executor));
     }
 
     @Override
@@ -33,7 +30,7 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
             wrapper.getExecutor().trigger(expirable);
             return true;
         } else {
-            mountWrapper(wrapper);
+            queue.offer(wrapper);
             return false;
         }
     }

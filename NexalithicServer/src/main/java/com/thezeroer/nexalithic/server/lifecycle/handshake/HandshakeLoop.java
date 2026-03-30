@@ -254,5 +254,9 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                 ),
                 HandshakeLoop.class.getSimpleName()
         );
+
+        static {
+            timeWheel.start();
+        }
     }
 }

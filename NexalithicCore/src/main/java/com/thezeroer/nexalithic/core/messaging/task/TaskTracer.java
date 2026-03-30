@@ -26,7 +26,7 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
     private final DedicatedTimeWheel<NexalithicTask> timeWheel;
 
     public TaskTracer() {
-        this.timeWheel = new DedicatedTimeWheel<>(
+        timeWheel = new DedicatedTimeWheel<>(
                 TimeWheel_Tick.value(),
                 TimeWheel_Slot.value(),
                 new SelfStaticWrapperPool<>(
@@ -37,6 +37,7 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
                 this,
                 TaskTracer.class.getSimpleName()
         );
+        timeWheel.start();
     }
 
     public boolean track(NexalithicTask task) {

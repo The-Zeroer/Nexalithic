@@ -117,5 +117,9 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 ),
                 WorkerLoop.class.getSimpleName()
         );
+
+        static {
+            timeWheel.start();
+        }
     }
 }

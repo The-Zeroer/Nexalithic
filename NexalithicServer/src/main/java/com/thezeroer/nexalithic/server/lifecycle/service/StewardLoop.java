@@ -133,5 +133,9 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
                 ),
                 StewardLoop.class.getSimpleName()
         );
+
+        static {
+            timeWheel.start();
+        }
     }
 }
