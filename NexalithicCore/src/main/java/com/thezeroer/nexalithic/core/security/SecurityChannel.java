@@ -40,7 +40,7 @@ public abstract class SecurityChannel {
             ByteBuffer[] dsts = dstBuffer.writableViews();
             if (srcs[0].remaining() >= payloadLength) {
                 srcs[0].limit(srcs[0].position() + payloadLength);
-                if (dsts[0].remaining() >= payloadLength) {
+                if (dsts[0].remaining() >= cipherLength) {
                     dsts[0].limit(dsts[0].position() + cipherLength);
                     secretKeyContext.encrypt(srcs[0], dsts[0]);
                     dstBuffer.advanceTail(cipherLength);

@@ -204,6 +204,11 @@ public class NexalithicTask implements Expirable {
         return true;
     }
 
+    @Override
+    public boolean isCancelled() {
+        return state.get() != State.WAITING;
+    }
+
     public static class Builder {
         private final NexalithicTask task;
 

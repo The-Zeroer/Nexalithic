@@ -4,14 +4,23 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.timer.DedicatedTimeWheel;
+import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimerExecutor;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.jctools.queues.MpscArrayQueue;
+import org.jctools.queues.SpmcArrayQueue;
+import org.jctools.queues.SpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,9 +42,12 @@ import java.util.concurrent.ExecutorService;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class HandshakeLoop extends AbstractLoop {
+public class HandshakeLoop extends AbstractLoop implements TimerExecutor<PendingChannel> {
     public static final NexalithicOption<Integer> Count = NexalithicOption.create("HandshakeLoop_Count", 4);
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("HandshakeLoop_DispatchQueue_Capacity", 1024);
+    public static final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create("HandshakeLoop_MaxWaitTime", 3000L);
+    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("HandshakeLoop_TimeWheel_Tick", 1000L);
+    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("HandshakeLoop_TimeWheel_WrapperPool_Capacity", 256);
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
     private static final int MAX_DRAIN_LIMIT = 64;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
@@ -81,6 +93,7 @@ public class HandshakeLoop extends AbstractLoop {
                         writeBuffers[0].flip();
                         writeBuffers[1].flip();
                         pendingChannel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).setState(PendingChannel.State.STEP_1);
+                        Interior.timeWheel.schedule(pendingChannel, HandshakeLoop.this);
                         wakeupIfNeeded();
                     } catch (Exception e) {
                         logger.error(e.getMessage(), e);
@@ -111,6 +124,7 @@ public class HandshakeLoop extends AbstractLoop {
     @Override
     public void onReadyEvent(SelectionKey key) throws IOException {
         PendingChannel channel = (PendingChannel) key.attachment();
+        channel.updateLastActiveTime(System.currentTimeMillis());
         try {
             SocketChannel socketChannel = channel.getSocketChannel();
             if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
@@ -215,9 +229,30 @@ public class HandshakeLoop extends AbstractLoop {
         }
     }
 
+    @Override
+    public void trigger(PendingChannel channel) {
+        logger.warn("[{}] handshake timeout", channel.toString());
+        closeChannel(channel.getSelectionKey(), channel);
+    }
+
     private void closeChannel(SelectionKey key, PendingChannel channel) {
-        key.cancel();
+        if (key != null) {
+            key.cancel();
+        }
         channel.close();
         loadScore.decrement();
+    }
+
+    private static class Interior {
+        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
+                TimeWheel_Tick.value(),
+                (int) (MaxWaitTime.value() / TimeWheel_Tick.value()) + 1,
+                new SelfStaticWrapperPool<>(
+                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStrategy.alwaysCreate(),
+                        GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
+                ),
+                HandshakeLoop.class.getSimpleName()
+        );
     }
 }

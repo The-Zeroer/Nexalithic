@@ -15,8 +15,8 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
  */
 public interface ChannelFactory<
         S extends NexalithicSession<S, SC, BC, SW, BW>,
-        SC extends SessionChannel<SignalingPacket, SW, S, ?>,
-        BC extends SessionChannel<BusinessPacket, BW, S, ?>,
+        SC extends SessionChannel<SignalingPacket, SW, S>,
+        BC extends SessionChannel<BusinessPacket, BW, S>,
         SW extends FragmentWrapper<SignalingPacket>,
         BW extends FragmentWrapper<BusinessPacket>> {
 

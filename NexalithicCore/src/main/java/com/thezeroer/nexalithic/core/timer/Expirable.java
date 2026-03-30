@@ -10,4 +10,5 @@ package com.thezeroer.nexalithic.core.timer;
 public interface Expirable {
     long getExpiryTime();
     boolean onExpiryTriggered();
+    boolean isCancelled();
 }

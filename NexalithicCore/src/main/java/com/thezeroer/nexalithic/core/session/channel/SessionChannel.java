@@ -37,27 +37,27 @@ import java.util.concurrent.atomic.AtomicReference;
 public abstract class SessionChannel<
         P extends AbstractPacket,
         W extends FragmentWrapper<P>,
-        S extends NexalithicSession<S, ?, ?, ?, ?>,
-        L extends ChannelLoop
+        S extends NexalithicSession<S, ?, ?, ?, ?>
         > extends SecurityChannel implements NexalithicChannel {
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
     private static final int DIRTY_BIT = 1 << 31;
     private static final int INTEREST_MASK = ~DIRTY_BIT;
-    private final S session;
-    private final AbstractPacket.PacketType type;
-    private final PacketsFragmenter<W> fragmenter;
-    private final PacketsAssembler<P> assembler;
-    private volatile L loop;
-    private volatile SelectionKey selectionKey;
-    private volatile SocketChannel socketChannel;
-    private volatile InetSocketAddress remoteAddress;
-    private final AtomicInteger targetInterest = new AtomicInteger(0);
-    private final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
-    private LoopBuffer readPlainBuffer, writeCipheBuffer;
-    private LoopBuffer readCipheBuffer, writePlainBuffer;
+    protected final S session;
+    protected final AbstractPacket.PacketType type;
+    protected final PacketsFragmenter<W> fragmenter;
+    protected final PacketsAssembler<P> assembler;
+    protected volatile ChannelLoop<?> loop;
+    protected volatile SelectionKey selectionKey;
+    protected volatile SocketChannel socketChannel;
+    protected volatile InetSocketAddress remoteAddress;
+    protected final AtomicInteger targetInterest = new AtomicInteger(0);
+    protected final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
+    protected LoopBuffer readPlainBuffer, writeCipheBuffer;
+    protected LoopBuffer readCipheBuffer, writePlainBuffer;
+    protected volatile long lastActiveTime = -1;
 
-    public SessionChannel(AbstractPacket.PacketType packetType, S session, L loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
+    public SessionChannel(AbstractPacket.PacketType packetType, S session, ChannelLoop<?> loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
         super(secretKeyContext);
         this.session = session;
         this.type = packetType;
@@ -69,7 +69,7 @@ public abstract class SessionChannel<
     public final boolean becomeConnecting() {
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public final SessionChannel<P, W, S, L> updateChannel(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, W, S> updateChannel(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -88,7 +88,7 @@ public abstract class SessionChannel<
         this.state.set(State.Connected);
         return this;
     }
-    public final SessionChannel<P, W, S, L> updateChannel(L loop, SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, W, S> updateChannel(ChannelLoop<?> loop, SelectionKey selectionKey) throws IOException {
         this.loop = loop;
         return updateChannel(selectionKey);
     }
@@ -195,10 +195,11 @@ public abstract class SessionChannel<
         return read;
     }
 
+
     public final S session() {
         return session;
     }
-    public final L localLoop() {
+    public final ChannelLoop<?> localLoop() {
         return loop;
     }
     public final AbstractPacket.PacketType getType() {
@@ -212,6 +213,16 @@ public abstract class SessionChannel<
     }
     public final InetSocketAddress getRemoteAddress() {
         return remoteAddress;
+    }
+
+    @Override
+    public final void updateLastActiveTime(long lastActiveTime) {
+        this.lastActiveTime = lastActiveTime;
+        session.updateLastActiveTime(lastActiveTime);
+    }
+    @Override
+    public final long getLastActiveTime() {
+        return lastActiveTime;
     }
 
     @Override
@@ -246,6 +257,7 @@ public abstract class SessionChannel<
             fragmenter.clear();
             assembler.clear();
             loop = null;
+            lastActiveTime = -1;
         }
     }
 }

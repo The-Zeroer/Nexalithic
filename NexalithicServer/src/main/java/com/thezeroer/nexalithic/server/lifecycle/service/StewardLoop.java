@@ -4,10 +4,16 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimerExecutor;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.MpscArrayQueue;
+import org.jctools.queues.SpmcArrayQueue;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -24,8 +30,11 @@ import java.security.InvalidKeyException;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class StewardLoop extends ServiceLoop {
+public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> implements TimerExecutor<ServerSession> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
+    public static final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create("StewardLoop_HeartBeat_MaxInterval", 60000L);
+    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("StewardLoop_TimeWheel_Tick", 1000L);
+    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("StewardLoop_TimeWheel_WrapperPool_Capacity", 1024);
     private final SessionsManager sessionsManager;
     private final ServiceUnit serviceUnit;
     private final ServerSession.ServerChannelFactory factory;
@@ -45,6 +54,7 @@ public class StewardLoop extends ServiceLoop {
                 ServerSession session = new ServerSession(channel.getSessionId(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory);
                 selectionKey.attach(session.setServiceUnit(serviceUnit).getSignalingChannel().updateChannel(selectionKey));
                 sessionsManager.putSession(session);
+                Interior.timeWheel.schedule(session, this);
             } catch (IOException ignored) {
             } finally {
                 channel.recycle();
@@ -54,9 +64,7 @@ public class StewardLoop extends ServiceLoop {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    protected void onReadyEvent(SelectionKey key) throws IOException {
-        ServerSessionChannel<SignalingPacket, ?> channel = (ServerSessionChannel<SignalingPacket, ?>) key.attachment();
+    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<SignalingPacket, SignalingPacket> channel) {
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -76,6 +84,8 @@ public class StewardLoop extends ServiceLoop {
         } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
                  BadPaddingException | InvalidKeyException e) {
             logger.warn("ServerSessionChannel[{}] onReadyEvent[{}] error", channel, name, e);
+            closeChannel(channel);
+        } catch (IOException ignored) {
             closeChannel(channel);
         }
     }
@@ -100,5 +110,28 @@ public class StewardLoop extends ServiceLoop {
         sessionsManager.removeSession(session);
         loadScore.decrement();
         session.close();
+    }
+
+    @Override
+    public void trigger(ServerSession session) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("[{}] heartbeat timeout", session);
+        }
+        sessionsManager.removeSession(session);
+        loadScore.decrement();
+        session.close();
+    }
+
+    private static class Interior {
+        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
+                TimeWheel_Tick.value(),
+                (int) (HeartBeat_MaxInterval.value() / TimeWheel_Tick.value()) + 1,
+                new SelfStaticWrapperPool<>(
+                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStrategy.alwaysCreate(),
+                        GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
+                ),
+                StewardLoop.class.getSimpleName()
+        );
     }
 }

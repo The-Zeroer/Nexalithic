@@ -26,12 +26,14 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
     }
 
     @Override
-    protected void onTrigger(DedicatedScheduleWrapper<E> wrapper) {
+    protected boolean onTrigger(DedicatedScheduleWrapper<E> wrapper) {
         E expirable = wrapper.getExpirable();
         if (expirable.onExpiryTriggered()) {
             executor.trigger(expirable);
+            return true;
         } else {
             mountWrapper(wrapper);
+            return false;
         }
     }
 
@@ -48,8 +50,13 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
         }
 
         @Override
-        public long getDeadline() {
+        public long getExpiryTime() {
             return expirable.getExpiryTime();
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return expirable.isCancelled();
         }
 
         @Override

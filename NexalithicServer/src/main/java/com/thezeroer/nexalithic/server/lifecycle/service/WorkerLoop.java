@@ -1,10 +1,18 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
+import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimerExecutor;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 import org.jctools.queues.MpscArrayQueue;
+import org.jctools.queues.SpmcArrayQueue;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -21,8 +29,11 @@ import java.security.InvalidKeyException;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class WorkerLoop extends ServiceLoop {
+public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragmentWrapper> implements TimerExecutor<ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>> {
     public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
+    public static final NexalithicOption<Long> MaxFreeTime = NexalithicOption.create("WorkerLoop_MaxFreeTime", 600000L);
+    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("WorkerLoop_TimeWheel_Tick", 1000L);
+    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("WorkerLoop_TimeWheel_WrapperPool_Capacity", 1024);
     private final ServerBusinessPacketDispatcher dispatcher;
 
     public WorkerLoop(ServerBusinessPacketDispatcher dispatcher) throws IOException {
@@ -35,11 +46,12 @@ public class WorkerLoop extends ServiceLoop {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSessionChannel<BusinessPacket, ?> businessChannel = channel.getSession().getBusinessChannel();
+                ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> businessChannel = channel.getSession().getBusinessChannel();
                 selectionKey.attach(businessChannel.updateChannel(this, selectionKey));
                 if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     businessChannel.applyTargetInterest();
                 }
+                Interior.timeWheel.schedule(businessChannel, this);
             } catch (IOException ignored) {
             } finally {
                 channel.recycle();
@@ -49,9 +61,7 @@ public class WorkerLoop extends ServiceLoop {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    protected void onReadyEvent(SelectionKey key) throws IOException {
-        ServerSessionChannel<BusinessPacket, ?> channel = (ServerSessionChannel<BusinessPacket, ?>) key.attachment();
+    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> channel) {
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -72,12 +82,9 @@ public class WorkerLoop extends ServiceLoop {
                  BadPaddingException | InvalidKeyException e) {
             logger.warn("ServerSessionChannel[{}] onReadyEvent[{}] error", channel, name, e);
             closeChannel(channel);
+        } catch (IOException ignored) {
+            closeChannel(channel);
         }
-    }
-
-    private void closeChannel(ServerSessionChannel<?, ?> channel) {
-        loadScore.decrement();
-        channel.close();
     }
 
     @Override
@@ -87,5 +94,28 @@ public class WorkerLoop extends ServiceLoop {
                 key.channel().close();
             } catch (IOException ignored) {}
         }
+    }
+
+    @Override
+    public void trigger(ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> channel) {
+        closeChannel(channel);
+    }
+
+    private void closeChannel(ServerSessionChannel<?, ?> channel) {
+        loadScore.decrement();
+        channel.close();
+    }
+
+    private static class Interior {
+        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
+                TimeWheel_Tick.value(),
+                (int) (MaxFreeTime.value() / TimeWheel_Tick.value()) + 1,
+                new SelfStaticWrapperPool<>(
+                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStrategy.alwaysCreate(),
+                        GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
+                ),
+                WorkerLoop.class.getSimpleName()
+        );
     }
 }

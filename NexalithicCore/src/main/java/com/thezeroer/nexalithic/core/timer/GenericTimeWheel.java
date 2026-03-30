@@ -24,15 +24,17 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
     }
 
     @Override
-    protected void onTrigger(GenericScheduleWrapper<?> wrapper) {
-        privateOnTrigger(wrapper);
+    protected boolean onTrigger(GenericScheduleWrapper<?> wrapper) {
+        return privateOnTrigger(wrapper);
     }
-    private <T extends Expirable> void privateOnTrigger(GenericScheduleWrapper<T> wrapper) {
+    private <T extends Expirable> boolean privateOnTrigger(GenericScheduleWrapper<T> wrapper) {
         T expirable = wrapper.getExpirable();
         if (expirable.onExpiryTriggered()) {
             wrapper.getExecutor().trigger(expirable);
+            return true;
         } else {
             mountWrapper(wrapper);
+            return false;
         }
     }
 
@@ -54,8 +56,13 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
         }
 
         @Override
-        public long getDeadline() {
+        public long getExpiryTime() {
             return expirable.getExpiryTime();
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return expirable.isCancelled();
         }
 
         @Override

@@ -134,6 +134,11 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         return true;
     }
 
+    @Override
+    public boolean isCancelled() {
+        return false;
+    }
+
     private static class PacketBuilder {
         private static final BusinessPacket.Way[] WAYS = BusinessPacket.Way.values();
         public long taskId;

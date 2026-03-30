@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.security.Certificate;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
+import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
 import com.thezeroer.nexalithic.server.security.DefaultServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,10 @@ public class ServerTest {
     public static final Logger logger = LoggerFactory.getLogger(ServerTest.class);
     public static void main(String[] args) throws Exception {
         NexalithicServer nexalithicServer = NexalithicServer.builder()
+                .apply(ServiceUnit.Count, 4)
+                .apply(ServiceUnit.WorkerLoop_Count, 8)
+//                .apply(StewardLoop.HeartBeat_MaxInterval, 3000L)
+//                .apply(StewardLoop.TimeWheel_Tick, 100L)
                 .securityPolicy(new DefaultServerSecurityPolicy() {
                     final KeyPair signingKeyPair = KeyPairGenerator.getInstance(SIGNATURE_ALGORITHM).generateKeyPair();
                     final Certificate certificate = new Certificate() {
@@ -74,8 +79,6 @@ public class ServerTest {
                         return signingKeyPair.getPrivate();
                     }
                 })
-                .apply(ServiceUnit.Count, 4)
-                .apply(ServiceUnit.WorkerLoop_Count, 8)
                 .registerHandler(new HandlerRegistry.PathMatcher(), new NexalithicHandler<>((context -> {
                     if (context.getRequest().firstPayload() instanceof TextPayload textPayload) {
                         logger.debug(textPayload.value());

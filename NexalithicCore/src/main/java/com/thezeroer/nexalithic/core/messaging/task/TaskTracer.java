@@ -35,7 +35,7 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
                         DedicatedTimeWheel.DedicatedScheduleWrapper<NexalithicTask>::new
                 ),
                 this,
-                "TaskTracer"
+                TaskTracer.class.getSimpleName()
         );
     }
 

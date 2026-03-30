@@ -9,6 +9,7 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -37,8 +38,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends ChannelLoop {
+public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
+    public static final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create("GeneralLoop_HeartBeat_Interval", 30000L);
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
+    private static final SignalingPacket heartbeatPacket = new SignalingPacket(SignalingPacket.Signal.HeartBeat);
     private final ClientSecurityPolicy policy;
     private final Queue<Runnable> eventQueue;
     private final NetworkRouter router;
@@ -117,12 +120,18 @@ public class GeneralLoop extends ChannelLoop {
         while (!eventQueue.isEmpty()) {
             eventQueue.poll().run();
         }
+        if (session != null) {
+            long now = System.currentTimeMillis();
+            if (now - session.getLastActiveTime() >= Interior.HeartBeat_Interval) {
+                session.pushSignalingPacketWrapper(heartbeatPacket);
+                session.updateLastActiveTime(now);
+            }
+        }
         return true;
     }
 
     @Override
-    public void onReadyEvent(SelectionKey selectionKey) throws IOException {
-        ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) selectionKey.attachment();
+    public void onReadyEvent(SelectionKey selectionKey, ClientSessionChannel<?, ?> channel) {
         try {
             if (selectionKey.isReadable()) {
                 if (channel.read() == -1) {
@@ -149,8 +158,11 @@ public class GeneralLoop extends ChannelLoop {
                  BadPaddingException | InvalidKeyException e) {
             logger.warn("[{}] onReadyEvent Error", name, e);
             closeChannel(channel);
+        } catch (IOException ignored) {
+            closeChannel(channel);
         }
     }
+
     private void handleSignalPacket(SignalingPacket packet) {
         try {
             switch (packet.getSignal()) {
@@ -176,5 +188,9 @@ public class GeneralLoop extends ChannelLoop {
         } else {
             channel.close();
         }
+    }
+
+    private static class Interior {
+        public static final long HeartBeat_Interval = GeneralLoop.HeartBeat_Interval.value();
     }
 }

@@ -1,10 +1,14 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.jctools.queues.MpscArrayQueue;
 
 import java.io.IOException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.util.Iterator;
 
 /**
  * 通道环路
@@ -13,15 +17,15 @@ import java.io.IOException;
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class ChannelLoop extends AbstractLoop {
+public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractLoop {
     public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("ChannelLoop_InterestQueue_Capacity", 1024);
-    protected final MpscArrayQueue<SessionChannel<?, ?, ?, ?>> interestQueue;
+    protected final MpscArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
 
     public ChannelLoop() throws IOException {
         interestQueue = new MpscArrayQueue<>(InterestQueue_Capacity.value());
     }
 
-    public final void updateChannelInterest(SessionChannel<?, ?, ?, ?> channel) {
+    public final void updateChannelInterest(SessionChannel<?, ?, ?> channel) {
         while (!interestQueue.offer(channel)) {
             Thread.onSpinWait();
         }
@@ -33,4 +37,28 @@ public abstract class ChannelLoop extends AbstractLoop {
         interestQueue.drain(SessionChannel::applyTargetInterest);
         return onAsyncEvent() & interestQueue.isEmpty();
     }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    protected final void readyEvent(Selector selector) {
+        Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+        while (iterator.hasNext()) {
+            SelectionKey key = iterator.next();
+            iterator.remove();
+            try {
+                C channel = (C) key.attachment();
+                channel.updateLastActiveTime(System.currentTimeMillis());
+                onReadyEvent(key, channel);
+            } catch (Exception e) {
+                logger.warn("[{}] failed to ready event [{}]", name, e.toString());
+                if (key.attachment() instanceof NexalithicChannel channel) {
+                    channel.close();
+                }
+            }
+        }
+    }
+    protected abstract void onReadyEvent(SelectionKey selectionKey, C channel);
+
+    @Override
+    protected final void onReadyEvent(SelectionKey selectionKey) {}
 }

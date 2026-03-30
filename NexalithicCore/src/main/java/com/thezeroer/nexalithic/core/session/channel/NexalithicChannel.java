@@ -14,5 +14,7 @@ public interface NexalithicChannel {
         Connected,
     }
 
+    void updateLastActiveTime(long lastActiveTime);
+    long getLastActiveTime();
     void close();
 }

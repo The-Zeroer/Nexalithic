@@ -46,12 +46,24 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
     }
 
     protected void mountWrapper(W wrapper) {
-        long ticks = Math.max(0, wrapper.getDeadline() - System.currentTimeMillis()) / tick;
+        long ticks = (wrapper.getExpiryTime() - System.currentTimeMillis() + tick - 1) / tick;
+        ticks = Math.max(1, ticks);
         wrapper.setRemainingRounds((int) (ticks / buckets.length));
         mergeBack((int) ((targetTick.get() + ticks) & mask), wrapper, wrapper);
     }
 
-    protected abstract void onTrigger(W wrapper);
+    private void mergeBack(int slot, W unexpiredHead, W unexpiredTail) {
+        W currentHead;
+        do {
+            currentHead = buckets[slot].get();
+            unexpiredTail.setNext(currentHead);
+            if (currentHead != null) {
+                currentHead.setPrev(unexpiredTail);
+            }
+        } while (!buckets[slot].compareAndSet(currentHead, unexpiredHead));
+    }
+
+    protected abstract boolean onTrigger(W wrapper);
 
     private int normalize(int slot) {
         int n = slot - 1;
@@ -66,23 +78,28 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
         W unexpiredHead = null, unexpiredTail = null;
         while (current != null) {
             W next = (W) current.getNext();
-            if (current.remainingRounds() <= 0) {
-                try {
-                    onTrigger(current);
-                } catch (Exception e) {
-                    handleTriggerError(current, e);
-                } finally {
-                    current.recycle();
-                }
+            if (current.isCancelled()) {
+                current.recycle();
             } else {
-                current.setNext(unexpiredHead);
-                if (unexpiredHead != null) {
-                    unexpiredHead.setPrev(current);
+                if (current.remainingRounds() < 0) {
+                    try {
+                        if (onTrigger(current)) {
+                            current.recycle();
+                        }
+                    } catch (Exception e) {
+                        handleTriggerError(current, e);
+                        current.recycle();
+                    }
                 } else {
-                    unexpiredTail = current;
+                    current.setNext(unexpiredHead);
+                    if (unexpiredHead != null) {
+                        unexpiredHead.setPrev(current);
+                    } else {
+                        unexpiredTail = current;
+                    }
+                    current.setPrev(null);
+                    unexpiredHead = current;
                 }
-                current.setPrev(null);
-                unexpiredHead = current;
             }
             current = next;
         }
@@ -92,18 +109,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
     }
 
     private void handleTriggerError(W current, Exception e) {
-        logger.error("TimeWheel task execution failed. Task: {}", current, e);
-    }
-
-    private void mergeBack(int slot, W unexpiredHead, W unexpiredTail) {
-        W currentHead;
-        do {
-            currentHead = buckets[slot].get();
-            unexpiredTail.setNext(currentHead);
-            if (currentHead != null) {
-                currentHead.setPrev(unexpiredTail);
-            }
-        } while (!buckets[slot].compareAndSet(currentHead, unexpiredHead));
+        logger.error("TimeWheel task execution failed. Task: {}", current.toString(), e);
     }
 
     public static abstract class ScheduleWrapper<W extends ScheduleWrapper<W>> extends SelfStaticWrapperPool.InteriorRecyclableWrapper<W> {
@@ -114,10 +120,11 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
             this.remainingRounds = remainingRounds;
         }
         int remainingRounds() {
-            return remainingRounds--;
+            return --remainingRounds;
         }
 
-        public abstract long getDeadline();
+        public abstract long getExpiryTime();
+        public abstract boolean isCancelled();
 
         public void setPrev(ScheduleWrapper<W> prev) {
             this.prev = prev;

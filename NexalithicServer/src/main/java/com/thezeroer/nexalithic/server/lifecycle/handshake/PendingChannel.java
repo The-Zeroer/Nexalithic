@@ -1,15 +1,18 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
+import com.thezeroer.nexalithic.core.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
@@ -21,7 +24,7 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel {
+public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
     public enum State {
         STEP_0,
         STEP_1,
@@ -29,6 +32,7 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     private volatile AbstractPacket.PacketType packetType;
+    private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
     private volatile State state;
     private final ByteBuffer[] readBuffers = new ByteBuffer[2];
@@ -38,6 +42,8 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     private volatile ServerSession session;
     private volatile SessionId sessionId;
     private volatile SecretKeyContext signalingSecretContext, businessSecretContext;
+
+    private volatile long lastActiveTime = -1;
 
     public PendingChannel() {
         readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
@@ -72,6 +78,13 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         return writeBuffers;
     }
 
+    public PendingChannel setSelectionKey(SelectionKey selectionKey) {
+        this.selectionKey = selectionKey;
+        return this;
+    }
+    public SelectionKey getSelectionKey() {
+        return selectionKey;
+    }
     public PendingChannel setPrivateKey(PrivateKey privateKey) {
         this.privateKey = privateKey;
         return this;
@@ -93,7 +106,6 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     public ServerSession getSession() {
         return session;
     }
-
     public PendingChannel setSessionId(SessionId sessionId) {
         this.sessionId = sessionId;
         return this;
@@ -117,9 +129,19 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     @Override
+    public void updateLastActiveTime(long lastActiveTime) {
+        this.lastActiveTime = lastActiveTime;
+    }
+    @Override
+    public long getLastActiveTime() {
+        return lastActiveTime;
+    }
+
+    @Override
     protected void onRecycle() {
         packetType = null;
         socketChannel = null;
+        selectionKey = null;
         readBuffers[0].clear();
         readBuffers[1].clear();
         writeBuffers[0] = null;
@@ -130,8 +152,10 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         sessionId = null;
         signalingSecretContext = null;
         businessSecretContext = null;
+        lastActiveTime = -1;
     }
 
+    @Override
     public void close() {
         if (socketChannel != null) {
             try {
@@ -140,5 +164,29 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
             }
         }
         recycle();
+    }
+
+    @Override
+    public long getExpiryTime() {
+        return lastActiveTime + Interior.MAX_WAIT_TIME;
+    }
+
+    @Override
+    public boolean onExpiryTriggered() {
+        return System.currentTimeMillis() - lastActiveTime > Interior.MAX_WAIT_TIME;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return packetType == null;
+    }
+
+    @Override
+    public String toString() {
+        return "PacketType: " + packetType + ", State: " + state + ", SocketChannel: " + socketChannel;
+    }
+
+    private static class Interior {
+        public static final long MAX_WAIT_TIME = HandshakeLoop.MaxWaitTime.value();
     }
 }

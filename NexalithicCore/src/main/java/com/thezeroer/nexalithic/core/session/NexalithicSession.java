@@ -22,8 +22,8 @@ import java.util.concurrent.locks.LockSupport;
 @SuppressWarnings("unchecked")
 public abstract class NexalithicSession <
         S extends NexalithicSession<S, SC, BC, SW, BW>,
-        SC extends SessionChannel<SignalingPacket, SW, S, ?>,
-        BC extends SessionChannel<BusinessPacket, BW, S, ?>,
+        SC extends SessionChannel<SignalingPacket, SW, S>,
+        BC extends SessionChannel<BusinessPacket, BW, S>,
         SW extends FragmentWrapper<SignalingPacket>,
         BW extends FragmentWrapper<BusinessPacket>
     > {
@@ -32,7 +32,8 @@ public abstract class NexalithicSession <
     protected final SessionId sessionId;
     protected final SC signalingChannel;
     protected final BC businessChannel;
-    protected String sessionName;
+    protected volatile String sessionName;
+    protected volatile long lastActiveTime = -1;
 
     public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ChannelFactory<S, SC, BC, SW, BW> factory) {
         this.sessionId = sessionId;
@@ -98,31 +99,38 @@ public abstract class NexalithicSession <
     public final BC getBusinessChannel() {
         return businessChannel;
     }
-    public final SessionChannel<?, ?, S, ?> getChannel(AbstractPacket.PacketType packetType) {
+    public final SessionChannel<?, ?, S> getChannel(AbstractPacket.PacketType packetType) {
         return switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
     }
-    public final <C extends SessionChannel<?, ?, S, ?>> C asChannel(AbstractPacket.PacketType packetType) {
+    public final <C extends SessionChannel<?, ?, S>> C asChannel(AbstractPacket.PacketType packetType) {
         return (C) switch (packetType) {
             case SIGNALING -> signalingChannel;
             case BUSINESS -> businessChannel;
         };
     }
 
-    public void setSessionName(String sessionName) {
+    public final void updateLastActiveTime(long lastActiveTime) {
+        this.lastActiveTime = lastActiveTime;
+    }
+
+    public final void setSessionName(String sessionName) {
         this.sessionName = sessionName;
     }
-    public String getSessionName() {
+    public final String getSessionName() {
         return sessionName;
     }
 
-    public SessionId getSessionId() {
+    public final SessionId getSessionId() {
         return sessionId;
     }
-    public long getCreationTime() {
+    public final long getCreationTime() {
         return creationTime;
+    }
+    public final long getLastActiveTime() {
+        return lastActiveTime;
     }
 
     public void close() {
@@ -134,8 +142,10 @@ public abstract class NexalithicSession <
         }
     }
 
-    private boolean updateChannelInterest(SessionChannel<?, ?, ?, ?> channel) {
-        ChannelLoop loop = channel.localLoop();
+    protected abstract boolean onPushBusinessPacket();
+
+    private boolean updateChannelInterest(SessionChannel<?, ?, ?> channel) {
+        ChannelLoop<?> loop = channel.localLoop();
         if (loop != null) {
             loop.updateChannelInterest(channel);
             return true;
@@ -156,6 +166,4 @@ public abstract class NexalithicSession <
         }
         return false;
     }
-
-    protected abstract boolean onPushBusinessPacket();
 }

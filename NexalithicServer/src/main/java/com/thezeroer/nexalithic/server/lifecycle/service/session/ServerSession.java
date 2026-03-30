@@ -12,6 +12,8 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
+import com.thezeroer.nexalithic.core.timer.Expirable;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
@@ -29,7 +31,7 @@ public class ServerSession extends NexalithicSession<
         ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
         SignalingPacket,
         BusinessPacketFragmentWrapper
-    > {
+    > implements Expirable {
     private volatile ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
@@ -72,6 +74,21 @@ public class ServerSession extends NexalithicSession<
         }
     }
 
+    @Override
+    public long getExpiryTime() {
+        return lastActiveTime + Interior.HeartBeat_MaxInterval;
+    }
+
+    @Override
+    public boolean onExpiryTriggered() {
+        return System.currentTimeMillis() - lastActiveTime > Interior.HeartBeat_MaxInterval;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return serviceUnit == null;
+    }
+
     public static class ServerChannelFactory implements ChannelFactory <
             ServerSession,
             ServerSessionChannel<SignalingPacket, SignalingPacket>,
@@ -105,5 +122,9 @@ public class ServerSession extends NexalithicSession<
                     assemblerFactory.create(AbstractPacket.PacketType.BUSINESS),
                     context);
         }
+    }
+
+    private static class Interior {
+        public static final long HeartBeat_MaxInterval = StewardLoop.HeartBeat_MaxInterval.value();
     }
 }

@@ -15,7 +15,7 @@ import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ClientSessionChannel<P extends AbstractPacket, W extends FragmentWrapper<P>> extends SessionChannel<P, W, ClientSession, GeneralLoop> {
+public class ClientSessionChannel<P extends AbstractPacket, W extends FragmentWrapper<P>> extends SessionChannel<P, W, ClientSession> {
 
     public ClientSessionChannel(AbstractPacket.PacketType packetType, ClientSession session, GeneralLoop loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext context) {
         super(packetType, session, loop, fragmenter, assembler, context);
