@@ -21,11 +21,11 @@ import java.util.zip.CRC32;
  */
 public abstract class AbstractPayload<T> {
     /** 具体的业务数据对象 */
-    protected T value;
+    protected volatile T value;
     /** 数据的总字节大小（用于进度控制和长度校验） */
-    protected long totalSize;
+    protected volatile long totalSize;
     /** 当前已编解码处理的字节大小 */
-    protected long processedSize;
+    protected volatile long processedSize;
 
     public AbstractPayload() {}
 

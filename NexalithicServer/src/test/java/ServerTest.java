@@ -2,6 +2,8 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.security.Certificate;
 import com.thezeroer.nexalithic.server.NexalithicServer;
@@ -11,10 +13,14 @@ import com.thezeroer.nexalithic.server.security.DefaultServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.net.InetSocketAddress;
+import java.nio.file.Paths;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.util.Objects;
 
 public class ServerTest {
     public static final Logger logger = LoggerFactory.getLogger(ServerTest.class);
@@ -83,7 +89,15 @@ public class ServerTest {
                     if (context.getRequest().firstPayload() instanceof TextPayload textPayload) {
                         logger.debug(textPayload.value());
                     }
-                    context.pushResponse(BusinessPacket.create(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Client!")));
+                    try {
+                        context.pushResponse(BusinessPacket.create(BusinessPacket.Way.DEFAULT)
+                                .attach(new TextPayload("Hello Client!"))
+                                .attach(new FilePayload(new File(Objects.requireNonNull(ServerTest.class
+                                        .getResource(ServerTest.class.getSimpleName() + ".class")).getFile())))
+                                .attach(new SerializablePayload(BusinessPacket.class)));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 }), false))
                 .build();
         nexalithicServer.start();

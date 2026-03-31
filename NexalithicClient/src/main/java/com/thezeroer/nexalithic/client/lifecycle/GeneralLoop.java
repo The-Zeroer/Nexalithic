@@ -156,9 +156,12 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             }
         } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
                  BadPaddingException | InvalidKeyException e) {
-            logger.warn("[{}] onReadyEvent Error", name, e);
+            logger.warn("Channel[{}] onReadyEvent[{}] error", channel, name, e);
             closeChannel(channel);
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Channel[{}] onReadyEvent[{}] error", channel, name, e);
+            }
             closeChannel(channel);
         }
     }

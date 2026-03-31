@@ -36,7 +36,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         return remaining > 0;
     }
 
-    public int onFrame(LoopBuffer.LimitedReadableView input) throws IOException {
+    public int onFrame(LoopBuffer input, int quota) throws IOException {
         lastActiveTime = System.currentTimeMillis();
         int total = 0;
         if (!headerRead) {
@@ -45,47 +45,56 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         }
         List<AbstractPayload<?>> payloads = packetBuilder.payloads;
         int read;
-        while (input.remaining() > 0 && payloadIndex < packetBuilder.payloadCount) {
+        while (total < quota && payloadIndex < packetBuilder.payloadCount) {
             AbstractPayload<?> payload = payloads.get(payloadIndex);
-            if (payload.getProcessedSize() == 0) {
-                payload.prepareDecode(packetBuilder.payloadsMeta[payloadIndex * 2 + 1]);
+            LoopBuffer.LimitedReadableView readableView = input.unsafeLimitedReadableView(
+                    Math.min((int) (packetBuilder.payloadsMeta[payloadIndex * 2 + 1] - payload.getProcessedSize()), quota - total)
+            );
+            try {
+                if (payload.getProcessedSize() == 0) {
+                    payload.prepareDecode(packetBuilder.payloadsMeta[payloadIndex * 2 + 1]);
+                }
+                read = payload.decode(readableView);
+                if (payload.getProcessedSize() >= payload.getTotalSize()) {
+                    payload.finishDecode();
+                    payload.release();
+                    payloadIndex++;
+                }
+                total += read;
+            } catch (IOException e) {
+                payload.release();
+                throw e;
             }
-            read = payload.decode(input);
-            if (payload.getProcessedSize() == payload.getTotalSize()) {
-                payload.finishDecode();
-                payloadIndex++;
-            }
-            total += read;
         }
         remaining -= total;
-        if (remaining == 0 && payloadIndex == packetBuilder.payloadCount) {
+        if (remaining == 0) {
             packet = packetBuilder.build();
         }
         return total;
     }
-    private int readPacketHeader(LoopBuffer.LimitedReadableView input) throws IOException {
+    private int readPacketHeader(LoopBuffer input) throws IOException {
         int read = BusinessPacket.BASE_HEADER_SIZE;
-        packetBuilder.taskId = input.getLong();
-        packetBuilder.packetSize = input.getLong();
+        packetBuilder.taskId = input.unsafeGetLong();
+        packetBuilder.packetSize = input.unsafeGetLong();
         remaining = packetBuilder.packetSize;
-        packetBuilder.way = input.getShort();
-        byte depth = input.getByte();
+        packetBuilder.way = input.unsafeGetShort();
+        byte depth = input.unsafeGetByte();
         packetBuilder.pathDepth = depth;
         if (depth > 0) {
             packetBuilder.path = new short[depth];
             for (int i = 0; i < depth; i++) {
-                packetBuilder.path[i] = input.getShort();
+                packetBuilder.path[i] = input.unsafeGetShort();
             }
             read += depth * Short.BYTES;
         }
-        byte count = input.getByte();
+        byte count = input.unsafeGetByte();
         packetBuilder.payloadCount = count;
         if (count > 0) {
             packetBuilder.payloads = new ArrayList<>(count);
             packetBuilder.payloadsMeta = new long[count * 2];
             for (int i = 0; i < count; i++) {
-                long uid = input.getLong();
-                long size = input.getLong();
+                long uid = input.unsafeGetLong();
+                long size = input.unsafeGetLong();
                 AbstractPayload<?> payload = payloadRegistry.get(uid);
                 if (payload == null) {
                     throw new IOException("Unknown Payload UID: " + uid);
@@ -153,7 +162,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         public BusinessPacket build() {
             BusinessPacket packet = BusinessPacket.create(WAYS[way], path).attach(payloads).setTaskId(taskId).seal();
             if (packetSize != packet.getPacketSize()) {
-                throw new IllegalStateException("Packet Size Mismatch");
+                throw new IllegalStateException("Packet Size Mismatch, %d or %d".formatted(packetSize, packet.getPacketSize()));
             }
             for (int i = 0; i < payloadsMeta.length; i++) {
                 long[] payloadsMeta = packet.getPayloadsMeta();

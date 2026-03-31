@@ -207,9 +207,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             iterator.remove();
             try {
                 onReadyEvent(key);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 if (logger.isDebugEnabled()) {
-                    logger.debug("[{}] failed to ready event [{}]", name, e.toString());
+                    logger.debug("[{}] failed to ready event: ", name, e);
                 }
                 if (key.attachment() instanceof NexalithicChannel channel) {
                     channel.close();

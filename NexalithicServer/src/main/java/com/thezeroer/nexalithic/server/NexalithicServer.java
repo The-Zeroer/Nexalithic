@@ -12,6 +12,7 @@ import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
@@ -266,6 +267,7 @@ public class NexalithicServer {
             payloadRegistryBuilder = PayloadRegistry.builder();
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
+            payloadRegistryBuilder.register(SerializablePayload::new);
             handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
             businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,

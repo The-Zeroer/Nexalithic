@@ -123,14 +123,16 @@ public class AssemblerFactory {
             while (source.readableBytes() > BusinessPacketFragmentWrapper.FRAME_HEADER_LENGTH) {
                 source.markHead();
                 short payloadLength = source.unsafeGetShort();
+                long packetId = source.unsafeGetLong();
                 if (source.readableBytes() < payloadLength) {
                     source.resetHead();
                     break;
                 }
-                long packetId = source.unsafeGetLong();
+                if (payloadLength <= 0) {
+                    continue;
+                }
                 BusinessPacketAssemblyWrapper wrapper = assemblingMap.computeIfAbsent(packetId, id -> WRAPPER_POOL.acquire().setPacketId(id));
-                LoopBuffer.LimitedReadableView readableView = source.unsafeLimitedReadableView(payloadLength);
-                read = wrapper.onFrame(readableView);
+                read = wrapper.onFrame(source, payloadLength);
                 if (!wrapper.hasFrame()) {
                     assemblingMap.remove(packetId);
                     BusinessPacket packet = wrapper.getPacket();

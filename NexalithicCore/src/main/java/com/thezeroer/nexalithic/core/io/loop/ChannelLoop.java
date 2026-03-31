@@ -50,7 +50,7 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
                 channel.updateLastActiveTime(System.currentTimeMillis());
                 onReadyEvent(key, channel);
             } catch (Exception e) {
-                logger.warn("[{}] failed to ready event [{}]", name, e.toString());
+                logger.warn("[{}] failed to ready event: ", name, e);
                 if (key.attachment() instanceof NexalithicChannel channel) {
                     channel.close();
                 }

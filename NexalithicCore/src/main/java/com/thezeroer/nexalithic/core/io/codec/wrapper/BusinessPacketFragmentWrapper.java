@@ -59,7 +59,6 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             writeFrameHeader(output, quota);
             writePacketHeader(output);
             total += headerSize;
-            quota -= total;
             headerWritten = true;
         } else {
             if (writable <= FRAME_HEADER_LENGTH) {
@@ -67,29 +66,39 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             }
             writeFrameHeader(output, quota);
         }
-        LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView(quota);
-        int written, viewRemaining = quota, size = payloads.size();
+        int written, size = payloads.size();
         while (payloadIndex < size) {
             AbstractPayload<?> payload = payloads.get(payloadIndex);
-            if (payload.getProcessedSize() == 0) {
-                payload.prepareEncode();
+            LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView((int) (payload.getTotalSize() - payload.getProcessedSize()));
+            try {
+                if (payload.getProcessedSize() == 0) {
+                    payload.prepareEncode();
+                }
+                written = payload.encode(writableView);
+                total += written;
+                if (payload.getProcessedSize() >= payload.getTotalSize()) {
+                    payload.finishEncode();
+                    payload.release();
+                    payloadIndex++;
+                }
+            } catch (IOException e) {
+                payload.release();
+                throw e;
             }
-            written = payload.encode(writableView);
-            total += written;
-            if (payload.getProcessedSize() == payload.getTotalSize()) {
-                payload.finishEncode();
-                payloadIndex++;
-            }
-            viewRemaining = writableView.remaining();
-            if (written == 0 || viewRemaining == 0) {
+            if (written == 0 || writableView.remaining() == 0) {
                 break;
             }
         }
-        if (viewRemaining > 0) {
-            long tail = output.getTail();
-            output.resetTail();
-            output.put(total);
-            output.setTail(tail);
+        if (total < quota) {
+            if (total == 0) {
+                output.setTail(output.getTail() - FRAME_HEADER_LENGTH);
+                return total;
+            } else {
+                long tail = output.getTail();
+                output.resetTail();
+                output.put((short) total);
+                output.setTail(tail);
+            }
         }
         remaining -= total;
         return total + FRAME_HEADER_LENGTH;

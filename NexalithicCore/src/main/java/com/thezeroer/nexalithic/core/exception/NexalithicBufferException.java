@@ -9,6 +9,6 @@ package com.thezeroer.nexalithic.core.exception;
  */
 public class NexalithicBufferException extends NexalithicException {
     protected NexalithicBufferException(String message) {
-        super(message, false);
+        super(message, true);
     }
 }

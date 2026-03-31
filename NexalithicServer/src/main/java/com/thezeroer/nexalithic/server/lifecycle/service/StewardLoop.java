@@ -83,9 +83,12 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
             }
         } catch (InvalidAlgorithmParameterException | ShortBufferException | IllegalBlockSizeException |
                  BadPaddingException | InvalidKeyException e) {
-            logger.warn("ServerSessionChannel[{}] onReadyEvent[{}] error", channel, name, e);
+            logger.warn("Channel[{}] onReadyEvent[{}] error", channel, name, e);
             closeChannel(channel);
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Channel[{}] onReadyEvent[{}] error", channel, name, e);
+            }
             closeChannel(channel);
         }
     }
