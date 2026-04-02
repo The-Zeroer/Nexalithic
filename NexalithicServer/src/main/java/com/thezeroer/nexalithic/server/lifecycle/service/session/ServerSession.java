@@ -123,6 +123,6 @@ public class ServerSession extends NexalithicSession<
     }
 
     private static class Interior {
-        public static final long HeartBeat_MaxInterval = StewardLoop.HeartBeat_MaxInterval.value();
+        public static final long HeartBeat_MaxInterval = StewardLoop.Options.HeartBeat_MaxInterval.value();
     }
 }

@@ -10,6 +10,8 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -39,7 +41,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @version 1.0.0
  */
 public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
-    public static final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create("GeneralLoop_HeartBeat_Interval", 30000L);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create(
+                "GeneralLoop_HeartBeat_Interval", 30000L, OptionValidator.positive()
+        );
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private static final SignalingPacket heartbeatPacket = new SignalingPacket(SignalingPacket.Signal.HeartBeat);
     private final ClientSecurityPolicy policy;
@@ -194,6 +201,6 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     }
 
     private static class Interior {
-        public static final long HeartBeat_Interval = GeneralLoop.HeartBeat_Interval.value();
+        public static final long HeartBeat_Interval = Options.HeartBeat_Interval.value();
     }
 }

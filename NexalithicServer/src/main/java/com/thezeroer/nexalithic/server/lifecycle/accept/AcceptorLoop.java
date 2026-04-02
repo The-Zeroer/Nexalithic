@@ -4,6 +4,8 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -31,12 +33,26 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @version 1.0.0
  */
 public class AcceptorLoop extends AbstractLoop {
-    public static final NexalithicOption<Integer> FiltrationContextPool_Capacity = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Capacity", 1024);
-    public static final NexalithicOption<Integer> FiltrationContextPool_Limit = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Limit", (int) (FiltrationContextPool_Capacity.defaultValue() * 1.5));
-    public static final NexalithicOption<Double> FiltrationContextPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_PrefillRatio", 0.5);
-    public static final NexalithicOption<Integer> PendingChannelPool_Capacity = NexalithicOption.create("AcceptorLoop_PendingChannelPool_Capacity", 4096);
-    public static final NexalithicOption<Integer> PendingChannelPool_Limit = NexalithicOption.create("AcceptorLoop_PendingChannelPool_Limit", (int) (PendingChannelPool_Capacity.defaultValue() * 1.5));
-    public static final NexalithicOption<Double> PendingChannelPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_PendingChannelPool_PrefillRatio", 0.5);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> FiltrationContextPool_Capacity = NexalithicOption.create(
+                "AcceptorLoop_FiltrationContextPool_Capacity", 1024, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> FiltrationContextPool_Limit = NexalithicOption.create(
+                "AcceptorLoop_FiltrationContextPool_Limit", (int) (FiltrationContextPool_Capacity.defaultValue() * 1.5), OptionValidator.positive()
+        );
+        public static final NexalithicOption<Double> FiltrationContextPool_PrefillRatio = NexalithicOption.create(
+                "AcceptorLoop_FiltrationContextPool_PrefillRatio", 0.5, OptionValidator.unitInterval()
+        );
+        public static final NexalithicOption<Integer> PendingChannelPool_Capacity = NexalithicOption.create(
+                "AcceptorLoop_PendingChannelPool_Capacity", 4096, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> PendingChannelPool_Limit = NexalithicOption.create(
+                "AcceptorLoop_PendingChannelPool_Limit", (int) (PendingChannelPool_Capacity.defaultValue() * 1.5), OptionValidator.positive()
+        );
+        public static final NexalithicOption<Double> PendingChannelPool_PrefillRatio = NexalithicOption.create(
+                "AcceptorLoop_PendingChannelPool_PrefillRatio", 0.5, OptionValidator.unitInterval()
+        );
+    }
     private static final Logger logger = LoggerFactory.getLogger(AcceptorLoop.class);
     private final Queue<Runnable> eventQueue = new ConcurrentLinkedQueue<>();
     private final WrapperPool<FiltrationContext> filtrationContextPool;
@@ -46,15 +62,15 @@ public class AcceptorLoop extends AbstractLoop {
     public AcceptorLoop(LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
         this.handshakeLoopBalancer = handshakeLoopBalancer;
         pendingChannelPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(new MpscArrayQueue<>(PendingChannelPool_Capacity.value()), PendingChannelPool_Capacity.value()),
-                PoolStrategy.blocking(PendingChannelPool_Limit.value()),
+                PoolStorage.of(new MpscArrayQueue<>(Interior.PendingChannelPool_Capacity), Interior.PendingChannelPool_Capacity),
+                PoolStrategy.blocking(Interior.PendingChannelPool_Limit),
                 PendingChannel::new
-        ).warmUp(PendingChannelPool_PrefillRatio.value());
+        ).warmUp(Interior.PendingChannelPool_PrefillRatio);
         filtrationContextPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(new MpscArrayQueue<>(FiltrationContextPool_Capacity.value()), FiltrationContextPool_Capacity.value()),
-                PoolStrategy.blocking(FiltrationContextPool_Limit.value()),
+                PoolStorage.of(new MpscArrayQueue<>(Interior.FiltrationContextPool_Capacity), Interior.FiltrationContextPool_Capacity),
+                PoolStrategy.blocking(Interior.FiltrationContextPool_Limit),
                 () -> new FiltrationContext(handshakeLoopBalancer, pendingChannelPool)
-        ).warmUp(FiltrationContextPool_PrefillRatio.value());
+        ).warmUp(Interior.FiltrationContextPool_PrefillRatio);
     }
 
     public void dispatch(AbstractPacket.PacketType packetType, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
@@ -109,5 +125,14 @@ public class AcceptorLoop extends AbstractLoop {
                 key.channel().close();
             } catch (IOException ignored) {}
         }
+    }
+
+    private static class Interior {
+        public static final int FiltrationContextPool_Capacity = Options.FiltrationContextPool_Capacity.value();
+        public static final int FiltrationContextPool_Limit = Options.FiltrationContextPool_Limit.value();
+        public static final double FiltrationContextPool_PrefillRatio = Options.FiltrationContextPool_PrefillRatio.value();
+        public static final int PendingChannelPool_Capacity = Options.PendingChannelPool_Capacity.value();
+        public static final int PendingChannelPool_Limit = Options.PendingChannelPool_Limit.value();
+        public static final double PendingChannelPool_PrefillRatio = Options.PendingChannelPool_PrefillRatio.value();
     }
 }

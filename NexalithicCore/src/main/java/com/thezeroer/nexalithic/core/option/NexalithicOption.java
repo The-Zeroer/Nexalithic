@@ -1,5 +1,7 @@
 package com.thezeroer.nexalithic.core.option;
 
+import com.thezeroer.nexalithic.core.exception.NexalithicOptionException;
+
 /**
  * Nexalithic选项
  *
@@ -10,15 +12,22 @@ package com.thezeroer.nexalithic.core.option;
 public class NexalithicOption<T> {
     private final String name;
     private final T defaultValue;
+    private final OptionValidator<T> validator;
     private volatile T currentValue;
 
-    private NexalithicOption(String name, T defaultValue) {
+    private NexalithicOption(String name, T defaultValue, OptionValidator<T> validator) {
         this.name = name;
         this.defaultValue = defaultValue;
+        this.validator = validator;
+        if (validator != null) {
+            validator.validate(defaultValue);
+        }
     }
-
     public static <T> NexalithicOption<T> create(String name, T defaultValue) {
-        return new NexalithicOption<>(name, defaultValue);
+        return new NexalithicOption<>(name, defaultValue, null);
+    }
+    public static <T> NexalithicOption<T> create(String name, T defaultValue, OptionValidator<T> validator) {
+        return new NexalithicOption<>(name, defaultValue, validator);
     }
 
     public final String name() {
@@ -29,6 +38,13 @@ public class NexalithicOption<T> {
     }
 
     public final void set(T value) {
+        if (validator != null) {
+            try {
+                validator.validate(value);
+            } catch (IllegalArgumentException e) {
+                throw new NexalithicOptionException(name, e.getMessage());
+            }
+        }
         this.currentValue = value;
     }
     public final T get() {

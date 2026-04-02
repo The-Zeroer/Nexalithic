@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.io.buffer;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 
 import java.io.IOException;
@@ -21,7 +23,11 @@ import java.nio.channels.ScatteringByteChannel;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<LoopBuffer> {
-    public static final NexalithicOption<Integer> DefaultBuffer_Capacity = NexalithicOption.create("LoopBuffer_DefaultBuffer_Capacity", 1024 * 32);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> DefaultBuffer_Capacity = NexalithicOption.create(
+                "LoopBuffer_DefaultBuffer_Capacity", 1024 * 32, OptionValidator.powerOfTwo()
+        );
+    }
 
     /** 原始底层缓冲区 */
     private final ByteBuffer buffer;
@@ -755,6 +761,6 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
     }
 
     private static class Interior {
-        public static final int DefaultBuffer_Capacity = LoopBuffer.DefaultBuffer_Capacity.value();
+        public static final int DefaultBuffer_Capacity = Options.DefaultBuffer_Capacity.value();
     }
 }

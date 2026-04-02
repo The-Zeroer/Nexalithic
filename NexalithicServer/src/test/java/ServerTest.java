@@ -26,8 +26,8 @@ public class ServerTest {
     public static final Logger logger = LoggerFactory.getLogger(ServerTest.class);
     public static void main(String[] args) throws Exception {
         NexalithicServer nexalithicServer = NexalithicServer.builder()
-                .apply(ServiceUnit.Count, 4)
-                .apply(ServiceUnit.WorkerLoop_Count, 8)
+                .apply(ServiceUnit.Options.Count, 4)
+                .apply(ServiceUnit.Options.WorkerLoop_Count, 8)
 //                .apply(StewardLoop.HeartBeat_MaxInterval, 3000L)
 //                .apply(StewardLoop.TimeWheel_Tick, 100L)
                 .securityPolicy(new DefaultServerSecurityPolicy() {

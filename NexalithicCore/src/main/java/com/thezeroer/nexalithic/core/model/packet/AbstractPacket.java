@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.core.model.packet;
 
 import com.thezeroer.nexalithic.core.model.AbstractModel;
-import com.thezeroer.nexalithic.core.util.SteppedSequenceGenerator;
 
 import java.nio.charset.StandardCharsets;
 

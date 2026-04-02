@@ -36,6 +36,6 @@ public class AssemblerFactory {
     }
 
     private static class Interior {
-        public static final int WrapperPool_Capacity = BusinessPacketsAssembler.WrapperPool_Capacity.value();
+        public static final int WrapperPool_Capacity = BusinessPacketsAssembler.Options.WrapperPool_Capacity.value();
     }
 }

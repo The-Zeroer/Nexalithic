@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.messaging.task;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -19,18 +21,26 @@ import java.util.concurrent.ConcurrentHashMap;
  * @version 1.0.0
  */
 public class TaskTracer implements TimerExecutor<NexalithicTask> {
-    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("TaskRegistry_TimeWheel_Tick", 1000L);
-    public static final NexalithicOption<Integer> TimeWheel_Slot = NexalithicOption.create("TaskRegistry_TimeWheel_Slot", 30);
-    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("TaskRegistry_TimeWheel_WrapperPool_Capacity", 128);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
+                "TaskRegistry_TimeWheel_Tick", 1000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> TimeWheel_Slot = NexalithicOption.create(
+                "TaskRegistry_TimeWheel_Slot", 30, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
+                "TaskRegistry_TimeWheel_WrapperPool_Capacity", 128, OptionValidator.positive()
+        );
+    }
     private final Map<Long, NexalithicTask> taskMap = new ConcurrentHashMap<>();
     private final DedicatedTimeWheel<NexalithicTask> timeWheel;
 
     public TaskTracer() {
         timeWheel = new DedicatedTimeWheel<>(
-                TimeWheel_Tick.value(),
-                TimeWheel_Slot.value(),
+                Interior.TimeWheel_Tick,
+                Interior.TimeWheel_Slot,
                 new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStorage.of(new SpmcArrayQueue<>(Interior.TimeWheel_WrapperPool_Capacity), Interior.TimeWheel_WrapperPool_Capacity),
                         PoolStrategy.alwaysCreate(),
                         DedicatedTimeWheel.DedicatedScheduleWrapper<NexalithicTask>::new
                 ),
@@ -69,5 +79,11 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
         if (task != null) {
             task.timeout();
         }
+    }
+
+    private static class Interior {
+        public static final long TimeWheel_Tick = Options.TimeWheel_Tick.value();
+        public static final int TimeWheel_Slot = Options.TimeWheel_Slot.value();
+        public static final int TimeWheel_WrapperPool_Capacity = Options.TimeWheel_WrapperPool_Capacity.value();
     }
 }

@@ -186,6 +186,6 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     private static class Interior {
-        public static final long MaxWaitTime = HandshakeLoop.MaxWaitTime.value();
+        public static final long MaxWaitTime = HandshakeLoop.Options.MaxWaitTime.value();
     }
 }

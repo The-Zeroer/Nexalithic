@@ -7,6 +7,8 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.*;
 import org.jctools.queues.MpmcArrayQueue;
 
@@ -24,9 +26,17 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
         ClientHandlerContext,
         ClientHandlerContext.Recyclable
     > {
-    public static final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create("ClientBusinessPacketDispatcher_HandlerContextPool_Capacity", 8);
-    public static final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create("ClientBusinessPacketDispatcher_HandlerContextPool_PrefillRatio", 0.25);
-    public static final NexalithicOption<Integer> PacketWrapperPool_Capacity = NexalithicOption.create("ClientBusinessPacketDispatcher_BusinessPacketWrapperPool_Capacity", 128);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create(
+                "ClientBusinessPacketDispatcher_HandlerContextPool_Capacity", 8, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create(
+                "ClientBusinessPacketDispatcher_HandlerContextPool_PrefillRatio", 0.25, OptionValidator.unitInterval()
+        );
+        public static final NexalithicOption<Integer> PacketWrapperPool_Capacity = NexalithicOption.create(
+                "ClientBusinessPacketDispatcher_BusinessPacketWrapperPool_Capacity", 128, OptionValidator.positive()
+        );
+    }
 
     public ClientBusinessPacketDispatcher(TaskTracer taskTracer, HandlerRegistry<ClientHandlerContext> handlerRegistry, ExecutorService threadPool) {
         this(taskTracer, handlerRegistry, threadPool, new ClientBusinessPacketDispatcher[1]);
@@ -36,20 +46,20 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
                 taskTracer,
                 handlerRegistry,
                 new TargetStaticWrapperPool<>(
-                        PoolStorage.of(new MpmcArrayQueue<>(HandlerContextPool_Capacity.value()), HandlerContextPool_Capacity.value()),
+                        PoolStorage.of(new MpmcArrayQueue<>(Options.HandlerContextPool_Capacity.value()), Options.HandlerContextPool_Capacity.value()),
                         PoolStrategy.alwaysCreate(),
                         () -> new ClientHandlerContext(holder[0]),
                         ClientHandlerContext.Recyclable::new
                 ),
                 new TargetDynamicWrapperPool<>(
-                        PoolStorage.of(new MpmcArrayQueue<>(PacketWrapperPool_Capacity.value()), PacketWrapperPool_Capacity.value()),
+                        PoolStorage.of(new MpmcArrayQueue<>(Options.PacketWrapperPool_Capacity.value()), Options.PacketWrapperPool_Capacity.value()),
                         PoolStrategy.alwaysCreate(),
                         () -> new BusinessPacketFragmentWrapper(taskTracer)
                 ),
                 threadPool
         );
         holder[0] = this;
-        this.handlerContextPool.warmUp(HandlerContextPool_PrefillRatio.value());
+        this.handlerContextPool.warmUp(Options.HandlerContextPool_PrefillRatio.value());
     }
 
     @Override

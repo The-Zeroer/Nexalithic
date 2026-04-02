@@ -268,9 +268,9 @@ public class NexalithicServer {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
+            handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Options.Count.defaultValue(), HandshakeLoop.Options.Count.defaultValue() * 2,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
-            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Count.defaultValue(), HandshakeLoop.Count.defaultValue() * 2,
+            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Options.Count.defaultValue(), HandshakeLoop.Options.Count.defaultValue() * 2,
                     60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
         }
 
@@ -324,13 +324,13 @@ public class NexalithicServer {
             ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(taskTracer, handlerRegistry, businessPacketDispatcherThreadPool);
 
             PayloadRegistry payloadRegistry = payloadRegistryBuilder.build();
-            ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Count.value()];
+            ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Options.Count.value()];
             for (int i = 0; i < serviceUnits.length; i++) {
                 serviceUnits[i] = new ServiceUnit(manager, router, dispatcher, payloadRegistry).addIdToLoopName(String.valueOf(i));
             }
             LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
 
-            HandshakeLoop[] handshakeLoops = new HandshakeLoop[HandshakeLoop.Count.value()];
+            HandshakeLoop[] handshakeLoops = new HandshakeLoop[HandshakeLoop.Options.Count.value()];
             for (int i = 0; i < handshakeLoops.length; i++) {
                 handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(serviceUnitLoadBalancer, securityPolicy,
                         manager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));

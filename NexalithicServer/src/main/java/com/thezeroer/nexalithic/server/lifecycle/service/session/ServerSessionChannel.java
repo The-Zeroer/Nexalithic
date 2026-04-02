@@ -39,6 +39,6 @@ public class ServerSessionChannel<P extends AbstractPacket, W extends FragmentWr
     }
 
     private static class Interior {
-        public static final long MaxFreeTime = WorkerLoop.MaxFreeTime.value();
+        public static final long MaxFreeTime = WorkerLoop.Options.MaxFreeTime.value();
     }
 }

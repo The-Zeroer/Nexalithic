@@ -189,6 +189,6 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     }
 
     private static class Interior {
-        public static final long MaxWaitTime = BusinessPacketsAssembler.MaxWaitTime.value();
+        public static final long MaxWaitTime = BusinessPacketsAssembler.Options.MaxWaitTime.value();
     }
 }

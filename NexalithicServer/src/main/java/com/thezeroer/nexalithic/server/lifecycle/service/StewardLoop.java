@@ -4,6 +4,8 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -31,16 +33,26 @@ import java.security.InvalidKeyException;
  * @version 1.0.0
  */
 public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> implements TimerExecutor<ServerSession> {
-    public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("StewardLoop_DispatchQueue_Capacity", 1024);
-    public static final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create("StewardLoop_HeartBeat_MaxInterval", 60000L);
-    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("StewardLoop_TimeWheel_Tick", 1000L);
-    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("StewardLoop_TimeWheel_WrapperPool_Capacity", 1024);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
+                "StewardLoop_DispatchQueue_Capacity", 1024, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create(
+                "StewardLoop_HeartBeat_MaxInterval", 60000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
+                "StewardLoop_TimeWheel_Tick", 1000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
+                "StewardLoop_TimeWheel_WrapperPool_Capacity", 1024, OptionValidator.positive()
+        );
+    }
     private final SessionsManager sessionsManager;
     private final ServiceUnit serviceUnit;
     private final ServerSession.ServerChannelFactory factory;
 
     public StewardLoop(SessionsManager manager, ServiceUnit unit, PayloadRegistry registry) throws IOException {
-        super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+        super(new MpscArrayQueue<>(Interior.DispatchQueue_Capacity));
         this.sessionsManager = manager;
         this.serviceUnit = unit;
         this.factory = new ServerSession.ServerChannelFactory(this, registry);
@@ -126,11 +138,13 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
     }
 
     private static class Interior {
+        public static final int DispatchQueue_Capacity = Options.DispatchQueue_Capacity.value();
+
         public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                TimeWheel_Tick.value(),
-                (int) (HeartBeat_MaxInterval.value() / TimeWheel_Tick.value()) + 1,
+                Options.TimeWheel_Tick.value(),
+                (int) (Options.HeartBeat_MaxInterval.value() / Options.TimeWheel_Tick.value()) + 1,
                 new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
                         PoolStrategy.alwaysCreate(),
                         GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
                 ),

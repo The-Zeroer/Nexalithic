@@ -2,6 +2,8 @@ package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,8 +19,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @version 1.0.0
  */
 public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPacketFragmentWrapper> {
-    public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperQueue_Capacity", 64);
-    public static final NexalithicOption<Integer> WrapperLinked_Capacity = NexalithicOption.create("BusinessPacketFragmenter_WrapperQueue_Capacity", 64);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
+                "BusinessPacketFragmenter_WrapperQueue_Capacity", 64, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> WrapperLinked_Capacity = NexalithicOption.create(
+                "BusinessPacketFragmenter_WrapperQueue_Capacity", 64, OptionValidator.positive()
+        );
+    }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsFragmenter.class);
     private final MpscArrayQueue<BusinessPacketFragmentWrapper> packets = new MpscArrayQueue<>(Interior.WrapperQueue_Capacity);
     private final AtomicInteger currentLinkedCount = new AtomicInteger(0);
@@ -122,7 +130,7 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
     }
 
     private static class Interior {
-        public static final int WrapperQueue_Capacity = BusinessPacketsFragmenter.WrapperQueue_Capacity.value();
-        public static final int WrapperLinked_Capacity = BusinessPacketsFragmenter.WrapperLinked_Capacity.value();
+        public static final int WrapperQueue_Capacity = Options.WrapperQueue_Capacity.value();
+        public static final int WrapperLinked_Capacity = Options.WrapperLinked_Capacity.value();
     }
 }

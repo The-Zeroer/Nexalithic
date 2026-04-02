@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.timer;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import org.jctools.queues.MpscUnboundedArrayQueue;
@@ -18,12 +20,16 @@ import java.util.concurrent.locks.LockSupport;
  * @version 1.0.0
  */
 public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
-    /**
-     * 任务处理配额位移量。
-     * 结果为 1/(2^shift)。
-     * 例如：2 代表 25% 的 tick 时间，3 代表 12.5%。
-     */
-    public static final NexalithicOption<Integer> TickQuotaShift = NexalithicOption.create("TimeWheel_TickQuotaShift", 2);
+    public static final class Options implements OptionsDefinition {
+        /**
+         * 任务处理配额位移量。
+         * 结果为 1/(2^shift)。
+         * 例如：2 代表 25% 的 tick 时间，3 代表 12.5%。
+         */
+        public static final NexalithicOption<Integer> TickQuotaShift = NexalithicOption.create(
+                "TimeWheel_TickQuotaShift", 2, OptionValidator.min(1)
+        );
+    }
     private static final Logger logger = LoggerFactory.getLogger(TimeWheel.class);
     protected final long tick;
     protected final int tickShift;
@@ -251,6 +257,6 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
     }
 
     private static class Interior {
-        public static final int TickQuotaShift = TimeWheel.TickQuotaShift.value();
+        public static final int TickQuotaShift = Options.TickQuotaShift.value();
     }
 }

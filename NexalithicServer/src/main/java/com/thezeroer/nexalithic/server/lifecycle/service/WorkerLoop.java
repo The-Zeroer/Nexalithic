@@ -3,6 +3,8 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -30,14 +32,24 @@ import java.security.InvalidKeyException;
  * @version 1.0.0
  */
 public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragmentWrapper> implements TimerExecutor<ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>> {
-    public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("WorkerLoop_DispatchQueue_Capacity", 1024);
-    public static final NexalithicOption<Long> MaxFreeTime = NexalithicOption.create("WorkerLoop_MaxFreeTime", 600000L);
-    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("WorkerLoop_TimeWheel_Tick", 1000L);
-    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("WorkerLoop_TimeWheel_WrapperPool_Capacity", 1024);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
+                "WorkerLoop_DispatchQueue_Capacity", 1024, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> MaxFreeTime = NexalithicOption.create(
+                "WorkerLoop_MaxFreeTime", 600000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
+                "WorkerLoop_TimeWheel_Tick", 1000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
+                "WorkerLoop_TimeWheel_WrapperPool_Capacity", 1024, OptionValidator.positive()
+        );
+    }
     private final ServerBusinessPacketDispatcher dispatcher;
 
     public WorkerLoop(ServerBusinessPacketDispatcher dispatcher) throws IOException {
-        super(new MpscArrayQueue<>(DispatchQueue_Capacity.value()));
+        super(new MpscArrayQueue<>(Interior.DispatchQueue_Capacity));
         this.dispatcher = dispatcher;
     }
 
@@ -110,11 +122,13 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     }
 
     private static class Interior {
+        public static final int DispatchQueue_Capacity = Options.DispatchQueue_Capacity.value();
+
         public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                TimeWheel_Tick.value(),
-                (int) (MaxFreeTime.value() / TimeWheel_Tick.value()) + 1,
+                Options.TimeWheel_Tick.value(),
+                (int) (Options.MaxFreeTime.value() / Options.TimeWheel_Tick.value()) + 1,
                 new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
                         PoolStrategy.alwaysCreate(),
                         GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
                 ),

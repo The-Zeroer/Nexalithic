@@ -15,11 +15,11 @@ public class ClientTest {
     public static final Logger logger = LoggerFactory.getLogger(ClientTest.class);
 
     public static void main(String[] args) throws Exception {
-        LoopThread.GlobalLoopBufferPool_Capacity.set(2);
-        LoopThread.LocalLoopBufferPool_Capacity.set(2);
         for (int i = 0; i < 1; i++) {
             System.out.println(i);
             NexalithicClient nexalithicClient = NexalithicClient.builder()
+                    .apply(LoopThread.Options.GlobalLoopBufferPool_Capacity, 2)
+                    .apply(LoopThread.Options.LocalLoopBufferPool_Capacity, 2)
                     .securityPolicy(new DefaultClientSecurityPolicy() {
                         @Override
                         public int getServerCertificatesLength() {

@@ -4,6 +4,8 @@ import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -40,11 +42,23 @@ import java.util.concurrent.ExecutorService;
  * @version 1.0.0
  */
 public class HandshakeLoop extends AbstractLoop implements TimerExecutor<PendingChannel> {
-    public static final NexalithicOption<Integer> Count = NexalithicOption.create("HandshakeLoop_Count", 4);
-    public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create("HandshakeLoop_DispatchQueue_Capacity", 1024);
-    public static final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create("HandshakeLoop_MaxWaitTime", 3000L);
-    public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create("HandshakeLoop_TimeWheel_Tick", 1000L);
-    public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create("HandshakeLoop_TimeWheel_WrapperPool_Capacity", 256);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> Count = NexalithicOption.create(
+                "HandshakeLoop_Count", 4, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
+                "HandshakeLoop_DispatchQueue_Capacity", 1024, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
+                "HandshakeLoop_MaxWaitTime", 3000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
+                "HandshakeLoop_TimeWheel_Tick", 1000L, OptionValidator.positive()
+        );
+        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
+                "HandshakeLoop_TimeWheel_WrapperPool_Capacity", 256, OptionValidator.positive()
+        );
+    }
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
     private static final int MAX_DRAIN_LIMIT = 64;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
@@ -61,7 +75,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         this.securityPolicy = securityPolicy;
         this.sessionsManager = sessionsManager;
         this.threadPool = threadPool;
-        dispatchQueue = new MpscArrayQueue<>(DispatchQueue_Capacity.value());
+        dispatchQueue = new MpscArrayQueue<>(Interior.DispatchQueue_Capacity);
         certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());
         updateCertificateBuffer();
     }
@@ -241,11 +255,13 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     }
 
     private static class Interior {
+        public static final int DispatchQueue_Capacity = Options.DispatchQueue_Capacity.value();
+
         public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                TimeWheel_Tick.value(),
-                (int) (MaxWaitTime.value() / TimeWheel_Tick.value()) + 1,
+                Options.TimeWheel_Tick.value(),
+                (int) (Options.MaxWaitTime.value() / Options.TimeWheel_Tick.value()) + 1,
                 new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(TimeWheel_WrapperPool_Capacity.value()), TimeWheel_WrapperPool_Capacity.value()),
+                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
                         PoolStrategy.alwaysCreate(),
                         GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
                 ),

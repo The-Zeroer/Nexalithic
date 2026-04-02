@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.jctools.queues.MpscArrayQueue;
@@ -18,11 +20,15 @@ import java.util.Iterator;
  * @version 1.0.0
  */
 public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractLoop {
-    public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create("ChannelLoop_InterestQueue_Capacity", 1024);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create(
+                "ChannelLoop_InterestQueue_Capacity", 1024, OptionValidator.positive()
+        );
+    }
     protected final MpscArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
 
     public ChannelLoop() throws IOException {
-        interestQueue = new MpscArrayQueue<>(InterestQueue_Capacity.value());
+        interestQueue = new MpscArrayQueue<>(Interior.InterestQueue_Capacity);
     }
 
     public final void updateChannelInterest(SessionChannel<?, ?, ?> channel) {
@@ -61,4 +67,8 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
 
     @Override
     protected final void onReadyEvent(SelectionKey selectionKey) {}
+
+    private static class Interior {
+        public static final int InterestQueue_Capacity = Options.InterestQueue_Capacity.value();
+    }
 }

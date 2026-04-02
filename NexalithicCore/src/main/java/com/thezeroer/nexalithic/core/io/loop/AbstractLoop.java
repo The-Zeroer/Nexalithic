@@ -3,6 +3,8 @@ package com.thezeroer.nexalithic.core.io.loop;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.slf4j.Logger;
@@ -23,7 +25,11 @@ import java.util.concurrent.atomic.LongAdder;
  * @version 1.0.0
  */
 public abstract class AbstractLoop implements LoadBalanceable, Runnable {
-    public static final NexalithicOption<Integer> Max_Shutdown_Wait = NexalithicOption.create("AbstractLoop_Max_Shutdown_Wait", 30000);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Long> Max_Shutdown_Wait = NexalithicOption.create(
+                "AbstractLoop_Max_Shutdown_Wait", 30000L, OptionValidator.positive()
+        );
+    }
     protected enum State {
         NEW,
         STARTING,
@@ -172,7 +178,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                             logger.error("[{}] Error closing loop", name, e);
                         }
                         logger.debug("[{}] shutdown", name);
-                    } else if (System.currentTimeMillis() - start > Max_Shutdown_Wait.value()) {
+                    } else if (System.currentTimeMillis() - start > Interior.Max_Shutdown_Wait) {
                         logger.warn("[{}] max shutdown time exceeded, forcing stop.", name);
                         state.set(State.STOPPING);
                     }
@@ -241,5 +247,9 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             logger.error("[{}] Failed to rebuild selector", name, e);
             throw e;
         }
+    }
+
+    private static class Interior {
+        public static final long Max_Shutdown_Wait = Options.Max_Shutdown_Wait.value();
     }
 }

@@ -1,11 +1,11 @@
 package com.thezeroer.nexalithic.core.option;
 
 /**
- * 核心选项集
+ * 选项集定义
  *
  * @author tbrtz647@outlook.com
- * @since 2026/03/10
+ * @since 2026/04/02
  * @version 1.0.0
  */
-public class CoreOptionSet {
+public interface OptionsDefinition {
 }

@@ -3,6 +3,8 @@ package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.option.OptionValidator;
+import com.thezeroer.nexalithic.core.option.OptionsDefinition;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +17,11 @@ import org.slf4j.LoggerFactory;
  * @version 1.0.0
  */
 public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPacket> {
-    public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create("SignalingPacketsFragmenter_WrapperQueue_Capacity", 256);
+    public static final class Options implements OptionsDefinition {
+        public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
+                "SignalingPacketsFragmenter_WrapperQueue_Capacity", 256, OptionValidator.positive()
+        );
+    }
     private static final Logger logger = LoggerFactory.getLogger(SignalingPacketsFragmenter.class);
     private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(Interior.WrapperQueue_Capacity);
     private SignalingPacket currentPacket;
@@ -76,6 +82,6 @@ public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPa
     }
 
     private static class Interior {
-        public static final int WrapperQueue_Capacity = SignalingPacketsFragmenter.WrapperQueue_Capacity.value();
+        public static final int WrapperQueue_Capacity = Options.WrapperQueue_Capacity.value();
     }
 }
