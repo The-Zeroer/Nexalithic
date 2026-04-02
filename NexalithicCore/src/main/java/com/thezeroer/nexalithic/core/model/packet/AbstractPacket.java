@@ -19,17 +19,6 @@ public abstract class AbstractPacket extends AbstractModel {
         /** 业务包 */ BUSINESS,
     }
 
-    private static final SteppedSequenceGenerator sequenceGenerator = new SteppedSequenceGenerator();
-    protected long packetId;
-
-    protected AbstractPacket() {
-        packetId = sequenceGenerator.nextId();
-    }
-
-    public final long getPacketId() {
-        return packetId;
-    }
-
     /**
      * 获取包类型
      *

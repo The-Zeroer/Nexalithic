@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.model.packet;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 
 /**
  * 信令包

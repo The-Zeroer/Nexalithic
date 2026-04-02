@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;

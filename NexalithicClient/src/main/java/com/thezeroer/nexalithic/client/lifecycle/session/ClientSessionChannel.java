@@ -1,9 +1,9 @@
 package com.thezeroer.nexalithic.client.lifecycle.session;
 
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
-import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
-import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;

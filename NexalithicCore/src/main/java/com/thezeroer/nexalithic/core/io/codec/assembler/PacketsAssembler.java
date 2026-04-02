@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.io.codec;
+package com.thezeroer.nexalithic.core.io.codec.assembler;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;

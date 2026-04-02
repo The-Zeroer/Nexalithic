@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.messaging;
 
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;

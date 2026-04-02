@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.client.messaging;
 
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;

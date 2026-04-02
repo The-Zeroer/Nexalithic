@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.session;
 
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -51,14 +51,16 @@ public abstract class NexalithicSession <
         }
         return false;
     }
-    public final boolean pushSignalingPacketWrappers(SW... wrappers) {
-        if (!signalingChannel.fill(wrappers)) {
-            return false;
+    public final int pushSignalingPacketWrappers(SW... wrappers) {
+        int count = signalingChannel.fill(wrappers);
+        if (count != wrappers.length) {
+            if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                if (!updateChannelInterest(signalingChannel)) {
+                    return -1;
+                }
+            }
         }
-        if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-            return updateChannelInterest(signalingChannel);
-        }
-        return true;
+        return count;
     }
     public final boolean pushBusinessPacketWrapper(BW wrapper) {
         if (!businessChannel.put(wrapper)) {
@@ -76,21 +78,25 @@ public abstract class NexalithicSession <
         }
         return true;
     }
-    public final boolean pushBusinessPacketWrappers(BW... wrappers) {
-        if (!businessChannel.fill(wrappers)) {
-            return false;
-        }
+    public final int pushBusinessPacketWrappers(BW... wrappers) {
+        int count = businessChannel.fill(wrappers);
         switch (businessChannel.getState()) {
             case Unconnected -> {
-                return onPushBusinessPacket();
+                if (!onPushBusinessPacket()) {
+                    return -1;
+                }
             }
             case Connected -> {
-                if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
-                    return updateChannelInterest(businessChannel);
+                if (count != wrappers.length) {
+                    if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                        if (!updateChannelInterest(businessChannel)) {
+                            return -1;
+                        }
+                    }
                 }
             }
         }
-        return true;
+        return count;
     }
 
     public final SC getSignalingChannel() {

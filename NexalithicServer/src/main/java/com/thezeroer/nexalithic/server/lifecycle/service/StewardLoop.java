@@ -100,7 +100,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
             }
             case SignalingPacket.Signal.RequestBusinessPort -> {
                 ServerSession session = channel.session();
-                if (!session.pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress()))) {
+                if (session.pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())) != 0) {
                     logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
                     closeChannel(channel);
                 }

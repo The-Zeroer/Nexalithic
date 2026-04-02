@@ -2,7 +2,7 @@ package com.thezeroer.nexalithic.server.lifecycle.service.session;
 
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -13,8 +13,6 @@ import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.timer.Expirable;
-import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
-import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
 
@@ -42,7 +40,7 @@ public class ServerSession extends NexalithicSession<
     @Override
     protected boolean onPushBusinessPacket() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress()));
+            return pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress())) == 0;
         }
         return true;
     }

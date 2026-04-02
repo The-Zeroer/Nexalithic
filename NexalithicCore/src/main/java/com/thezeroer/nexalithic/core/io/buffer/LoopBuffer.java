@@ -38,7 +38,7 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
     private long markedTail = -1, markedHead = -1; // -1 表示当前没有标记
 
     public static LoopBuffer create() {
-        return new LoopBuffer(ByteBuffer.allocateDirect(DefaultBuffer_Capacity.value()));
+        return new LoopBuffer(ByteBuffer.allocateDirect(Interior.DefaultBuffer_Capacity));
     }
 
     /**
@@ -752,5 +752,9 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         private void throwQuote(int required) {
             throw new LimitedViewQuotaException(quota, required);
         }
+    }
+
+    private static class Interior {
+        public static final int DefaultBuffer_Capacity = LoopBuffer.DefaultBuffer_Capacity.value();
     }
 }

@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
@@ -168,12 +167,12 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     public long getExpiryTime() {
-        return lastActiveTime + Interior.MAX_WAIT_TIME;
+        return lastActiveTime + Interior.MaxWaitTime;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() - lastActiveTime > Interior.MAX_WAIT_TIME;
+        return System.currentTimeMillis() > lastActiveTime + Interior.MaxWaitTime;
     }
 
     @Override
@@ -187,6 +186,6 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     private static class Interior {
-        public static final long MAX_WAIT_TIME = HandshakeLoop.MaxWaitTime.value();
+        public static final long MaxWaitTime = HandshakeLoop.MaxWaitTime.value();
     }
 }

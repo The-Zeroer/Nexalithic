@@ -3,9 +3,9 @@ package com.thezeroer.nexalithic.core.model.packet;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 业务包
@@ -40,6 +40,8 @@ public class BusinessPacket extends AbstractPacket {
     }
 
     private static final Way[] WAYS = Way.values();
+    private static final AtomicInteger counter = new AtomicInteger(0);
+    private final int packetId = counter.getAndIncrement();
     private volatile boolean sealed = false;
 
     private long taskId;
@@ -51,7 +53,6 @@ public class BusinessPacket extends AbstractPacket {
     private long[] payloadsMeta;
     private List<AbstractPayload<?>> payloads;
 
-    private BusinessPacket() {}
     private BusinessPacket(Way way, short... path) {
         this.way = (short) way.ordinal();
         if (path != null && path.length > 0) {
@@ -183,6 +184,12 @@ public class BusinessPacket extends AbstractPacket {
     public final int getHeaderSize() {
         return BASE_HEADER_SIZE + pathDepth * Short.BYTES + payloadCount * Long.BYTES * 2;
     }
+    public final int getPacketId() {
+        return packetId;
+    }
+    public final long getTaskId() {
+        return taskId;
+    }
     public final long getPacketSize() {
         return packetSize;
     }
@@ -208,9 +215,6 @@ public class BusinessPacket extends AbstractPacket {
     public final BusinessPacket setTaskId(long taskId) {
         this.taskId = taskId;
         return this;
-    }
-    public final long getTaskId() {
-        return taskId;
     }
 
     @Override

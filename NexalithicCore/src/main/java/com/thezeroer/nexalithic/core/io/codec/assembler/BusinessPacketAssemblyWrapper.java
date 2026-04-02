@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.io.codec.wrapper;
+package com.thezeroer.nexalithic.core.io.codec.assembler;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
@@ -22,8 +22,8 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private final PacketBuilder packetBuilder = new PacketBuilder();
     private final PayloadRegistry payloadRegistry;
     private BusinessPacket packet;
-    private long packetId;
     private long remaining;
+    private int packetId;
     private int payloadIndex;
     private boolean headerRead;
     private long lastActiveTime;
@@ -36,10 +36,14 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         return remaining > 0;
     }
 
-    public int onFrame(LoopBuffer input, int quota) throws IOException {
+    public int onFrame(LoopBuffer input, int quota, boolean isStartFrame) throws IOException {
         lastActiveTime = System.currentTimeMillis();
         int total = 0;
         if (!headerRead) {
+            if (!isStartFrame) {
+                input.advanceHead(quota);
+                return quota;
+            }
             total += readPacketHeader(input);
             headerRead = true;
         }
@@ -47,15 +51,17 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         int read;
         while (total < quota && payloadIndex < packetBuilder.payloadCount) {
             AbstractPayload<?> payload = payloads.get(payloadIndex);
+            long totalSize = packetBuilder.payloadsMeta[payloadIndex * 2 + 1];
+            long processedSize = payload.getProcessedSize();
             LoopBuffer.LimitedReadableView readableView = input.unsafeLimitedReadableView(
-                    Math.min((int) (packetBuilder.payloadsMeta[payloadIndex * 2 + 1] - payload.getProcessedSize()), quota - total)
+                    Math.min((int) (totalSize - processedSize), quota - total)
             );
             try {
-                if (payload.getProcessedSize() == 0) {
-                    payload.prepareDecode(packetBuilder.payloadsMeta[payloadIndex * 2 + 1]);
+                if (processedSize == 0) {
+                    payload.prepareDecode(totalSize);
                 }
                 read = payload.decode(readableView);
-                if (payload.getProcessedSize() >= payload.getTotalSize()) {
+                if (payload.getProcessedSize() >= totalSize) {
                     payload.finishDecode();
                     payload.release();
                     payloadIndex++;
@@ -108,15 +114,12 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         return read;
     }
 
-    public BusinessPacketAssemblyWrapper setPacketId(long packetId) {
+    public BusinessPacketAssemblyWrapper setPacketId(int packetId) {
         this.packetId = packetId;
         return this;
     }
-    public long getPacketId() {
+    public int getPacketId() {
         return packetId;
-    }
-    public long getLastActiveTime() {
-        return lastActiveTime;
     }
 
     public BusinessPacket getPacket() {
@@ -128,24 +131,24 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         packetBuilder.clear();
         packet = null;
         packetId = 0;
-        lastActiveTime = 0;
         headerRead = false;
         payloadIndex = 0;
+        lastActiveTime = -1;
     }
 
     @Override
     public long getExpiryTime() {
-        return 0;
+        return lastActiveTime + Interior.MaxWaitTime;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return true;
+        return System.currentTimeMillis() > lastActiveTime + Interior.MaxWaitTime;
     }
 
     @Override
     public boolean isCancelled() {
-        return false;
+        return lastActiveTime == -1;
     }
 
     private static class PacketBuilder {
@@ -185,7 +188,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         }
     }
 
-    private static class Config {
-        public static final long ExpiryTime = 0;
+    private static class Interior {
+        public static final long MaxWaitTime = BusinessPacketsAssembler.MaxWaitTime.value();
     }
 }

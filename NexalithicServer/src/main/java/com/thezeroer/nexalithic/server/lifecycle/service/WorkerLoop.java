@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;

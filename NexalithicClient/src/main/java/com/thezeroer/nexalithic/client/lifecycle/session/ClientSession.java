@@ -3,7 +3,7 @@ package com.thezeroer.nexalithic.client.lifecycle.session;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;

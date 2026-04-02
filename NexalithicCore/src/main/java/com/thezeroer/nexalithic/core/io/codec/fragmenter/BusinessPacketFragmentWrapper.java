@@ -1,6 +1,7 @@
-package com.thezeroer.nexalithic.core.io.codec.wrapper;
+package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
@@ -17,15 +18,13 @@ import java.util.List;
  * @version 1.0.0
  */
 public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> implements FragmentWrapper<BusinessPacket> {
-    public static final int FRAME_HEADER_LENGTH = Short.BYTES + Long.BYTES;
-    public static final int MAX_PAYLOAD_SIZE = 1024 * 16;
     private final TaskTracer taskTracer;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
-    private boolean headerWritten;
     private long remaining;
-    private List<? extends AbstractPayload<?>> payloads;
+    private int packetId;
     private int payloadIndex;
+    private List<? extends AbstractPayload<?>> payloads;
 
     public BusinessPacketFragmentWrapper(TaskTracer taskTracer) {
         this.taskTracer = taskTracer;
@@ -33,8 +32,8 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
 
     @Override
     public void onWrap(BusinessPacket packet) {
-        headerWritten = false;
         remaining = packet.getPacketSize();
+        packetId = packet.getPacketId();
         payloads = packet.payloads();
         payloadIndex = 0;
     }
@@ -47,68 +46,51 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             return false;
         }
     }
-    public int nextFrame(LoopBuffer output) throws IOException {
-        int total = 0;
+    public int firstFrame(LoopBuffer output) throws IOException {
         int writable = output.writableBytes();
-        int quota = (int) Math.min(Math.min(writable, MAX_PAYLOAD_SIZE), remaining);
-        if (!headerWritten) {
-            int headerSize = target.getHeaderSize();
-            if (writable < FRAME_HEADER_LENGTH + headerSize) {
-                return total;
-            }
-            writeFrameHeader(output, quota);
-            writePacketHeader(output);
-            total += headerSize;
-            headerWritten = true;
+        int headerSize = target.getHeaderSize();
+        int offest = PacketFrame.FRAME_HEADER_LENGTH + headerSize;
+        if (writable < offest) {
+            return 0;
+        }
+        output.markTail();
+        output.advanceTail(PacketFrame.FRAME_HEADER_LENGTH);
+        writePacketHeader(output);
+        int total = headerSize + writePayloads(output, Math.min(writable - offest, PacketFrame.MAX_PAYLOAD_LENGTH));
+        if (total == 0) {
+            output.resetTail();
+            return 0;
         } else {
-            if (writable <= FRAME_HEADER_LENGTH) {
-                return total;
-            }
-            writeFrameHeader(output, quota);
-        }
-        int written, size = payloads.size();
-        while (payloadIndex < size) {
-            AbstractPayload<?> payload = payloads.get(payloadIndex);
-            LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView((int) (payload.getTotalSize() - payload.getProcessedSize()));
-            try {
-                if (payload.getProcessedSize() == 0) {
-                    payload.prepareEncode();
-                }
-                written = payload.encode(writableView);
-                total += written;
-                if (payload.getProcessedSize() >= payload.getTotalSize()) {
-                    payload.finishEncode();
-                    payload.release();
-                    payloadIndex++;
-                }
-            } catch (IOException e) {
-                payload.release();
-                throw e;
-            }
-            if (written == 0 || writableView.remaining() == 0) {
-                break;
-            }
-        }
-        if (total < quota) {
-            if (total == 0) {
-                output.setTail(output.getTail() - FRAME_HEADER_LENGTH);
-                return total;
-            } else {
-                long tail = output.getTail();
-                output.resetTail();
-                output.put((short) total);
-                output.setTail(tail);
-            }
+            long tail = output.getTail();
+            output.resetTail();
+            output.put(PacketFrame.pack(packetId, total, true));
+            output.setTail(tail);
         }
         remaining -= total;
-        return total + FRAME_HEADER_LENGTH;
+        return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
 
-    private void writeFrameHeader(LoopBuffer output, int payloadLength) {
+    public int nextFrame(LoopBuffer output) throws IOException {
+        int writable = output.writableBytes();
+        if (writable <= PacketFrame.FRAME_HEADER_LENGTH) {
+            return 0;
+        }
         output.markTail();
-        output.put((short) payloadLength);
-        output.put(target.getPacketId());
+        output.advanceTail(PacketFrame.FRAME_HEADER_LENGTH);
+        int total = writePayloads(output, Math.min(writable - PacketFrame.FRAME_HEADER_LENGTH, PacketFrame.MAX_PAYLOAD_LENGTH));
+        if (total == 0) {
+            output.resetTail();
+            return 0;
+        } else {
+            long tail = output.getTail();
+            output.resetTail();
+            output.put(PacketFrame.pack(packetId, total, false));
+            output.setTail(tail);
+        }
+        remaining -= total;
+        return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
+
     private void writePacketHeader(LoopBuffer output) {
         output.put(target.getTaskId());
         output.put(target.getPacketSize());
@@ -127,6 +109,34 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
                 output.put(value);
             }
         }
+    }
+    private int writePayloads(LoopBuffer output, int quota) throws IOException {
+        int total = 0, written, size = payloads.size();
+        while (payloadIndex < size) {
+            AbstractPayload<?> payload = payloads.get(payloadIndex);
+            long totalSize = payload.getTotalSize();
+            long processedSize = payload.getProcessedSize();
+            LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView(Math.min((int) (totalSize - processedSize), quota - total));
+            try {
+                if (processedSize == 0) {
+                    payload.prepareEncode();
+                }
+                written = payload.encode(writableView);
+                total += written;
+                if (payload.getProcessedSize() >= totalSize) {
+                    payload.finishEncode();
+                    payload.release();
+                    payloadIndex++;
+                }
+            } catch (IOException e) {
+                payload.release();
+                throw e;
+            }
+            if (written == 0 || writableView.remaining() == 0) {
+                break;
+            }
+        }
+        return total;
     }
 
     public boolean hasNext() {

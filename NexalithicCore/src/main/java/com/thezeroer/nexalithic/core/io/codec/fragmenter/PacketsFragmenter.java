@@ -1,7 +1,6 @@
-package com.thezeroer.nexalithic.core.io.codec;
+package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
 
 import java.io.IOException;
 
@@ -14,7 +13,7 @@ import java.io.IOException;
  */
 public interface PacketsFragmenter<W extends FragmentWrapper<?>> {
     boolean feed(W wrapper);
-    boolean fill(W... wrappers);
+    int fill(W... wrappers);
     int drain(LoopBuffer target) throws IOException;
     boolean isEmpty();
     void clear();

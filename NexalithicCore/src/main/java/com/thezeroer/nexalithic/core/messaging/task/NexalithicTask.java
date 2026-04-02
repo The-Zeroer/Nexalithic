@@ -85,27 +85,32 @@ public class NexalithicTask implements Expirable {
     private static final AtomicLong COUNTER = new AtomicLong(0);
     private final long taskId;
     private final AtomicReference<State> state = new  AtomicReference<>(State.NEW);
-    private TaskFunction.RequestAction requestAction;
-    private TaskFunction.ResponseAction responseAction;
-    private TaskFunction.FinishAction finishAction;
-    private TaskFunction.TimeoutAction timeoutAction;
-    private TaskFunction.CancelAction cancelAction;
-    private TaskFunction.ExceptionAction exceptionAction;
-    private Pattern pattern;
-    private Strategy strategy;
-    private long waitTime = 3000;
+    private final TaskFunction.RequestAction requestAction;
+    private final TaskFunction.ResponseAction responseAction;
+    private final TaskFunction.FinishAction finishAction;
+    private final TaskFunction.TimeoutAction timeoutAction;
+    private final TaskFunction.CancelAction cancelAction;
+    private final TaskFunction.ExceptionAction exceptionAction;
+    private final Pattern pattern;
+    private final Strategy strategy;
+    private final long waitTime;
 
     private final TaskFuture future;
 
-    private NexalithicTask() {
+    private NexalithicTask(TaskFunction.RequestAction requestAction, TaskFunction.ResponseAction responseAction,
+                           TaskFunction.FinishAction finishAction, TaskFunction.TimeoutAction timeoutAction,
+                           TaskFunction.CancelAction cancelAction, TaskFunction.ExceptionAction exceptionAction,
+                           Pattern pattern, Strategy strategy, long waitTime) {
         this.taskId = COUNTER.getAndIncrement();
-        pattern = Pattern.REQUEST_RESPONSE;
-        strategy = Strategy.ASYNC;
-        responseAction = packet -> {};
-        finishAction = () -> {};
-        timeoutAction = () -> {};
-        cancelAction = () -> {};
-        exceptionAction = exception -> logger.error("Exception in NexalithicTask", exception);
+        this.requestAction = requestAction;
+        this.responseAction = responseAction;
+        this.finishAction = finishAction;
+        this.timeoutAction = timeoutAction;
+        this.cancelAction = cancelAction;
+        this.exceptionAction = exceptionAction;
+        this.pattern = pattern;
+        this.strategy = strategy;
+        this.waitTime = waitTime;
         future = new TaskFuture(this);
     }
 
@@ -210,55 +215,69 @@ public class NexalithicTask implements Expirable {
     }
 
     public static class Builder {
-        private final NexalithicTask task;
+        private TaskFunction.RequestAction requestAction;
+        private TaskFunction.ResponseAction responseAction;
+        private TaskFunction.FinishAction finishAction;
+        private TaskFunction.TimeoutAction timeoutAction;
+        private TaskFunction.CancelAction cancelAction;
+        private TaskFunction.ExceptionAction exceptionAction;
+        private Pattern pattern;
+        private Strategy strategy;
+        private long waitTime = 3000;
 
         public Builder() {
-            task = new NexalithicTask();
+            pattern = Pattern.REQUEST_RESPONSE;
+            strategy = Strategy.ASYNC;
+            responseAction = packet -> {};
+            finishAction = () -> {};
+            timeoutAction = () -> {};
+            cancelAction = () -> {};
+            exceptionAction = exception -> logger.error("Exception in NexalithicTask", exception);
         }
 
         public Builder onRequest(TaskFunction.RequestAction requestAction) {
-            task.requestAction = requestAction;
+            this.requestAction = requestAction;
             return this;
         }
         public Builder onResponse(TaskFunction.ResponseAction responseAction) {
-            task.responseAction = responseAction;
+            this.responseAction = responseAction;
             return this;
         }
         public Builder onFinish(TaskFunction.FinishAction finishAction) {
-            task.finishAction = finishAction;
+            this.finishAction = finishAction;
             return this;
         }
         public Builder onTimeout(TaskFunction.TimeoutAction timeoutAction) {
-            task.timeoutAction = timeoutAction;
+            this.timeoutAction = timeoutAction;
             return this;
         }
         public Builder onCancel(TaskFunction.CancelAction cancelAction) {
-            task.cancelAction = cancelAction;
+            this.cancelAction = cancelAction;
             return this;
         }
         public Builder onException(TaskFunction.ExceptionAction exceptionAction) {
-            task.exceptionAction = exceptionAction;
+            this.exceptionAction = exceptionAction;
             return this;
         }
 
         public Builder setPattern(Pattern pattern) {
-            task.pattern = pattern;
+            this.pattern = pattern;
             return this;
         }
         public Builder setStrategy(Strategy strategy) {
-            task.strategy = strategy;
+            this.strategy = strategy;
             return this;
         }
         public Builder setWaitTime(int seconds) {
-            task.waitTime = seconds * 1000L;
+            this.waitTime = seconds * 1000L;
             return this;
         }
 
         public NexalithicTask build() {
-            if (task.requestAction == null) {
+            if (requestAction == null) {
                 throw new IllegalArgumentException("requestAction is required");
             }
-            return task;
+            return new NexalithicTask(requestAction, responseAction, finishAction, timeoutAction, cancelAction, exceptionAction, pattern, strategy, waitTime);
         }
     }
 }

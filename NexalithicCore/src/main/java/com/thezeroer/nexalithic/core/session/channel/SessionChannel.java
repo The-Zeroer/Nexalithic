@@ -1,11 +1,9 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
-import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
-import com.thezeroer.nexalithic.core.io.codec.PacketsAssembler;
-import com.thezeroer.nexalithic.core.io.codec.PacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.wrapper.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -134,7 +132,7 @@ public abstract class SessionChannel<
         return fragmenter.feed(wrapper);
     }
     @SafeVarargs
-    public final boolean fill(W... wrappers) {
+    public final int fill(W... wrappers) {
         return fragmenter.fill(wrappers);
     }
     public final P get() {
