@@ -8,7 +8,6 @@ import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.core.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
-import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
 
 /**
  * 服务器会话通道
@@ -18,27 +17,27 @@ import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
  * @version 1.0.0
  */
 public class ServerSessionChannel<P extends AbstractPacket, W extends FragmentWrapper<P>> extends SessionChannel<P, W, ServerSession> implements Expirable {
+    public record Constant(long MaxIdleTime) {}
+    private final Constant CONSTANT;
 
-    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop<P, W> loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext context) {
+    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop<P, W> loop, PacketsFragmenter<W> fragmenter,
+                                PacketsAssembler<P> assembler, SecretKeyContext context, Constant constant) {
         super(packetType, session, loop, fragmenter, assembler, context);
+        CONSTANT = constant;
     }
 
     @Override
     public long getExpiryTime() {
-        return lastActiveTime + Interior.MaxFreeTime;
+        return lastActiveTime + CONSTANT.MaxIdleTime;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() - lastActiveTime > Interior.MaxFreeTime;
+        return System.currentTimeMillis() - lastActiveTime > CONSTANT.MaxIdleTime;
     }
 
     @Override
     public boolean isCancelled() {
         return lastActiveTime == -1;
-    }
-
-    private static class Interior {
-        public static final long MaxFreeTime = WorkerLoop.Options.MaxFreeTime.value();
     }
 }

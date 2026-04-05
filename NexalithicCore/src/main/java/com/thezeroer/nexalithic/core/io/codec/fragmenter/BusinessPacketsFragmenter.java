@@ -1,9 +1,9 @@
 package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,22 +19,33 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @version 1.0.0
  */
 public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPacketFragmentWrapper> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
-                "BusinessPacketFragmenter_WrapperQueue_Capacity", 64, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, BusinessPacketsFragmenter.class);
+    public static final class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
+                64, OptionValidator.positive()
         );
-        public static final NexalithicOption<Integer> WrapperLinked_Capacity = NexalithicOption.create(
-                "BusinessPacketFragmenter_WrapperQueue_Capacity", 64, OptionValidator.positive()
+        public final NexalithicOption<Integer> WrapperLinked_Capacity = NexalithicOption.create(
+                64, OptionValidator.positive()
         );
+
+        public Options(Class<?> holder) {
+            super(holder);
+        }
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsFragmenter.class);
-    private final MpscArrayQueue<BusinessPacketFragmentWrapper> packets = new MpscArrayQueue<>(Interior.WrapperQueue_Capacity);
+    private final int WrapperLinked_Capacity_;
+    private final MpscArrayQueue<BusinessPacketFragmentWrapper> packets;
     private final AtomicInteger currentLinkedCount = new AtomicInteger(0);
     private BusinessPacketFragmentWrapper head, last;
 
+    public BusinessPacketsFragmenter(int WrapperQueue_Capacity_, int WrapperLinked_Capacity_) {
+        this.WrapperLinked_Capacity_ = WrapperLinked_Capacity_;
+        packets = new MpscArrayQueue<>(WrapperQueue_Capacity_);
+    }
+
     @Override
     public boolean feed(BusinessPacketFragmentWrapper wrapper) {
-        if (currentLinkedCount.get() >= Interior.WrapperLinked_Capacity) {
+        if (currentLinkedCount.get() >= WrapperLinked_Capacity_) {
             return false;
         }
         return packets.offer(wrapper);
@@ -127,10 +138,5 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
         currentLinkedCount.set(0);
         head = null;
         last = null;
-    }
-
-    private static class Interior {
-        public static final int WrapperQueue_Capacity = Options.WrapperQueue_Capacity.value();
-        public static final int WrapperLinked_Capacity = Options.WrapperLinked_Capacity.value();
     }
 }

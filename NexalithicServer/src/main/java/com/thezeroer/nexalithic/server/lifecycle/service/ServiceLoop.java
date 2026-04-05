@@ -1,5 +1,9 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -17,11 +21,28 @@ import java.io.IOException;
  * @version 1.0.0
  */
 public abstract class ServiceLoop<P extends AbstractPacket, W extends FragmentWrapper<P>> extends ChannelLoop<ServerSessionChannel<P, W>> {
-    protected static final int MAX_DRAIN_LIMIT = 64;
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServiceLoop.class);
+    public static class Options extends ChannelLoop.Options {
+        public final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
+        );
+        public final NexalithicOption<Integer> DispatchQueue_DrainLimit = NexalithicOption.create(
+                256, OptionValidator.positive()
+        );
+        protected Options(Class<?> holder) {
+            super(holder);
+        }
+    }
+    public record Constant(int DrainLimit) {}
+    protected final Constant CONSTANT;
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
 
-    public ServiceLoop(MpscArrayQueue<PendingChannel> dispatchQueue) throws IOException {
-        this.dispatchQueue = dispatchQueue;
+    public ServiceLoop(NexalithicBuilderContext context, Options options) throws IOException {
+        super(context, options);
+        CONSTANT = context.getConstant(this.getClass(), Constant.class, () -> new Constant(
+                context.getOption(options.DispatchQueue_DrainLimit)
+        ));
+        this.dispatchQueue = new MpscArrayQueue<>(context.getOption(options.DispatchQueue_Capacity));
     }
 
     public final void dispatch(PendingChannel pendingChannel) {

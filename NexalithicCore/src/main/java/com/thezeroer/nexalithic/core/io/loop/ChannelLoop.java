@@ -1,11 +1,12 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
-import org.jctools.queues.MpscArrayQueue;
+import org.jctools.queues.MpscUnboundedArrayQueue;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
@@ -20,21 +21,24 @@ import java.util.Iterator;
  * @version 1.0.0
  */
 public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractLoop {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> InterestQueue_Capacity = NexalithicOption.create(
-                "ChannelLoop_InterestQueue_Capacity", 1024, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ChannelLoop.class);
+    public static class Options extends AbstractLoop.Options {
+        public final NexalithicOption<Integer> InterestQueue_ChunkSize = NexalithicOption.create(
+                1024, OptionValidator.positive()
         );
+        protected Options(Class<?> holder) {
+            super(holder);
+        }
     }
-    protected final MpscArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
+    protected final MpscUnboundedArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
 
-    public ChannelLoop() throws IOException {
-        interestQueue = new MpscArrayQueue<>(Interior.InterestQueue_Capacity);
+    public ChannelLoop(NexalithicBuilderContext context, Options options) throws IOException {
+        super(context, options);
+        interestQueue = new MpscUnboundedArrayQueue<>(context.getOption(options.InterestQueue_ChunkSize));
     }
 
     public final void updateChannelInterest(SessionChannel<?, ?, ?> channel) {
-        while (!interestQueue.offer(channel)) {
-            Thread.onSpinWait();
-        }
+        interestQueue.offer(channel);
         wakeupIfNeeded();
     }
 
@@ -67,8 +71,4 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
 
     @Override
     protected final void onReadyEvent(SelectionKey selectionKey) {}
-
-    private static class Interior {
-        public static final int InterestQueue_Capacity = Options.InterestQueue_Capacity.value();
-    }
 }

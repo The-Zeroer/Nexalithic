@@ -2,9 +2,9 @@ package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,14 +17,23 @@ import org.slf4j.LoggerFactory;
  * @version 1.0.0
  */
 public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPacket> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
-                "SignalingPacketsFragmenter_WrapperQueue_Capacity", 256, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, SignalingPacketsFragmenter.class);
+    public static final class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> WrapperQueue_Capacity = NexalithicOption.create(
+                256, OptionValidator.positive()
         );
+
+        public Options(Class<?> holder) {
+            super(holder);
+        }
     }
     private static final Logger logger = LoggerFactory.getLogger(SignalingPacketsFragmenter.class);
-    private final MpscArrayQueue<SignalingPacket> packets = new MpscArrayQueue<>(Interior.WrapperQueue_Capacity);
+    private final MpscArrayQueue<SignalingPacket> packets;
     private SignalingPacket currentPacket;
+
+    public SignalingPacketsFragmenter(int WrapperQueue_Capacity_) {
+        packets = new MpscArrayQueue<>(WrapperQueue_Capacity_);
+    }
 
     @Override
     public boolean feed(SignalingPacket wrapper) {
@@ -79,9 +88,5 @@ public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPa
     public void clear() {
         packets.clear();
         currentPacket = null;
-    }
-
-    private static class Interior {
-        public static final int WrapperQueue_Capacity = Options.WrapperQueue_Capacity.value();
     }
 }

@@ -1,9 +1,9 @@
 package com.thezeroer.nexalithic.server.lifecycle.service.session;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -15,6 +15,7 @@ import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
+import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
 
 /**
  * 服务器会话
@@ -30,11 +31,14 @@ public class ServerSession extends NexalithicSession<
         SignalingPacket,
         BusinessPacketFragmentWrapper
     > implements Expirable {
+    public record Constant(long HeartBeat_MaxInterval) {}
+    private final Constant CONSTANT;
     private volatile ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
-    public ServerSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory) {
+    public ServerSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant) {
         super(sessionId, signalingSecretKey, businessSecretKey, factory);
+        CONSTANT = constant;
     }
 
     @Override
@@ -74,12 +78,12 @@ public class ServerSession extends NexalithicSession<
 
     @Override
     public long getExpiryTime() {
-        return lastActiveTime + Interior.HeartBeat_MaxInterval;
+        return lastActiveTime + CONSTANT.HeartBeat_MaxInterval;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() - lastActiveTime > Interior.HeartBeat_MaxInterval;
+        return System.currentTimeMillis() - lastActiveTime > CONSTANT.HeartBeat_MaxInterval;
     }
 
     @Override
@@ -98,11 +102,15 @@ public class ServerSession extends NexalithicSession<
         private final StewardLoop loop;
         private final FragmenterFactory fragmenterFactory;
         private final AssemblerFactory assemblerFactory;
+        private final ServerSessionChannel.Constant serverSessionChannelConstant;
 
-        public ServerChannelFactory(StewardLoop loop, PayloadRegistry registry) {
+        public ServerChannelFactory(NexalithicBuilderContext context, StewardLoop loop) {
+            this.fragmenterFactory = new FragmenterFactory(context);
+            this.assemblerFactory = new AssemblerFactory(context);
             this.loop = loop;
-            this.fragmenterFactory = new FragmenterFactory();
-            this.assemblerFactory = new AssemblerFactory(registry);
+            serverSessionChannelConstant = context.getConstant(ServerSessionChannel.class, ServerSessionChannel.Constant.class, () -> new ServerSessionChannel.Constant(
+                    context.getOption(WorkerLoop.OPTIONS.MaxIdleTime))
+            );
         }
 
         @Override
@@ -110,7 +118,7 @@ public class ServerSession extends NexalithicSession<
             return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, loop,
                     fragmenterFactory.create(AbstractPacket.PacketType.SIGNALING),
                     assemblerFactory.create(AbstractPacket.PacketType.SIGNALING),
-                    context);
+                    context, serverSessionChannelConstant);
         }
 
         @Override
@@ -118,11 +126,7 @@ public class ServerSession extends NexalithicSession<
             return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, null,
                     fragmenterFactory.create(AbstractPacket.PacketType.BUSINESS),
                     assemblerFactory.create(AbstractPacket.PacketType.BUSINESS),
-                    context);
+                    context, serverSessionChannelConstant);
         }
-    }
-
-    private static class Interior {
-        public static final long HeartBeat_MaxInterval = StewardLoop.Options.HeartBeat_MaxInterval.value();
     }
 }

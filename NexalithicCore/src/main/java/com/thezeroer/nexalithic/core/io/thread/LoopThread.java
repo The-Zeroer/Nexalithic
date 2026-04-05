@@ -1,13 +1,16 @@
 package com.thezeroer.nexalithic.core.io.thread;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.*;
 import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
+
+import java.nio.ByteBuffer;
 
 /**
  * Loop的执行线程
@@ -17,45 +20,54 @@ import org.jctools.queues.SpscArrayQueue;
  * @version 1.0.0
  */
 public class LoopThread extends Thread {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> GlobalLoopBufferPool_Capacity = NexalithicOption.create(
-                "LoopThread_GlobalLoopBufferPool_Capacity", 1024, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, LoopThread.class);
+    public static final class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> GlobalLoopBufferPool_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
         );
-        public static final NexalithicOption<Integer> GlobalLoopBufferPool_Limit = NexalithicOption.create(
-                "LoopThread_GlobalLoopBufferPool_Limit", (int) (GlobalLoopBufferPool_Capacity.defaultValue() * 1.5), OptionValidator.positive()
+        public final NexalithicOption<Integer> GlobalLoopBufferPool_Limit = NexalithicOption.create(
+                GlobalLoopBufferPool_Capacity.defaultValue() * 2, OptionValidator.positive()
         );
-        public static final NexalithicOption<Double> GlobalLoopBufferPool_PrefillRatio = NexalithicOption.create(
-                "LoopThread_GlobalLoopBufferPool_PrefillRatio", 0.1, OptionValidator.unitInterval()
+        public final NexalithicOption<Double> GlobalLoopBufferPool_PrefillRatio = NexalithicOption.create(
+                0.1, OptionValidator.unitInterval()
         );
-        public static final NexalithicOption<Integer> LocalLoopBufferPool_Capacity = NexalithicOption.create(
-                "LoopThread_localLoopBufferPool_Capacity", 1024, OptionValidator.positive()
+        public final NexalithicOption<Integer> LocalLoopBufferPool_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
         );
-        public static final NexalithicOption<Double> LocalLoopBufferPool_PrefillRatio = NexalithicOption.create(
-                "LoopThread_LocalLoopBufferPool_PrefillRatio", 0.5, OptionValidator.unitInterval()
+        public final NexalithicOption<Double> LocalLoopBufferPool_PrefillRatio = NexalithicOption.create(
+                0.5, OptionValidator.unitInterval()
         );
+        public final NexalithicOption<Integer> LoopBuffer_Capacity = NexalithicOption.create(
+                1024 * 32, OptionValidator.powerOfTwo()
+        );
+
+        public Options(Class<?> holder) {
+            super(holder);
+        }
     }
     private static volatile WrapperPool<LoopBuffer> globalLoopBufferPool;
     private final WrapperPool<LoopBuffer> localLoopBufferPool;
     private ProxyRecycler<?> proxyRecycler;
 
-    public LoopThread(AbstractLoop loop) {
+    public LoopThread(NexalithicBuilderContext context, AbstractLoop loop) {
         super(loop);
+        int bufferCapacity = context.getOption(OPTIONS.LoopBuffer_Capacity);
         if (globalLoopBufferPool == null) {
             synchronized (LoopThread.class) {
                 if (globalLoopBufferPool == null) {
                     globalLoopBufferPool = new SelfStaticWrapperPool<>(
-                            PoolStorage.of(new MpmcArrayQueue<>(Interior.GlobalLoopBufferPool_Capacity), Interior.GlobalLoopBufferPool_Capacity),
-                            PoolStrategy.failFast(Interior.GlobalLoopBufferPool_Limit),
-                            LoopBuffer::create
-                    ).warmUp(Interior.GlobalLoopBufferPool_PrefillRatio);
+                            PoolStorage.of(MpmcArrayQueue::new, context.getOption(OPTIONS.GlobalLoopBufferPool_Capacity)),
+                            PoolStrategy.failFast(context.getOption(OPTIONS.GlobalLoopBufferPool_Limit)),
+                            () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
+                    ).warmUp(context.getOption(OPTIONS.GlobalLoopBufferPool_PrefillRatio));
                 }
             }
         }
         localLoopBufferPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(new SpscArrayQueue<>(Interior.LocalLoopBufferPool_Capacity), Interior.LocalLoopBufferPool_Capacity),
+                PoolStorage.of(SpscArrayQueue::new, context.getOption(OPTIONS.LocalLoopBufferPool_Capacity)),
                 PoolStrategy.skip(),
-                LoopBuffer::create
-        ).warmUp(Interior.LocalLoopBufferPool_PrefillRatio);
+                () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
+        ).warmUp(context.getOption(OPTIONS.LocalLoopBufferPool_PrefillRatio));
     }
 
     public LoopBuffer aquireLoopBuffer() {
@@ -74,12 +86,5 @@ public class LoopThread extends Thread {
         R r = (R) proxyRecycler;
         proxyRecycler = null;
         return r;
-    }
-    private static class Interior {
-        public static final int GlobalLoopBufferPool_Capacity = Options.GlobalLoopBufferPool_Capacity.value();
-        public static final int GlobalLoopBufferPool_Limit = Options.GlobalLoopBufferPool_Limit.value();
-        public static final double GlobalLoopBufferPool_PrefillRatio = Options.GlobalLoopBufferPool_PrefillRatio.value();
-        public static final int LocalLoopBufferPool_Capacity = Options.LocalLoopBufferPool_Capacity.value();
-        public static final double LocalLoopBufferPool_PrefillRatio = Options.LocalLoopBufferPool_PrefillRatio.value();
     }
 }

@@ -1,18 +1,9 @@
 package com.thezeroer.nexalithic.client.messaging;
 
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
-import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.recyclable.*;
-import org.jctools.queues.MpmcArrayQueue;
-
-import java.util.concurrent.ExecutorService;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 
 /**
  * 客户端业务分发器
@@ -25,50 +16,31 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
         ClientSession,
         ClientHandlerContext,
         ClientHandlerContext.Recyclable
-    > {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create(
-                "ClientBusinessPacketDispatcher_HandlerContextPool_Capacity", 8, OptionValidator.positive()
-        );
-        public static final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create(
-                "ClientBusinessPacketDispatcher_HandlerContextPool_PrefillRatio", 0.25, OptionValidator.unitInterval()
-        );
-        public static final NexalithicOption<Integer> PacketWrapperPool_Capacity = NexalithicOption.create(
-                "ClientBusinessPacketDispatcher_BusinessPacketWrapperPool_Capacity", 128, OptionValidator.positive()
-        );
+        > {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ClientBusinessPacketDispatcher.class);
+    public static final class Options extends BusinessPacketDispatcher.Options {
+        public Options(Class<?> holder) {
+            super(holder);
+        }
+        protected Integer HandlerContextPool_Capacity_DefaultValue() {
+            return 4;
+        }
+        protected Integer PacketWrapperPool_Capacity_DefaultValue() {
+            return 64;
+        }
     }
 
-    public ClientBusinessPacketDispatcher(TaskTracer taskTracer, HandlerRegistry<ClientHandlerContext> handlerRegistry, ExecutorService threadPool) {
-        this(taskTracer, handlerRegistry, threadPool, new ClientBusinessPacketDispatcher[1]);
-    }
-    private ClientBusinessPacketDispatcher(TaskTracer taskTracer, HandlerRegistry<ClientHandlerContext> handlerRegistry, ExecutorService threadPool, ClientBusinessPacketDispatcher[] holder) {
-        super(
-                taskTracer,
-                handlerRegistry,
-                new TargetStaticWrapperPool<>(
-                        PoolStorage.of(new MpmcArrayQueue<>(Options.HandlerContextPool_Capacity.value()), Options.HandlerContextPool_Capacity.value()),
-                        PoolStrategy.alwaysCreate(),
-                        () -> new ClientHandlerContext(holder[0]),
-                        ClientHandlerContext.Recyclable::new
-                ),
-                new TargetDynamicWrapperPool<>(
-                        PoolStorage.of(new MpmcArrayQueue<>(Options.PacketWrapperPool_Capacity.value()), Options.PacketWrapperPool_Capacity.value()),
-                        PoolStrategy.alwaysCreate(),
-                        () -> new BusinessPacketFragmentWrapper(taskTracer)
-                ),
-                threadPool
-        );
-        holder[0] = this;
-        this.handlerContextPool.warmUp(Options.HandlerContextPool_PrefillRatio.value());
+    public ClientBusinessPacketDispatcher(NexalithicBuilderContext context) {
+        super(context, OPTIONS);
     }
 
     @Override
-    public boolean pushBusinessPacket(ClientSession session, BusinessPacket packet) {
-        if (session == null) {
-            return false;
-        }
-        BusinessPacketFragmentWrapper wrapper = packetWrapperPool.acquire();
-        wrapper.wrap(packet.seal());
-        return session.pushBusinessPacketWrapper(wrapper);
+    protected ClientHandlerContext createHandlerContext() {
+        return new ClientHandlerContext(this);
+    }
+
+    @Override
+    protected ClientHandlerContext.Recyclable createRecyclableWrapper(ClientHandlerContext context) {
+        return new ClientHandlerContext.Recyclable(context);
     }
 }

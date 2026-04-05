@@ -24,12 +24,14 @@ import java.security.PrivateKey;
  * @version 1.0.0
  */
 public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
+    public record Constant(long MaxWaitTime) {}
     public enum State {
         STEP_0,
         STEP_1,
         STEP_2,
     }
 
+    private final Constant CONSTANT;
     private volatile AbstractPacket.PacketType packetType;
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
@@ -44,7 +46,8 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     private volatile long lastActiveTime = -1;
 
-    public PendingChannel() {
+    public PendingChannel(Constant constant) {
+        CONSTANT = constant;
         readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
         readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH);
     }
@@ -167,12 +170,12 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     public long getExpiryTime() {
-        return lastActiveTime + Interior.MaxWaitTime;
+        return lastActiveTime + CONSTANT.MaxWaitTime;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() > lastActiveTime + Interior.MaxWaitTime;
+        return System.currentTimeMillis() > lastActiveTime + CONSTANT.MaxWaitTime;
     }
 
     @Override
@@ -183,9 +186,5 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     @Override
     public String toString() {
         return "PacketType: " + packetType + ", State: " + state + ", SocketChannel: " + socketChannel;
-    }
-
-    private static class Interior {
-        public static final long MaxWaitTime = HandshakeLoop.Options.MaxWaitTime.value();
     }
 }

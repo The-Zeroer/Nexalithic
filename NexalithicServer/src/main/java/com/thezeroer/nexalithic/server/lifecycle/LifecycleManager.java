@@ -1,5 +1,11 @@
 package com.thezeroer.nexalithic.server.lifecycle;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -18,6 +24,23 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026/02/19
  */
 public class LifecycleManager {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, LifecycleManager.class);
+    public static final class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> HandshakeLoop_Count = NexalithicOption.create(
+                4, OptionValidator.positive()
+        );
+        public final NexalithicOption<Integer> ServiceUnit_Count = NexalithicOption.create(
+                1, OptionValidator.positive()
+        );
+        public Options(Class<?> holder) {
+            super(holder);
+        }
+    }
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<AcceptorLoop> AcceptorLoop = NexalithicModule.create("LifecycleManager_AcceptorLoop", AcceptorLoop.class);
+        public static final NexalithicModule<LoadBalancer<Void, HandshakeLoop>> HandshakeLoopLoadBalancer = NexalithicModule.create("LifecycleManager_HandshakeLoopLoadBalancer", LoadBalancer.class);
+        public static final NexalithicModule<LoadBalancer<Void, ServiceUnit>> ServiceUnitLoadBalancer = NexalithicModule.create("LifecycleManager_ServiceUnitLoadBalancer", LoadBalancer.class);
+    }
     /**
      * Nexalithic服务器的生命周期状态枚举。
      * <p>定义了服务器从创建到终止的完整状态转换过程，用于控制服务器的生命周期管理。</p>
@@ -65,13 +88,13 @@ public class LifecycleManager {
     private static final Logger logger = LoggerFactory.getLogger(LifecycleManager.class);
     private final AtomicReference<State> state = new AtomicReference<>(LifecycleManager.State.NEW);
     private final AcceptorLoop acceptorLoop;
-    private final LoadBalancer<?, HandshakeLoop> handshakeLoopLoadBalancer;
-    private final LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer;
+    private final LoadBalancer<Void, HandshakeLoop> handshakeLoopLoadBalancer;
+    private final LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer;
 
-    public LifecycleManager(AcceptorLoop acceptorLoop, LoadBalancer<?, HandshakeLoop> handshakeLoopLoadBalancer, LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer) {
-        this.acceptorLoop = acceptorLoop;
-        this.handshakeLoopLoadBalancer = handshakeLoopLoadBalancer;
-        this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;
+    public LifecycleManager(NexalithicBuilderContext context) {
+        this.acceptorLoop = context.getModule(Modules.AcceptorLoop);
+        this.handshakeLoopLoadBalancer = context.getModule(Modules.HandshakeLoopLoadBalancer);
+        this.serviceUnitLoadBalancer = context.getModule(Modules.ServiceUnitLoadBalancer);
     }
 
     public void start() throws Exception {

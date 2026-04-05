@@ -1,10 +1,11 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.slf4j.Logger;
@@ -25,11 +26,20 @@ import java.util.concurrent.atomic.LongAdder;
  * @version 1.0.0
  */
 public abstract class AbstractLoop implements LoadBalanceable, Runnable {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Long> Max_Shutdown_Wait = NexalithicOption.create(
-                "AbstractLoop_Max_Shutdown_Wait", 30000L, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, AbstractLoop.class);
+    public static class Options extends OptionsDefinition {
+        public final NexalithicOption<Long> Shutdown_MaxWaitTime = NexalithicOption.create(
+                300000L, OptionValidator.positive()
         );
+        public final NexalithicOption<Long> Selector_Timeout = NexalithicOption.create(
+                30000L, OptionValidator.nonNegative()
+        );
+        protected Options(Class<?> holder) {
+            super(holder);
+        }
     }
+    public record Constant(long Shutdown_MaxWaitTime, long Selector_Timeout) {}
+    private final Constant CONSTANT;
     protected enum State {
         NEW,
         STARTING,
@@ -40,17 +50,21 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         TERMINATED
     }
     protected static final Logger logger = LoggerFactory.getLogger(AbstractLoop.class);
-    protected static final int TIMEOUT = 3000;
     protected static final int MAX_EPOLL = 512;
     protected final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     protected final LongAdder loadScore = new LongAdder();
     protected volatile Selector selector;
 
-    protected final LoopThread thread = new LoopThread(this);
+    protected final LoopThread thread;
     protected String name = getClass().getSimpleName();
 
-    public AbstractLoop() throws IOException {
+    public AbstractLoop(NexalithicBuilderContext context, Options options) throws IOException {
+        CONSTANT = context.getConstant(this.getClass(), Constant.class, () -> new Constant(
+                context.getOption(options.Shutdown_MaxWaitTime),
+                context.getOption(options.Selector_Timeout)
+        ));
         selector = Selector.open();
+        thread = new LoopThread(context, this);
         thread.setDaemon(false);
     }
 
@@ -129,7 +143,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                             if (state.compareAndSet(State.WORKING, State.WAITING)) {
                                 start = System.currentTimeMillis();
                                 try {
-                                    readyCount = localSelector.select(TIMEOUT);
+                                    readyCount = localSelector.select(CONSTANT.Selector_Timeout);
                                 } finally {
                                     state.compareAndSet(State.WAITING, State.WORKING);
                                 }
@@ -144,7 +158,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                             emptyCount = 0;
                             readyEvent(localSelector);
                         } else if (start != 0) {
-                            if (end - start < TIMEOUT / 2) {
+                            if (end - start < CONSTANT.Selector_Timeout / 2) {
                                 if (++emptyCount > MAX_EPOLL) {
                                     logger.warn("[{}] Epoll bug detected, rebuilding selector...", name);
                                     localSelector = rebuildSelector();
@@ -178,7 +192,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                             logger.error("[{}] Error closing loop", name, e);
                         }
                         logger.debug("[{}] shutdown", name);
-                    } else if (System.currentTimeMillis() - start > Interior.Max_Shutdown_Wait) {
+                    } else if (System.currentTimeMillis() - start > CONSTANT.Shutdown_MaxWaitTime) {
                         logger.warn("[{}] max shutdown time exceeded, forcing stop.", name);
                         state.set(State.STOPPING);
                     }
@@ -247,9 +261,5 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
             logger.error("[{}] Failed to rebuild selector", name, e);
             throw e;
         }
-    }
-
-    private static class Interior {
-        public static final long Max_Shutdown_Wait = Options.Max_Shutdown_Wait.value();
     }
 }

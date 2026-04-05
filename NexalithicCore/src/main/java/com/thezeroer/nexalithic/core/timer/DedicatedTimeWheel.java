@@ -12,13 +12,13 @@ import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> {
     private final TimerExecutor<E> executor;
 
-    public DedicatedTimeWheel(long tick, int slot, WrapperPool<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> wrapperPool, TimerExecutor<E> executor, String name) {
-        super(tick, slot, wrapperPool, name);
+    public DedicatedTimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> wrapperPool, TimerExecutor<E> executor, String name) {
+        super(tick, slot, tickQuotaShift, waitQueueChunkSize, wrapperPool, name);
         this.executor = executor;
     }
 
     public void schedule(E expirable) {
-        queue.offer(wrapperPool.acquire().wrap(expirable));
+        waitQueue.offer(wrapperPool.acquire().wrap(expirable));
     }
 
     @Override
@@ -28,7 +28,7 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
             executor.trigger(expirable);
             return true;
         } else {
-            queue.offer(wrapper);
+            waitQueue.offer(wrapper);
             return false;
         }
     }

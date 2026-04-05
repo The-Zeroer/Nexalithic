@@ -1,19 +1,19 @@
 package com.thezeroer.nexalithic.core.io.codec.assembler;
 
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.timer.TimerExecutor;
 import org.jctools.queues.MpscArrayQueue;
-import org.jctools.queues.SpmcArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,31 +29,45 @@ import java.util.Map;
  * @version 1.0.0
  */
 public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket>, TimerExecutor<BusinessPacketAssemblyWrapper> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create(
-                "BusinessPacketsAssembler_WrapperPool_Capacity", 1024, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, BusinessPacketsAssembler.class);
+    public static final class Options extends OptionsDefinition {
+        public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
+            protected Integer Slot_DefaultValue() {
+                return Math.toIntExact(Options.this.MaxIdleTime_DefaultValue() / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            }
+        };
+        public final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
         );
-        public static final NexalithicOption<Integer> PacketQueue_Capacity = NexalithicOption.create(
-                "BusinessPacketsAssembler_PacketQueue_Capacity", 64, OptionValidator.positive()
+        public final NexalithicOption<Integer> PacketQueue_Capacity = NexalithicOption.create(
+                64, OptionValidator.positive()
         );
-        public static final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
-                "BusinessPacketsAssembler_MaxWaitTime", 30000L, OptionValidator.positive()
+        public final NexalithicOption<Long> MaxIdleTime = NexalithicOption.create(
+                MaxIdleTime_DefaultValue(), OptionValidator.positive()
         );
-        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
-                "BusinessPacketsAssembler_TimeWheel_Tick", 1000L, OptionValidator.positive()
-        );
-        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
-                "BusinessPacketsAssembler_TimeWheel_WrapperPool_Capacity", 256, OptionValidator.positive()
-        );
+        private Options(Class<?> holder) {
+            super(holder);
+        }
+        private Long MaxIdleTime_DefaultValue() {
+            return 3_0000L;
+        }
+    }
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<PayloadRegistry> PayloadRegistry = NexalithicModule.create("BusinessPacketsAssembler_PayloadRegistry", PayloadRegistry.class);
+        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", GenericTimeWheel.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsAssembler.class);
     private final WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool;
-    private final Map<Integer, BusinessPacketAssemblyWrapper> assemblingMap = new HashMap<>();
-    private final MpscArrayQueue<BusinessPacket> completedPackets = new MpscArrayQueue<>(Interior.PacketQueue_Capacity);
+    private final GenericTimeWheel timeWheel;
+    private final Map<Integer, BusinessPacketAssemblyWrapper> assemblingMap;
+    private final MpscArrayQueue<BusinessPacket> completedPackets;
     private BusinessPacket pendingPacket;
 
-    public BusinessPacketsAssembler(WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool) {
+    public BusinessPacketsAssembler(WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool, GenericTimeWheel timeWheel, int PacketQueue_Capacity_) {
         this.wrapperPool = wrapperPool;
+        this.timeWheel = timeWheel;
+        assemblingMap = new HashMap<>();
+        completedPackets = new MpscArrayQueue<>(PacketQueue_Capacity_);
     }
 
     @Override
@@ -75,7 +89,12 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
                 source.resetHead();
                 break;
             }
-            BusinessPacketAssemblyWrapper wrapper = assemblingMap.computeIfAbsent(packetId, id -> wrapperPool.acquire().setPacketId(id));
+            BusinessPacketAssemblyWrapper wrapper = assemblingMap.get(packetId);
+            if (wrapper == null) {
+                wrapper = wrapperPool.acquire().setPacketId(packetId);
+                assemblingMap.put(packetId, wrapper);
+                timeWheel.schedule(wrapper, this);
+            }
             read = wrapper.onFrame(source, payloadLength, PacketFrame.isStart(meta));
             if (!wrapper.hasFrame()) {
                 assemblingMap.remove(packetId);
@@ -117,24 +136,5 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     public void trigger(BusinessPacketAssemblyWrapper wrapper) {
         assemblingMap.remove(wrapper.getPacketId());
         wrapper.recycle();
-    }
-
-    private static class Interior {
-        public static final int PacketQueue_Capacity = Options.PacketQueue_Capacity.value();
-
-        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                Options.TimeWheel_Tick.value(),
-                (int) (Options.MaxWaitTime.value() / Options.TimeWheel_Tick.value()) + 1,
-                new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
-                        PoolStrategy.alwaysCreate(),
-                        GenericTimeWheel.GenericScheduleWrapper<BusinessPacketAssemblyWrapper>::new
-                ),
-                BusinessPacketsAssembler.class.getSimpleName()
-        );
-
-        static {
-            timeWheel.start();
-        }
     }
 }

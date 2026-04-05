@@ -1,20 +1,20 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
+import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
-import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -28,13 +28,15 @@ import java.security.SecureRandom;
  * @since 2026/02/18
  */
 public class ServiceUnit implements LoadBalanceable, SessionAttachment {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> Count = NexalithicOption.create(
-                "ServiceUnit_Count", 1, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServiceUnit.class);
+    public static final class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> WorkerLoop_Count = NexalithicOption.create(
+                Runtime.getRuntime().availableProcessors(), OptionValidator.positive()
         );
-        public static final NexalithicOption<Integer> WorkerLoop_Count = NexalithicOption.create(
-                "ServiceUnit_WorkerLoop_Count", Runtime.getRuntime().availableProcessors(), OptionValidator.positive()
-        );
+
+        public Options(Class<?> holder) {
+            super(holder);
+        }
     }
     private final StewardLoop stewardLoop;
     private final WorkerLoop[] workerLoops;
@@ -43,13 +45,13 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
     private final NetworkRouter router;
     private final SessionsManager manager;
 
-    public ServiceUnit(SessionsManager manager, NetworkRouter router, ServerBusinessPacketDispatcher dispatcher, PayloadRegistry registry) throws IOException {
-        this.manager = manager;
-        this.router = router;
-        stewardLoop = new StewardLoop(manager, this, registry);
-        workerLoops = new WorkerLoop[Interior.WorkerLoop_Count];
+    public ServiceUnit(NexalithicBuilderContext context) throws IOException {
+        manager = context.getModule(NexalithicServer.Modules.SessionsManager);
+        router = context.getModule(NexalithicServer.Modules.NetworkRouter);
+        stewardLoop = new StewardLoop(context, this);
+        workerLoops = new WorkerLoop[context.getOption(OPTIONS.WorkerLoop_Count)];
         for (int i = 0; i < workerLoops.length; i++) {
-            workerLoops[i] = new WorkerLoop(dispatcher);
+            workerLoops[i] = new WorkerLoop(context);
         }
         workerLoopBalancer = new P2CBalancer<>(workerLoops);
     }
@@ -90,9 +92,5 @@ public class ServiceUnit implements LoadBalanceable, SessionAttachment {
 
     @Override
     public void clear() {
-    }
-
-    private static class Interior {
-        public static final int WorkerLoop_Count = Options.WorkerLoop_Count.value();
     }
 }

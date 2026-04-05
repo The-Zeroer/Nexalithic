@@ -1,10 +1,10 @@
 package com.thezeroer.nexalithic.client.lifecycle.session;
 
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
@@ -67,10 +67,10 @@ public class ClientSession extends NexalithicSession<
         private final FragmenterFactory fragmenterFactory;
         private final AssemblerFactory assemblerFactory;
 
-        public ClientChannelFactory(GeneralLoop loop, PayloadRegistry registry) {
+        public ClientChannelFactory(NexalithicBuilderContext context, GeneralLoop loop) {
+            this.fragmenterFactory = new FragmenterFactory(context);
+            this.assemblerFactory = new AssemblerFactory(context);
             this.loop = loop;
-            this.fragmenterFactory = new FragmenterFactory();
-            this.assemblerFactory = new AssemblerFactory(registry);
         }
 
         @Override

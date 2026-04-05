@@ -1,20 +1,23 @@
 package com.thezeroer.nexalithic.server.lifecycle.service;
 
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.timer.TimerExecutor;
+import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
-import org.jctools.queues.MpscArrayQueue;
 import org.jctools.queues.SpmcArrayQueue;
 
 import javax.crypto.BadPaddingException;
@@ -33,29 +36,54 @@ import java.security.InvalidKeyException;
  * @version 1.0.0
  */
 public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> implements TimerExecutor<ServerSession> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
-                "StewardLoop_DispatchQueue_Capacity", 1024, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, StewardLoop.class);
+    public static final class Options extends ServiceLoop.Options {
+        private static final long HeatBeat_MaxInterval_DefaultValue = 60_000L;
+        public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
+            protected Integer Slot_DefaultValue() {
+                return Math.toIntExact(HeatBeat_MaxInterval_DefaultValue / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            }
+        };
+        public final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create(
+                HeatBeat_MaxInterval_DefaultValue, OptionValidator.positive()
         );
-        public static final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create(
-                "StewardLoop_HeartBeat_MaxInterval", 60000L, OptionValidator.positive()
-        );
-        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
-                "StewardLoop_TimeWheel_Tick", 1000L, OptionValidator.positive()
-        );
-        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
-                "StewardLoop_TimeWheel_WrapperPool_Capacity", 1024, OptionValidator.positive()
-        );
+        private Options(Class<?> holder) {
+            super(holder);
+        }
     }
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("StewardLoop_TimeWheel", GenericTimeWheel.class);
+    }
+    private final ServerSession.Constant serverSessionConstant;
     private final SessionsManager sessionsManager;
-    private final ServiceUnit serviceUnit;
     private final ServerSession.ServerChannelFactory factory;
+    private final GenericTimeWheel timeWheel;
+    private final ServiceUnit serviceUnit;
 
-    public StewardLoop(SessionsManager manager, ServiceUnit unit, PayloadRegistry registry) throws IOException {
-        super(new MpscArrayQueue<>(Interior.DispatchQueue_Capacity));
-        this.sessionsManager = manager;
-        this.serviceUnit = unit;
-        this.factory = new ServerSession.ServerChannelFactory(this, registry);
+    public StewardLoop(NexalithicBuilderContext context, ServiceUnit unit) throws IOException {
+        super(context, OPTIONS);
+        serverSessionConstant = context.getConstant(ServerSession.class, ServerSession.Constant.class, () -> new ServerSession.Constant(
+                context.getOption(OPTIONS.HeartBeat_MaxInterval)
+        ));
+        sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
+        factory = new ServerSession.ServerChannelFactory(context, this);
+        timeWheel = context.getModule(Modules.TimeWheel, () -> {
+            GenericTimeWheel timeWheel = new GenericTimeWheel(
+                    context.getOption(OPTIONS.TimeWheel.Tick),
+                    context.getOption(OPTIONS.TimeWheel.Slot),
+                    context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
+                    context.getOption(OPTIONS.TimeWheel.WaitQueue_ChunkSize),
+                    new SelfStaticWrapperPool<>(
+                            PoolStorage.of(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
+                            PoolStrategy.alwaysCreate(),
+                            GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
+                    ),
+                    StewardLoop.class.getSimpleName()
+            );
+            timeWheel.start();
+            return timeWheel;
+        });
+        serviceUnit = unit;
     }
 
     @Override
@@ -63,15 +91,15 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSession session = new ServerSession(channel.getSessionId(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory);
+                ServerSession session = new ServerSession(channel.getSessionId(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant);
                 selectionKey.attach(session.setServiceUnit(serviceUnit).getSignalingChannel().updateChannel(selectionKey));
                 sessionsManager.putSession(session);
-                Interior.timeWheel.schedule(session, this);
+                timeWheel.schedule(session, this);
             } catch (IOException ignored) {
             } finally {
                 channel.recycle();
             }
-        }, MAX_DRAIN_LIMIT);
+        }, CONSTANT.DrainLimit());
         return dispatchQueue.isEmpty();
     }
 
@@ -135,24 +163,5 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         sessionsManager.removeSession(session);
         loadScore.decrement();
         session.close();
-    }
-
-    private static class Interior {
-        public static final int DispatchQueue_Capacity = Options.DispatchQueue_Capacity.value();
-
-        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                Options.TimeWheel_Tick.value(),
-                (int) (Options.HeartBeat_MaxInterval.value() / Options.TimeWheel_Tick.value()) + 1,
-                new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
-                        PoolStrategy.alwaysCreate(),
-                        GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
-                ),
-                StewardLoop.class.getSimpleName()
-        );
-
-        static {
-            timeWheel.start();
-        }
     }
 }

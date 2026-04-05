@@ -1,11 +1,14 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -13,7 +16,10 @@ import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionId;
 import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.timer.TimerExecutor;
+import com.thezeroer.nexalithic.server.NexalithicServer;
+import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
@@ -42,40 +48,69 @@ import java.util.concurrent.ExecutorService;
  * @version 1.0.0
  */
 public class HandshakeLoop extends AbstractLoop implements TimerExecutor<PendingChannel> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Integer> Count = NexalithicOption.create(
-                "HandshakeLoop_Count", 4, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, HandshakeLoop.class);
+    public static final class Options extends AbstractLoop.Options {
+        private static final long MaxWaitTime_DefaultValue = 3_000L;
+        public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
+            protected Integer Slot_DefaultValue() {
+                return Math.toIntExact(MaxWaitTime_DefaultValue / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            }
+        };
+        public final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
         );
-        public static final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
-                "HandshakeLoop_DispatchQueue_Capacity", 1024, OptionValidator.positive()
+        public final NexalithicOption<Integer> DispatchQueue_DrainLimit = NexalithicOption.create(
+                256, OptionValidator.positive()
         );
-        public static final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
-                "HandshakeLoop_MaxWaitTime", 3000L, OptionValidator.positive()
+        public final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
+                MaxWaitTime_DefaultValue, OptionValidator.positive()
         );
-        public static final NexalithicOption<Long> TimeWheel_Tick = NexalithicOption.create(
-                "HandshakeLoop_TimeWheel_Tick", 1000L, OptionValidator.positive()
-        );
-        public static final NexalithicOption<Integer> TimeWheel_WrapperPool_Capacity = NexalithicOption.create(
-                "HandshakeLoop_TimeWheel_WrapperPool_Capacity", 256, OptionValidator.positive()
-        );
+        private Options(Class<?> holder) {
+            super(holder);
+        }
     }
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("HandshakeLoop_TimeWheel", GenericTimeWheel.class);
+        public static final NexalithicModule<ExecutorService> ExecutorService = NexalithicModule.create("HandshakeLoop_ExecutorService", ExecutorService.class);
+    }
+    public record Constant(int DrainLimit) {}
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
-    private static final int MAX_DRAIN_LIMIT = 64;
-    private final MpscArrayQueue<PendingChannel> dispatchQueue;
-    private final LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer;
-    private final ServerSecurityPolicy securityPolicy;
+    private final Constant CONSTANT;
     private final SessionsManager sessionsManager;
+    private final ServerSecurityPolicy securityPolicy;
+    private final LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer;
+    private final GenericTimeWheel timeWheel;
     private final ExecutorService threadPool;
+    private final MpscArrayQueue<PendingChannel> dispatchQueue;
     private final ByteBuffer certificateBuffer;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public HandshakeLoop(LoadBalancer<?, ServiceUnit> serviceUnitLoadBalancer, ServerSecurityPolicy securityPolicy,
-                         SessionsManager sessionsManager, ExecutorService threadPool) throws IOException {
-        this.serviceUnitLoadBalancer = serviceUnitLoadBalancer;
-        this.securityPolicy = securityPolicy;
-        this.sessionsManager = sessionsManager;
-        this.threadPool = threadPool;
-        dispatchQueue = new MpscArrayQueue<>(Interior.DispatchQueue_Capacity);
+    public HandshakeLoop(NexalithicBuilderContext context) throws IOException {
+        super(context, OPTIONS);
+        CONSTANT = context.getConstant(this.getClass(), Constant.class, () -> new Constant(
+                context.getOption(OPTIONS.DispatchQueue_DrainLimit))
+        );
+        sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
+        securityPolicy = context.getModule(NexalithicServer.Modules.SecurityPolicy);
+        serviceUnitLoadBalancer = context.getModule(LifecycleManager.Modules.ServiceUnitLoadBalancer);
+        timeWheel = context.getModule(Modules.TimeWheel, () -> {
+            GenericTimeWheel timeWheel = new GenericTimeWheel(
+                    context.getOption(OPTIONS.TimeWheel.Tick),
+                    context.getOption(OPTIONS.TimeWheel.Slot),
+                    context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
+                    context.getOption(OPTIONS.TimeWheel.WaitQueue_ChunkSize),
+                    new SelfStaticWrapperPool<>(
+                            PoolStorage.of(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
+                            PoolStrategy.alwaysCreate(),
+                            GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
+                    ),
+                    HandshakeLoop.class.getSimpleName()
+            );
+            timeWheel.start();
+            return timeWheel;
+        });
+        threadPool = context.getModule(Modules.ExecutorService);
+        dispatchQueue = new MpscArrayQueue<>(context.getOption(OPTIONS.DispatchQueue_Capacity));
         certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());
         updateCertificateBuffer();
     }
@@ -104,7 +139,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                         writeBuffers[0].flip();
                         writeBuffers[1].flip();
                         pendingChannel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).setState(PendingChannel.State.STEP_1);
-                        Interior.timeWheel.schedule(pendingChannel, HandshakeLoop.this);
+                        timeWheel.schedule(pendingChannel, HandshakeLoop.this);
                         wakeupIfNeeded();
                     } catch (Exception e) {
                         logger.error(e.getMessage(), e);
@@ -128,7 +163,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     pendingChannel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ).attach(pendingChannel);
                 }
             } catch (IOException ignored) {}
-        }, MAX_DRAIN_LIMIT);
+        }, CONSTANT.DrainLimit);
         return dispatchQueue.isEmpty();
     }
 
@@ -252,24 +287,5 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         }
         channel.close();
         loadScore.decrement();
-    }
-
-    private static class Interior {
-        public static final int DispatchQueue_Capacity = Options.DispatchQueue_Capacity.value();
-
-        public static final GenericTimeWheel timeWheel = new GenericTimeWheel(
-                Options.TimeWheel_Tick.value(),
-                (int) (Options.MaxWaitTime.value() / Options.TimeWheel_Tick.value()) + 1,
-                new SelfStaticWrapperPool<>(
-                        PoolStorage.of(new SpmcArrayQueue<>(Options.TimeWheel_WrapperPool_Capacity.value()), Options.TimeWheel_WrapperPool_Capacity.value()),
-                        PoolStrategy.alwaysCreate(),
-                        GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
-                ),
-                HandshakeLoop.class.getSimpleName()
-        );
-
-        static {
-            timeWheel.start();
-        }
     }
 }

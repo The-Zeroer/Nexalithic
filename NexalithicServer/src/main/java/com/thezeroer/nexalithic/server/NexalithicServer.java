@@ -1,7 +1,12 @@
 package com.thezeroer.nexalithic.server;
 
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
+import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.handler.TrieNodeChildrenStorage;
@@ -18,7 +23,7 @@ import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
@@ -35,6 +40,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -51,17 +57,24 @@ import java.util.function.Supplier;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class NexalithicServer {
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<LifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicServer_LifecycleManager", LifecycleManager.class);
+        public static final NexalithicModule<SessionsManager> SessionsManager = NexalithicModule.create("NexalithicServer_SessionsManager", SessionsManager.class);
+        public static final NexalithicModule<NetworkRouter> NetworkRouter = NexalithicModule.create("NexalithicServer_NetworkRouter", NetworkRouter.class);
+        public static final NexalithicModule<ServerBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicServer_BusinessPacketDispatcher", ServerBusinessPacketDispatcher.class);
+        public static final NexalithicModule<ServerSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicServer_SecurityPolicy", ServerSecurityPolicy.class);
+    }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
     private final LifecycleManager lifecycleManager;
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
     private final ServerBusinessPacketDispatcher businessPacketDispatcher;
 
-    private NexalithicServer(LifecycleManager lifecycleManager, SessionsManager sessionsManager, NetworkRouter networkRouter, ServerBusinessPacketDispatcher businessPacketDispatcher) {
-        this.lifecycleManager = lifecycleManager;
-        this.sessionsManager = sessionsManager;
-        this.networkRouter = networkRouter;
-        this.businessPacketDispatcher = businessPacketDispatcher;
+    private NexalithicServer(NexalithicBuilderContext context) {
+        this.lifecycleManager = context.getModule(Modules.LifecycleManager);
+        this.sessionsManager = context.getModule(Modules.SessionsManager);
+        this.networkRouter = context.getModule(Modules.NetworkRouter);
+        this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
     }
 
     public static Builder builder() {
@@ -251,16 +264,13 @@ public class NexalithicServer {
         if (session == null) {
             return false;
         }
-        return businessPacketDispatcher.pushBusinessPacket(session, packet);
+        return businessPacketDispatcher.egress(session, packet);
     }
 
-    public static class Builder {
-        private ServerSecurityPolicy securityPolicy;
+    public static final class Builder {
+        private final NexalithicBuilderContext context = new NexalithicBuilderContext();
         private final HandlerRegistry.Builder<ServerHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
-
-        private ExecutorService handshakeLoopThreadPool;
-        private ExecutorService businessPacketDispatcherThreadPool;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
@@ -268,19 +278,27 @@ public class NexalithicServer {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            handshakeLoopThreadPool = new ThreadPoolExecutor(HandshakeLoop.Options.Count.defaultValue(), HandshakeLoop.Options.Count.defaultValue() * 2,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
-            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(HandshakeLoop.Options.Count.defaultValue(), HandshakeLoop.Options.Count.defaultValue() * 2,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+            context.setModule(Modules.NetworkRouter, new NetworkRouter());
+            int cores = Runtime.getRuntime().availableProcessors();
+            context.setModule(HandshakeLoop.Modules.ExecutorService, new ThreadPoolExecutor(cores, cores * 2,
+                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
+            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, new ThreadPoolExecutor(cores, cores * 2,
+                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
-            option.set(value);
+            context.setOption(option, value);
+            return this;
+        }
+
+        public Builder addRoute(AbstractPacket.PacketType type, String cidr, int port) throws UnknownHostException {
+            NetworkRouter router = context.getModule(Modules.NetworkRouter);
+            router.addRoute(type, cidr, port);
             return this;
         }
 
         public Builder securityPolicy(ServerSecurityPolicy securityPolicy) {
-            this.securityPolicy = securityPolicy;
+            context.setModule(Modules.SecurityPolicy, securityPolicy);
             return this;
         }
 
@@ -307,40 +325,41 @@ public class NexalithicServer {
         }
 
         public Builder handshakeLoopThreadPool(ExecutorService threadPool) {
-            this.handshakeLoopThreadPool = threadPool;
+            context.setModule(HandshakeLoop.Modules.ExecutorService, threadPool);
             return this;
         }
         public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
-            this.businessPacketDispatcherThreadPool = threadPool;
+            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, threadPool);
             return this;
         }
 
         public NexalithicServer build() throws IOException {
             verifyOptions();
-            SessionsManager manager = new SessionsManager();
-            NetworkRouter router = new NetworkRouter();
-            TaskTracer taskTracer = new TaskTracer();
-            HandlerRegistry<ServerHandlerContext> handlerRegistry = handlerRegistryBuilder.build();
-            ServerBusinessPacketDispatcher dispatcher = new ServerBusinessPacketDispatcher(taskTracer, handlerRegistry, businessPacketDispatcherThreadPool);
+            if (logger.isTraceEnabled()) {
+                logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
+            }
 
-            PayloadRegistry payloadRegistry = payloadRegistryBuilder.build();
-            ServiceUnit[] serviceUnits = new ServiceUnit[ServiceUnit.Options.Count.value()];
+            context.setModule(Modules.SessionsManager, new SessionsManager(context));
+            context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
+            context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
+            context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
+            context.setModule(Modules.BusinessPacketDispatcher, new ServerBusinessPacketDispatcher(context));
+
+            ServiceUnit[] serviceUnits = new ServiceUnit[context.getOption(LifecycleManager.OPTIONS.ServiceUnit_Count)];
             for (int i = 0; i < serviceUnits.length; i++) {
-                serviceUnits[i] = new ServiceUnit(manager, router, dispatcher, payloadRegistry).addIdToLoopName(String.valueOf(i));
+                serviceUnits[i] = new ServiceUnit(context).addIdToLoopName(String.valueOf(i));
             }
-            LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer = new P2CBalancer<>(serviceUnits);
+            context.setModule(LifecycleManager.Modules.ServiceUnitLoadBalancer, new P2CBalancer<>(serviceUnits));
 
-            HandshakeLoop[] handshakeLoops = new HandshakeLoop[HandshakeLoop.Options.Count.value()];
+            HandshakeLoop[] handshakeLoops = new HandshakeLoop[context.getOption(LifecycleManager.OPTIONS.HandshakeLoop_Count)];
             for (int i = 0; i < handshakeLoops.length; i++) {
-                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(serviceUnitLoadBalancer, securityPolicy,
-                        manager, handshakeLoopThreadPool).addIdToName(String.valueOf(i));
+                handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(context).addIdToName(String.valueOf(i));
             }
-            LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer = new P2CBalancer<>(handshakeLoops);
+            context.setModule(LifecycleManager.Modules.HandshakeLoopLoadBalancer, new P2CBalancer<>(handshakeLoops));
 
-            AcceptorLoop acceptorLoop = (AcceptorLoop) new AcceptorLoop(handshakeLoopBalancer).addIdToName("0");
-            LifecycleManager lifecycleManager = new LifecycleManager(acceptorLoop, handshakeLoopBalancer, serviceUnitLoadBalancer);
-
-            return new NexalithicServer(lifecycleManager, manager, router, dispatcher);
+            context.setModule(LifecycleManager.Modules.AcceptorLoop, (AcceptorLoop) new AcceptorLoop(context).addIdToName("0"));
+            context.setModule(Modules.LifecycleManager, new LifecycleManager(context));
+            return new NexalithicServer(context);
         }
 
         private void verifyOptions() {
@@ -348,7 +367,7 @@ public class NexalithicServer {
         }
     }
 
-    public static class Banner {
+    public static final class Banner {
         public static final String BANNER =
                 """
                           \s

@@ -3,6 +3,12 @@ package com.thezeroer.nexalithic.client;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
+import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
@@ -18,7 +24,7 @@ import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
@@ -51,13 +57,18 @@ import java.util.function.Supplier;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class NexalithicClient {
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<GeneralLoop> GeneralLoop = NexalithicModule.create("NexalithicClient_GeneralLoop", GeneralLoop.class);
+        public static final NexalithicModule<ClientBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicClient_BusinessPacketDispatcher", ClientBusinessPacketDispatcher.class);
+        public static final NexalithicModule<ClientSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicClient_SecurityPolicy", ClientSecurityPolicy.class);
+    }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
     private final GeneralLoop generalLoop;
     private final ClientBusinessPacketDispatcher businessPacketDispatcher;
 
-    private NexalithicClient(GeneralLoop generalLoop, ClientBusinessPacketDispatcher businessPacketDispatcher) {
-        this.generalLoop = generalLoop;
-        this.businessPacketDispatcher = businessPacketDispatcher;
+    private NexalithicClient(NexalithicBuilderContext context) {
+        this.generalLoop = context.getModule(Modules.GeneralLoop);
+        this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
     }
 
     public static Builder builder() {
@@ -86,7 +97,7 @@ public class NexalithicClient {
         return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder.build());
     }
     public boolean push(BusinessPacket packet) {
-        return businessPacketDispatcher.pushBusinessPacket(getSession(), packet);
+        return businessPacketDispatcher.egress(getSession(), packet);
     }
 
     private ClientSession getSession() {
@@ -109,11 +120,9 @@ public class NexalithicClient {
     }
 
     public static class Builder {
-        private ClientSecurityPolicy securityPolicy;
+        private final NexalithicBuilderContext context = new NexalithicBuilderContext();
         private final HandlerRegistry.Builder<ClientHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
-
-        private ExecutorService businessPacketDispatcherThreadPool;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
@@ -121,17 +130,17 @@ public class NexalithicClient {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            businessPacketDispatcherThreadPool = new ThreadPoolExecutor(4, 8,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, new ThreadPoolExecutor(4, 8,
+                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
-            option.set(value);
+            context.setOption(option, value);
             return this;
         }
 
         public Builder securityPolicy(ClientSecurityPolicy securityPolicy) {
-            this.securityPolicy = securityPolicy;
+            context.setModule(Modules.SecurityPolicy, securityPolicy);
             return this;
         }
 
@@ -158,18 +167,23 @@ public class NexalithicClient {
         }
 
         public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
-            this.businessPacketDispatcherThreadPool = threadPool;
+            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, threadPool);
             return this;
         }
 
         public NexalithicClient build() throws Exception {
             verifyOptions();
-            TaskTracer taskTracer = new TaskTracer();
-            HandlerRegistry<ClientHandlerContext> handlerRegistry = handlerRegistryBuilder.build();
-            ClientBusinessPacketDispatcher dispatcher = new ClientBusinessPacketDispatcher(taskTracer, handlerRegistry, businessPacketDispatcherThreadPool);
-            GeneralLoop generalLoop = new GeneralLoop(securityPolicy, dispatcher, payloadRegistryBuilder.build());
+            if (logger.isTraceEnabled()) {
+                logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
+            }
 
-            return new NexalithicClient(generalLoop, dispatcher);
+            context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
+            context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
+            context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
+            context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
+            context.setModule(Modules.GeneralLoop, new GeneralLoop(context));
+
+            return new NexalithicClient(context);
         }
 
         private void verifyOptions() {

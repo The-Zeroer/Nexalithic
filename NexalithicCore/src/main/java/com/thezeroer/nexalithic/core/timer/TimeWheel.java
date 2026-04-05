@@ -1,8 +1,8 @@
 package com.thezeroer.nexalithic.core.timer;
 
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
 import org.jctools.queues.MpscUnboundedArrayQueue;
@@ -20,24 +20,45 @@ import java.util.concurrent.locks.LockSupport;
  * @version 1.0.0
  */
 public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
-    public static final class Options implements OptionsDefinition {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, TimeWheel.class);
+    public static class Options extends OptionsDefinition {
+        public final NexalithicOption<Long> Tick = NexalithicOption.create(Tick_DefaultValue(), OptionValidator.positive());
+        public final NexalithicOption<Integer> Slot = NexalithicOption.create(Slot_DefaultValue(), OptionValidator.positive());
         /**
          * 任务处理配额位移量。
          * 结果为 1/(2^shift)。
          * 例如：2 代表 25% 的 tick 时间，3 代表 12.5%。
          */
-        public static final NexalithicOption<Integer> TickQuotaShift = NexalithicOption.create(
-                "TimeWheel_TickQuotaShift", 2, OptionValidator.min(1)
-        );
+        public final NexalithicOption<Integer> TickQuotaShift = NexalithicOption.create(TickQuotaShift_DefaultValue(), OptionValidator.min(1));
+        public final NexalithicOption<Integer> WaitQueue_ChunkSize = NexalithicOption.create(WaitQueue_ChunkSize_DefaultValue(), OptionValidator.positive());
+        public final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create(WrapperPool_Capacity_DefaultValue(), OptionValidator.positive());
+        public Options(Class<?> holder) {
+            super(holder);
+        }
+        protected Long Tick_DefaultValue() {
+            return 1024L;
+        }
+        protected Integer Slot_DefaultValue() {
+            return 64;
+        }
+        protected Integer TickQuotaShift_DefaultValue() {
+            return 2;
+        }
+        protected Integer WaitQueue_ChunkSize_DefaultValue() {
+            return 1024;
+        }
+        protected Integer WrapperPool_Capacity_DefaultValue() {
+            return 256;
+        }
     }
     private static final Logger logger = LoggerFactory.getLogger(TimeWheel.class);
-    protected final long tick;
-    protected final int tickShift;
-    protected final int slotMask;
-    protected final int slotShift;
-    protected final W[] buckets;
     protected final WrapperPool<W> wrapperPool;
-    protected final MpscUnboundedArrayQueue<W> queue = new MpscUnboundedArrayQueue<>(1024);
+    protected final MpscUnboundedArrayQueue<W> waitQueue = new MpscUnboundedArrayQueue<>(1024);
+    private final long tick;
+    private final int tickShift;
+    private final int slotMask;
+    private final int slotShift;
+    private final W[] buckets;
     private final Worker worker;
     private final AtomicLong currentTick = new AtomicLong(0);
     private final AtomicLong targetTick = new AtomicLong(0);
@@ -51,7 +72,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
      * @param name        Worker 线程的名称，便于在 JVisualVM 或日志中识别。
      */
     @SuppressWarnings("unchecked")
-    public TimeWheel(long tick, int slot, WrapperPool<W> wrapperPool, String name) {
+    public TimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<W> wrapperPool, String name) {
         long normalizedTick = normalize(tick);
         int normalizedSlot = normalize(slot);
         this.tick = normalizedTick;
@@ -89,7 +110,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
 
     @SuppressWarnings("unchecked")
     private void tick(int slot) {
-        long quotaNanos = (tick * 1_000_000L) >> Interior.TickQuotaShift;
+        long quotaNanos = (tick * 1_000_000L) >> 2;
         long startNanos = System.nanoTime();
         boolean hasTriggered;
         do {
@@ -133,7 +154,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
     }
     private void transferQueueToBuckets() {
         long target = targetTick.get();
-        queue.drain((wrapper -> {
+        waitQueue.drain((wrapper -> {
             long deadline = (wrapper.getExpiryTime() - worker.startTimeMillis) >> tickShift;
             if (deadline <= target) {
                 if (wrapper.isCancelled()) {
@@ -254,9 +275,5 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
                 }
             }
         }
-    }
-
-    private static class Interior {
-        public static final int TickQuotaShift = Options.TickQuotaShift.value();
     }
 }

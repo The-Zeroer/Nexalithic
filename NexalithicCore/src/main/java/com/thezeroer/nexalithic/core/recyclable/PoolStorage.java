@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.core.recyclable;
 
 import java.util.Queue;
+import java.util.function.Function;
 
 /**
  * <h2>池化存储抽象接口 (Pool Storage)</h2>
@@ -46,6 +47,9 @@ public interface PoolStorage<T> {
      */
     static <E> PoolStorage<E> of(Queue<E> queue, int capacity) {
         return new QueueStorageAdapter<>(queue, capacity);
+    }
+    static <E> PoolStorage<E> of(Function<Integer, Queue<E>> function, int capacity) {
+        return new QueueStorageAdapter<>(function.apply(capacity), capacity);
     }
 
     /**

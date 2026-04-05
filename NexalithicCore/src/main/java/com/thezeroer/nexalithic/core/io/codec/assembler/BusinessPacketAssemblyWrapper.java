@@ -19,6 +19,8 @@ import java.util.List;
  * @version 1.0.0
  */
 public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> implements AssemblyWrapper<BusinessPacket>, Expirable {
+    public record Constant(long MaxIdleTime) {}
+    private final Constant CONSTANT;
     private final PacketBuilder packetBuilder = new PacketBuilder();
     private final PayloadRegistry payloadRegistry;
     private BusinessPacket packet;
@@ -28,7 +30,8 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private boolean headerRead;
     private long lastActiveTime;
 
-    public BusinessPacketAssemblyWrapper(PayloadRegistry payloadRegistry) {
+    public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry) {
+        CONSTANT = constant;
         this.payloadRegistry = payloadRegistry;
     }
 
@@ -138,12 +141,12 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
 
     @Override
     public long getExpiryTime() {
-        return lastActiveTime + Interior.MaxWaitTime;
+        return lastActiveTime + CONSTANT.MaxIdleTime;
     }
 
     @Override
     public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() > lastActiveTime + Interior.MaxWaitTime;
+        return System.currentTimeMillis() > lastActiveTime + CONSTANT.MaxIdleTime;
     }
 
     @Override
@@ -186,9 +189,5 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
             payloadsMeta = null;
             payloads = null;
         }
-    }
-
-    private static class Interior {
-        public static final long MaxWaitTime = BusinessPacketsAssembler.Options.MaxWaitTime.value();
     }
 }

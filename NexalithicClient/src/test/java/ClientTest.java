@@ -18,8 +18,8 @@ public class ClientTest {
         for (int i = 0; i < 1; i++) {
             System.out.println(i);
             NexalithicClient nexalithicClient = NexalithicClient.builder()
-                    .apply(LoopThread.Options.GlobalLoopBufferPool_Capacity, 2)
-                    .apply(LoopThread.Options.LocalLoopBufferPool_Capacity, 2)
+                    .apply(LoopThread.OPTIONS.GlobalLoopBufferPool_Capacity, 2)
+                    .apply(LoopThread.OPTIONS.LocalLoopBufferPool_Capacity, 2)
                     .securityPolicy(new DefaultClientSecurityPolicy() {
                         @Override
                         public int getServerCertificatesLength() {

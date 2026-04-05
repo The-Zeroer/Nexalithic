@@ -1,5 +1,11 @@
 package com.thezeroer.nexalithic.core.messaging;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
@@ -8,8 +14,9 @@ import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.recyclable.*;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import org.jctools.queues.MpmcArrayQueue;
 
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -23,33 +30,72 @@ import java.util.concurrent.ExecutorService;
  * @version 1.0.0
  */
 public abstract class BusinessPacketDispatcher<
-        S extends NexalithicSession<?, ?, ?, ?, ?>,
+        S extends NexalithicSession<?, ?, ?, ?, BusinessPacketFragmentWrapper>,
         HC extends HandlerContext<S>,
         HR extends HandlerContext.Recyclable<S, HC, HR>
     > {
-    protected final TaskTracer taskTracer;
-    protected final HandlerRegistry<HC> handlerRegistry;
-    protected final WrapperPool<HR> handlerContextPool;
-    protected final WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool;
-    protected final ExecutorService threadPool;
-    protected final Queue<Runnable> waitQueue;
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, BusinessPacketDispatcher.class);
+    public static class Options extends OptionsDefinition {
+        public final NexalithicOption<Integer> HandlerContextPool_Capacity = NexalithicOption.create(
+                HandlerContextPool_Capacity_DefaultValue(), OptionValidator.positive()
+        );
+        public final NexalithicOption<Double> HandlerContextPool_PrefillRatio = NexalithicOption.create(
+                HandlerContextPool_PrefillRatio_DefaultValue(), OptionValidator.unitInterval()
+        );
+        public final NexalithicOption<Integer> PacketWrapperPool_Capacity = NexalithicOption.create(
+                PacketWrapperPool_Capacity_DefaultValue(), OptionValidator.positive()
+        );
+        protected Options(Class<?> holder) {
+            super(holder);
+        }
+        protected Integer HandlerContextPool_Capacity_DefaultValue() {
+            return 1024;
+        }
+        protected Double HandlerContextPool_PrefillRatio_DefaultValue() {
+            return 0.5;
+        }
+        protected Integer PacketWrapperPool_Capacity_DefaultValue() {
+            return 4096;
+        }
+    }
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<TaskTracer> TaskTracer = NexalithicModule.create("BusinessPacketDispatcher_TaskTracer", TaskTracer.class);
+        public static final NexalithicModule<HandlerRegistry<? extends HandlerContext<?>>> HandlerRegistry = NexalithicModule.create("BusinessPacketDispatcher_HandlerRegistry", HandlerRegistry.class);
+        public static final NexalithicModule<ExecutorService> ExecutorService = NexalithicModule.create("BusinessPacketDispatcher_ExecutorService", ExecutorService.class);
+    }
+    private final TaskTracer taskTracer;
+    private final HandlerRegistry<HC> handlerRegistry;
+    private final WrapperPool<HR> handlerContextPool;
+    private final WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool;
+    private final ExecutorService threadPool;
+    private final Queue<Runnable> waitQueue;
 
-    public BusinessPacketDispatcher(
-            TaskTracer taskTracer,
-            HandlerRegistry<HC> handlerRegistry,
-            WrapperPool<HR> handlerContextPool,
-            WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool,
-            ExecutorService threadPool
-    ) {
-        this.taskTracer = taskTracer;
-        this.handlerRegistry = handlerRegistry;
-        this.handlerContextPool = handlerContextPool;
-        this.packetWrapperPool = packetWrapperPool;
-        this.threadPool = threadPool;
+    public BusinessPacketDispatcher(NexalithicBuilderContext context, Options options) {
+        this.taskTracer = context.getModule(Modules.TaskTracer);
+        this.handlerRegistry = context.getModule(Modules.HandlerRegistry);
+        this.threadPool = context.getModule(Modules.ExecutorService);
         this.waitQueue = new ConcurrentLinkedQueue<>();
+        this.handlerContextPool = new TargetStaticWrapperPool<>(
+                PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.HandlerContextPool_Capacity)),
+                PoolStrategy.alwaysCreate(),
+                this::createHandlerContext,
+                this::createRecyclableWrapper
+        );
+        this.packetWrapperPool = new TargetDynamicWrapperPool<>(
+                PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.PacketWrapperPool_Capacity)),
+                PoolStrategy.alwaysCreate(),
+                () -> new BusinessPacketFragmentWrapper(this.taskTracer)
+        );
+        this.handlerContextPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
     }
 
-    public final void dispatch(BusinessPacket packet, S session) {
+    protected abstract HC createHandlerContext();
+    protected abstract HR createRecyclableWrapper(HC hc);
+
+    /**
+     * 摄入业务包（收后工作）
+     */
+    public final void ingest(BusinessPacket packet, S session) {
         NexalithicTask task = taskTracer.pick(packet.getTaskId());
         if (task != null) {
             threadPool.submit(() -> onTaskResponse(task, packet));
@@ -80,23 +126,35 @@ public abstract class BusinessPacketDispatcher<
             return null;
         }
         switch (task.getStrategy()) {
-            case ASYNC -> threadPool.submit(() -> onTaskRequest(task, session));
+            case ASYNC -> threadPool.submit(() -> onTaskRequest(session, task));
             case SYNC_WAIT -> {
-                onTaskRequest(task, session);
+                onTaskRequest(session, task);
                 task.getFuture().waitFinish();
             }
             case SEQUENTIAL_QUEUE -> {
                 if (taskTracer.hasTrackingTasks()) {
-                    waitQueue.offer(() -> onTaskRequest(task, session));
+                    waitQueue.offer(() -> onTaskRequest(session, task));
                 } else {
-                    threadPool.submit(() -> onTaskRequest(task, session));
+                    threadPool.submit(() -> onTaskRequest(session, task));
                 }
             }
         }
         return task.getFuture();
     }
 
-    private boolean onTaskRequest(NexalithicTask task, S session) {
+    /**
+     * 流出业务包（发前工作）
+     */
+    public final boolean egress(S session, BusinessPacket packet) {
+        if (session == null) {
+            return false;
+        }
+        BusinessPacketFragmentWrapper wrapper = packetWrapperPool.acquire();
+        wrapper.wrap(packet.seal());
+        return session.pushBusinessPacketWrapper(wrapper);
+    }
+
+    private boolean onTaskRequest(S session, NexalithicTask task) {
         BusinessPacket packet = null;
         boolean pushed = false;
         try {
@@ -110,7 +168,7 @@ public abstract class BusinessPacketDispatcher<
                 }
                 task.transitTo(NexalithicTask.State.WAITING);
             }
-            return pushed = pushBusinessPacket(session, packet.setTaskId(task.getTaskId()));
+            return pushed = egress(session, packet.setTaskId(task.getTaskId()));
         } catch (Exception e) {
             task.exception(e);
             return false;
@@ -126,6 +184,4 @@ public abstract class BusinessPacketDispatcher<
     private void onTaskResponse(NexalithicTask task, BusinessPacket packet) {
         task.response(packet);
     }
-
-    public abstract boolean pushBusinessPacket(S session, BusinessPacket packet);
 }

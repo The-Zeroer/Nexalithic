@@ -1,17 +1,18 @@
 package com.thezeroer.nexalithic.client.lifecycle;
 
+import com.thezeroer.nexalithic.client.NexalithicClient;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionValidator;
-import com.thezeroer.nexalithic.core.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -41,27 +42,34 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @version 1.0.0
  */
 public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
-    public static final class Options implements OptionsDefinition {
-        public static final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create(
-                "GeneralLoop_HeartBeat_Interval", 30000L, OptionValidator.positive()
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, GeneralLoop.class);
+    public static final class Options extends ChannelLoop.Options {
+        public final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create(
+                30000L, OptionValidator.positive()
         );
+        public Options(Class<?> holder) {
+            super(holder);
+        }
     }
-
+    public record Constant(long HeartBeat_Interval) {}
+    private final Constant CONSTANT;
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private static final SignalingPacket heartbeatPacket = new SignalingPacket(SignalingPacket.Signal.HeartBeat);
-    private final ClientSecurityPolicy policy;
+    private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
-    private final NetworkRouter router;
+    private final NetworkRouter networkRouter;
     private final ClientBusinessPacketDispatcher dispatcher;
     private final ClientSession.ClientChannelFactory factory;
     private volatile ClientSession session;
 
-    public GeneralLoop(ClientSecurityPolicy policy, ClientBusinessPacketDispatcher dispatcher, PayloadRegistry registry) throws IOException {
-        this.policy = policy;
-        this.dispatcher = dispatcher;
-        this.eventQueue = new ConcurrentLinkedQueue<>();
-        this.router = new NetworkRouter();
-        this.factory = new ClientSession.ClientChannelFactory(this, registry);
+    public GeneralLoop(NexalithicBuilderContext context) throws IOException {
+        super(context, OPTIONS);
+        CONSTANT = new Constant(context.getOption(OPTIONS.HeartBeat_Interval));
+        securityPolicy = context.getModule(NexalithicClient.Modules.SecurityPolicy);
+        dispatcher = context.getModule(NexalithicClient.Modules.BusinessPacketDispatcher);
+        factory = new ClientSession.ClientChannelFactory(context, this);
+        networkRouter = new NetworkRouter();
+        eventQueue = new ConcurrentLinkedQueue<>();
     }
 
     public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException,
@@ -69,15 +77,15 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
         if (packetType == AbstractPacket.PacketType.SIGNALING) {
             MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
-            ByteBuffer buffer1 = ByteBuffer.allocate(policy.getServerCertificatesLength());
-            ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + policy.signatureLength());
+            ByteBuffer buffer1 = ByteBuffer.allocate(securityPolicy.getServerCertificatesLength());
+            ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength());
             if (socketChannel.read(new ByteBuffer[]{buffer1, buffer2}) == -1) {
                 return false;
             }
             transcriptHash.update(buffer1.flip());
             transcriptHash.update(buffer2.flip());
-            policy.CertificatesFormBuffer(buffer1.flip());
-            if (!policy.verifyOfLeafCertificate(buffer2.flip())) {
+            securityPolicy.CertificatesFormBuffer(buffer1.flip());
+            if (!securityPolicy.verifyOfLeafCertificate(buffer2.flip())) {
                 logger.warn("Certificate verification failed");
                 throw new SecurityException("Certificate verification failed");
             }
@@ -129,7 +137,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         }
         if (session != null) {
             long now = System.currentTimeMillis();
-            if (now - session.getLastActiveTime() >= Interior.HeartBeat_Interval) {
+            if (now - session.getLastActiveTime() >= CONSTANT.HeartBeat_Interval) {
                 session.pushSignalingPacketWrapper(heartbeatPacket);
                 session.updateLastActiveTime(now);
             }
@@ -151,7 +159,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
-                        dispatcher.dispatch(packet, session);
+                        dispatcher.ingest(packet, session);
                     }
                 }
             } else if (selectionKey.isWritable()) {
@@ -178,7 +186,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             switch (packet.getSignal()) {
                 case SignalingPacket.Signal.BusinessChannelToken -> session.setBusinessChannelToken(packet.getContent());
                 case SignalingPacket.Signal.ResponseBusinessPort -> dispatch(AbstractPacket.PacketType.BUSINESS, SocketChannel
-                        .open(new InetSocketAddress(router.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
+                        .open(new InetSocketAddress(networkRouter.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -189,7 +197,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         return session;
     }
     public NetworkRouter getNetworkRouter() {
-        return router;
+        return networkRouter;
     }
 
     private void closeChannel(ClientSessionChannel<?, ?> channel) {
@@ -198,9 +206,5 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         } else {
             channel.close();
         }
-    }
-
-    private static class Interior {
-        public static final long HeartBeat_Interval = Options.HeartBeat_Interval.value();
     }
 }
