@@ -6,7 +6,6 @@ import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
@@ -60,7 +59,6 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<PayloadRegistry> PayloadRegistry = NexalithicModule.create("BusinessPacketsAssembler_PayloadRegistry", PayloadRegistry.class);
-        public static final NexalithicModule<TransferTracer> TransferTracer = NexalithicModule.create("BusinessPacketsAssembler_TransferTracer", TransferTracer.class);
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", GenericTimeWheel.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsAssembler.class);
@@ -78,12 +76,13 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     }
 
     @Override
-    public void feed(LoopBuffer source) throws IOException {
+    public boolean feed(LoopBuffer source) throws IOException {
+        int flag = source.readableBytes();
         if (pendingPacket != null) {
             if (completedPackets.offer(pendingPacket)) {
                 pendingPacket = null;
             } else {
-                return;
+                return false;
             }
         }
         int read;
@@ -119,6 +118,7 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
                 break;
             }
         }
+        return flag != source.readableBytes();
     }
 
     @Override

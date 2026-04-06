@@ -28,7 +28,8 @@ public abstract class SecurityChannel {
     }
 
     /** 加密 */
-    protected final void encrypt(LoopBuffer srcBuffer, LoopBuffer dstBuffer) throws InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
+    protected final boolean encrypt(LoopBuffer srcBuffer, LoopBuffer dstBuffer) throws InvalidAlgorithmParameterException, ShortBufferException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
+        int flag = srcBuffer.readableBytes();
         while (srcBuffer.readableBytes() > 0) {
             int payloadLength = Math.min(srcBuffer.readableBytes(), MAX_PAYLOAD_SIZE);
             int cipherLength = payloadLength + SecretKeyContext.TAG_LENGTH;
@@ -54,10 +55,12 @@ public abstract class SecurityChannel {
                 dstBuffer.unsafePut(secretKeyContext.encrypt(payload), cipherLength);
             }
         }
+        return flag != srcBuffer.readableBytes();
     }
 
     /** 解密 */
-    protected final void decrypt(LoopBuffer srcBuffer, LoopBuffer dstBuffer) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
+    protected final boolean decrypt(LoopBuffer srcBuffer, LoopBuffer dstBuffer) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, ShortBufferException, BadPaddingException, InvalidKeyException {
+        int flag = srcBuffer.readableBytes();
         while (srcBuffer.readableBytes() > FRAME_HEADER_LENGTH) {
             srcBuffer.markHead();
             int payloadLength = srcBuffer.getShort();
@@ -84,5 +87,6 @@ public abstract class SecurityChannel {
                 dstBuffer.unsafePut(secretKeyContext.decrypt(cipher), payloadLength);
             }
         }
+        return flag != srcBuffer.readableBytes();
     }
 }

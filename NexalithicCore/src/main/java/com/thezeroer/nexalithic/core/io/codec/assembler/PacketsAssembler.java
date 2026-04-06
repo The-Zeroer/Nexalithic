@@ -13,7 +13,7 @@ import java.io.IOException;
  * @version 1.0.0
  */
 public interface PacketsAssembler<P extends AbstractPacket> {
-    void feed(LoopBuffer source) throws IOException;
+    boolean feed(LoopBuffer source) throws IOException;
     P drain();
     void clear();
 }

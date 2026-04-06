@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TaskTracer implements TimerExecutor<NexalithicTask> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, TaskTracer.class);
     public static final class Options extends OptionsDefinition {
-        public final TimeWheel.Options TimeWheel = copyFrom(com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS);
+        public final TimeWheel.Options TimeWheel = new  TimeWheel.Options(holder) {};
         public Options(Class<?> holder) {
             super(holder);
         }

@@ -82,7 +82,7 @@ public class NexalithicTask implements Expirable {
         /** 结束 */
         FINISHED,
     }
-    public static final Logger logger = LoggerFactory.getLogger(NexalithicTask.class);
+    private static final Logger logger = LoggerFactory.getLogger(NexalithicTask.class);
     private static final AtomicLong COUNTER = new AtomicLong(0);
     private final long taskId;
     private final AtomicReference<State> state = new  AtomicReference<>(State.NEW);
@@ -97,13 +97,11 @@ public class NexalithicTask implements Expirable {
     private final long waitTime;
 
     private final TaskFuture future;
-    private final TransferListener requestListener;
-    private final TransferListener responseListener;
 
     private NexalithicTask(TaskFunction.RequestAction requestAction, TaskFunction.ResponseAction responseAction,
                            TaskFunction.FinishAction finishAction, TaskFunction.TimeoutAction timeoutAction,
                            TaskFunction.CancelAction cancelAction, TaskFunction.ExceptionAction exceptionAction,
-                           Pattern pattern, Strategy strategy, long waitTime, TransferListener requestListener, TransferListener responseListener) {
+                           Pattern pattern, Strategy strategy, long waitTime) {
         this.taskId = COUNTER.getAndIncrement();
         this.requestAction = requestAction;
         this.responseAction = responseAction;
@@ -114,8 +112,6 @@ public class NexalithicTask implements Expirable {
         this.pattern = pattern;
         this.strategy = strategy;
         this.waitTime = waitTime;
-        this.requestListener = requestListener;
-        this.responseListener = responseListener;
         future = new TaskFuture(this);
     }
 
@@ -204,13 +200,6 @@ public class NexalithicTask implements Expirable {
         return state.get();
     }
 
-    public final TransferListener getRequestListener() {
-        return requestListener;
-    }
-    public final TransferListener getResponseListener() {
-        return responseListener;
-    }
-
     @Override
     public long getExpiryTime() {
         return System.currentTimeMillis() + waitTime;
@@ -236,9 +225,6 @@ public class NexalithicTask implements Expirable {
         private Pattern pattern;
         private Strategy strategy;
         private long waitTime = 3000;
-
-        private TransferListener requestListener;
-        private TransferListener responseListener;
 
         public Builder() {
             pattern = Pattern.REQUEST_RESPONSE;
@@ -288,21 +274,12 @@ public class NexalithicTask implements Expirable {
             return this;
         }
 
-        public Builder setRequestListener(TransferListener requestListener) {
-            this.requestListener = requestListener;
-            return this;
-        }
-        public Builder setResponseListener(TransferListener responseListener) {
-            this.responseListener = responseListener;
-            return this;
-        }
-
         public NexalithicTask build() {
             if (requestAction == null) {
                 throw new IllegalArgumentException("requestAction is required");
             }
             return new NexalithicTask(requestAction, responseAction, finishAction, timeoutAction, cancelAction, exceptionAction,
-                    pattern, strategy, waitTime, requestListener, responseListener);
+                    pattern, strategy, waitTime);
         }
     }
 }

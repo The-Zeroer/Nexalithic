@@ -154,9 +154,13 @@ public abstract class SessionChannel<
                                 session.getSessionId(), Thread.currentThread().getName()));
             }
         }
-        if (fragmenter.drain(readPlainBuffer) > 0) {
-            encrypt(readPlainBuffer, writeCipheBuffer);
-        }
+        boolean progressed;
+        do {
+            progressed = fragmenter.drain(readPlainBuffer);
+            if (encrypt(readPlainBuffer, writeCipheBuffer)) {
+                progressed = true;
+            }
+        } while (progressed);
         long written = writeCipheBuffer.writeToChannel(socketChannel);
         if (written == 0 && writeCipheBuffer.isEmpty() && fragmenter.isEmpty()) {
             readPlainBuffer.recycle();
@@ -180,10 +184,16 @@ public abstract class SessionChannel<
             }
         }
         long read = readCipheBuffer.readFromChannel(socketChannel);
-        if (read > 0) {
-            decrypt(readCipheBuffer, writePlainBuffer);
-            assembler.feed(writePlainBuffer);
+        if (read < 0) {
+            return read;
         }
+        boolean progressed;
+        do {
+            progressed = decrypt(readCipheBuffer, writePlainBuffer);
+            if (assembler.feed(writePlainBuffer)) {
+                progressed = true;
+            }
+        } while (progressed);
         if (readCipheBuffer.isEmpty() && writePlainBuffer.isEmpty()) {
             readCipheBuffer.recycle();
             readCipheBuffer = null;
@@ -192,7 +202,6 @@ public abstract class SessionChannel<
         }
         return read;
     }
-
 
     public final S session() {
         return session;

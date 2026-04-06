@@ -13,14 +13,16 @@ import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.recyclable.*;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.MpmcArrayQueue;
 
-import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 业务包分发器
@@ -72,10 +74,12 @@ public abstract class BusinessPacketDispatcher<
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<TaskTracer> TaskTracer = NexalithicModule.create("BusinessPacketDispatcher_TaskTracer", TaskTracer.class);
+        public static final NexalithicModule<TransferTracer> TransferTracer = NexalithicModule.create("BusinessPacketDispatcher_TransferTracer", TransferTracer.class);
         public static final NexalithicModule<HandlerRegistry<? extends HandlerContext<?>>> HandlerRegistry = NexalithicModule.create("BusinessPacketDispatcher_HandlerRegistry", HandlerRegistry.class);
         public static final NexalithicModule<ExecutorService> ExecutorService = NexalithicModule.create("BusinessPacketDispatcher_ExecutorService", ExecutorService.class);
     }
     private final TaskTracer taskTracer;
+    private final TransferTracer transferTracer;
     private final HandlerRegistry<HC> handlerRegistry;
     private final WrapperPool<HR> handlerContextPool;
     private final WrapperPool<BusinessPacketFragmentWrapper> packetWrapperPool;
@@ -83,27 +87,37 @@ public abstract class BusinessPacketDispatcher<
     private final Queue<Runnable> waitQueue;
 
     public BusinessPacketDispatcher(NexalithicBuilderContext context, Options options) {
-        this.taskTracer = context.getModule(Modules.TaskTracer);
-        this.handlerRegistry = context.getModule(Modules.HandlerRegistry);
-        this.threadPool = context.getModule(Modules.ExecutorService, () -> {
-            int cores = Runtime.getRuntime().availableProcessors();
-            return new ThreadPoolExecutor(options.ThreadPool_CorePoolSize_DefaultValue(), options.ThreadPool_MaximumPoolSize_DefaultValue(),
-                    options.ThreadPool_KeepAliveTime_DefaultValue(), TimeUnit.SECONDS,
-                    new ArrayBlockingQueue<>(options.ThreadPool_WorkQueue_Capacity_DefaultValue()), new ThreadPoolExecutor.CallerRunsPolicy());
-        });
-        this.waitQueue = new ConcurrentLinkedQueue<>();
-        this.handlerContextPool = new TargetStaticWrapperPool<>(
+        taskTracer = context.getModule(Modules.TaskTracer);
+        transferTracer = context.getModule(Modules.TransferTracer);
+        handlerRegistry = context.getModule(Modules.HandlerRegistry);
+        threadPool = context.getModule(Modules.ExecutorService, () -> new ThreadPoolExecutor(
+                options.ThreadPool_CorePoolSize_DefaultValue(),
+                options.ThreadPool_MaximumPoolSize_DefaultValue(),
+                options.ThreadPool_KeepAliveTime_DefaultValue(), TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(options.ThreadPool_WorkQueue_Capacity_DefaultValue()),
+                new ThreadFactory() {
+                    private final AtomicInteger counter = new AtomicInteger(1);
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "BusinessPacketDispatcher-ExecutorService-" + counter.getAndIncrement());
+                        t.setDaemon(true);
+                        return t;
+                    }
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()));
+        waitQueue = new ConcurrentLinkedQueue<>();
+        handlerContextPool = new TargetStaticWrapperPool<>(
                 PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.HandlerContextPool_Capacity)),
                 PoolStrategy.alwaysCreate(),
                 this::createHandlerContext,
                 this::createRecyclableWrapper
         );
-        this.packetWrapperPool = new TargetDynamicWrapperPool<>(
+        packetWrapperPool = new TargetDynamicWrapperPool<>(
                 PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.PacketWrapperPool_Capacity)),
                 PoolStrategy.alwaysCreate(),
-                () -> new BusinessPacketFragmentWrapper(this.taskTracer)
+                () -> new BusinessPacketFragmentWrapper(taskTracer, transferTracer)
         );
-        this.handlerContextPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
+        handlerContextPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
     }
 
     protected abstract HC createHandlerContext();
@@ -142,6 +156,27 @@ public abstract class BusinessPacketDispatcher<
         if (session == null) {
             return null;
         }
+        switch (task.getStrategy()) {
+            case ASYNC -> threadPool.submit(() -> onTaskRequest(session, task));
+            case SYNC_WAIT -> {
+                onTaskRequest(session, task);
+                task.getFuture().waitFinish();
+            }
+            case SEQUENTIAL_QUEUE -> {
+                if (taskTracer.hasTrackingTasks()) {
+                    waitQueue.offer(() -> onTaskRequest(session, task));
+                } else {
+                    threadPool.submit(() -> onTaskRequest(session, task));
+                }
+            }
+        }
+        return task.getFuture();
+    }
+    public final TaskFuture submitNexalithicTask(S session, NexalithicTask task, TransferListenerGroup visualizer) {
+        if (session == null) {
+            return null;
+        }
+        transferTracer.putVisualizer(visualizer);
         switch (task.getStrategy()) {
             case ASYNC -> threadPool.submit(() -> onTaskRequest(session, task));
             case SYNC_WAIT -> {

@@ -3,6 +3,10 @@ package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
@@ -19,6 +23,9 @@ import java.util.List;
  */
 public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> implements FragmentWrapper<BusinessPacket> {
     private final TaskTracer taskTracer;
+    private final TransferTracer transferTracer;
+    private TransferListener listener;
+    private TransferSnapshot snapshot;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
     private long remaining;
@@ -26,12 +33,17 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     private int payloadIndex;
     private List<? extends AbstractPayload<?>> payloads;
 
-    public BusinessPacketFragmentWrapper(TaskTracer taskTracer) {
+    public BusinessPacketFragmentWrapper(TaskTracer taskTracer, TransferTracer transferTracer) {
         this.taskTracer = taskTracer;
+        this.transferTracer = transferTracer;
     }
 
     @Override
     public void onWrap(BusinessPacket packet) {
+        TransferListenerGroup visualizer = transferTracer.getVisualizer(packet.getTaskId());
+        if (visualizer != null) {
+            listener = visualizer.requestTransferListener();
+        }
         remaining = packet.getPacketSize();
         packetId = packet.getPacketId();
         payloads = packet.payloads();
@@ -43,10 +55,17 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             return true;
         } else {
             taskTracer.activate(target.getTaskId());
+            if (listener != null) {
+                transferTracer.onFinish(listener);
+            }
             return false;
         }
     }
     public int firstFrame(LoopBuffer output) throws IOException {
+        if (listener != null) {
+            snapshot = new TransferSnapshot(remaining);
+            transferTracer.onStart(listener, snapshot);
+        }
         int writable = output.writableBytes();
         int headerSize = target.getHeaderSize();
         int offest = PacketFrame.FRAME_HEADER_LENGTH + headerSize;
@@ -67,6 +86,9 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             output.setTail(tail);
         }
         remaining -= total;
+        if (snapshot != null) {
+            snapshot.updateRemaining(remaining);
+        }
         return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
 
@@ -88,6 +110,9 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             output.setTail(tail);
         }
         remaining -= total;
+        if (snapshot != null) {
+            snapshot.updateRemaining(remaining);
+        }
         return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
 
@@ -116,7 +141,7 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             AbstractPayload<?> payload = payloads.get(payloadIndex);
             long totalSize = payload.getTotalSize();
             long processedSize = payload.getProcessedSize();
-            LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView(Math.min((int) (totalSize - processedSize), quota - total));
+            LoopBuffer.LimitedWritableView writableView = output.unsafeLimitedWritableView(Math.toIntExact(Math.min(totalSize - processedSize, quota - total)));
             try {
                 if (processedSize == 0) {
                     payload.prepareEncode();
@@ -197,5 +222,7 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     public void onRecycle() {
         prev = null;
         next = null;
+        listener = null;
+        snapshot = null;
     }
 }

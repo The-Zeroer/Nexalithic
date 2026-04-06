@@ -18,6 +18,7 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
@@ -42,10 +43,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 
@@ -99,6 +97,10 @@ public class NexalithicClient {
 
     public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
         return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder.build());
+    }
+    public TaskFuture submit(NexalithicTask.Builder taskBuilder, TransferListenerGroup.Builder transferVisualizerBuilder) {
+        NexalithicTask task = taskBuilder.build();
+        return businessPacketDispatcher.submitNexalithicTask(getSession(), task, transferVisualizerBuilder.build(task.getTaskId()));
     }
     public boolean push(BusinessPacket packet) {
         return businessPacketDispatcher.egress(getSession(), packet);
@@ -180,7 +182,7 @@ public class NexalithicClient {
 
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
-            context.setModule(BusinessPacketsAssembler.Modules.TransferTracer, new TransferTracer());
+            context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
             context.setModule(Modules.GeneralLoop, new GeneralLoop(context));

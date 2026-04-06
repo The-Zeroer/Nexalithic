@@ -2,6 +2,8 @@ package com.thezeroer.nexalithic.core.messaging.task;
 
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 
+import java.io.FileNotFoundException;
+
 /**
  * 业务任务函数接口，定义了一个异步请求-响应周期的完整生命周期。
  * <p>

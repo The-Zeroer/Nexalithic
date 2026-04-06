@@ -65,8 +65,8 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
     }
 
     @Override
-    public int drain(LoopBuffer target) throws IOException {
-        int total = 0, written;
+    public boolean drain(LoopBuffer target) throws IOException {
+        int flag = target.writableBytes(), written;
         BusinessPacketFragmentWrapper wrapper;
         while ((wrapper = packets.peek()) != null) {
             written = wrapper.firstFrame(target);
@@ -74,7 +74,6 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
                 break;
             }
             packets.poll();
-            total += written;
             if (wrapper.hasFrame()) {
                 if (head == null) {
                     head = wrapper;
@@ -95,7 +94,6 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
             if (written == 0) {
                 break;
             }
-            total += written;
             if (wrapper.hasFrame()) {
                 wrapper = wrapper.getNext();
             } else {
@@ -118,7 +116,7 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
             }
             last = wrapper;
         }
-        return total;
+        return flag != target.writableBytes();
     }
 
     @Override

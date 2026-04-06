@@ -16,16 +16,11 @@ import java.util.List;
  * @since 2026/04/02
  * @version 1.0.0
  */
-@SuppressWarnings("unchecked")
 public class OptionsDefinition {
     protected final Class<?> holder;
 
     protected OptionsDefinition(Class<?> holder) {
         this.holder = holder;
-    }
-
-    protected <T extends OptionsDefinition> T copyFrom(T template) {
-        return (T) initOptions(template.getClass(), holder);
     }
 
     public static <T extends OptionsDefinition> T initOptions(Class<T> options, Class<?> holder) {

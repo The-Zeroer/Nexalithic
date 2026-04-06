@@ -19,12 +19,13 @@ public class SignalingPacketsAssembler implements PacketsAssembler<SignalingPack
     private SignalingPacket pendingPacket;
 
     @Override
-    public void feed(LoopBuffer source) {
+    public boolean feed(LoopBuffer source) {
+        int flag = source.readableBytes();
         if (pendingPacket != null) {
             if (packets.offer(pendingPacket)) {
                 pendingPacket = null;
             } else {
-                return;
+                return false;
             }
         }
         while (true) {
@@ -52,6 +53,7 @@ public class SignalingPacketsAssembler implements PacketsAssembler<SignalingPack
                 break;
             }
         }
+        return flag != source.readableBytes();
     }
 
     @Override

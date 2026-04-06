@@ -38,10 +38,8 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
@@ -118,7 +116,17 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         threadPool = context.getModule(Modules.ExecutorService, () -> {
             int cores = Runtime.getRuntime().availableProcessors();
             return new ThreadPoolExecutor(cores, cores * 2, 60, TimeUnit.SECONDS,
-                    new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+                    new ArrayBlockingQueue<>(1024),
+                    new ThreadFactory() {
+                        private final AtomicInteger counter = new AtomicInteger(1);
+                        @Override
+                        public Thread newThread(Runnable r) {
+                            Thread t = new Thread(r, "HandshakeLoop-ExecutorService-" + counter.getAndIncrement());
+                            t.setDaemon(true);
+                            return t;
+                        }
+                    },
+                    new ThreadPoolExecutor.CallerRunsPolicy());
         });
         dispatchQueue = new MpscArrayQueue<>(context.getOption(OPTIONS.DispatchQueue_Capacity));
         certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());

@@ -54,29 +54,28 @@ public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPa
     }
 
     @Override
-    public int drain(LoopBuffer target) {
-        int total = 0;
+    public boolean drain(LoopBuffer target) {
+        int flag = target.writableBytes();
         SignalingPacket packet = currentPacket;
         while (packet != null || !packets.isEmpty()) {
             if (packet == null) {
                 packet = packets.poll();
                 if (packet == null) {
-                    return -1;
+                    return false;
                 }
             }
             int totalRequired = packet.getTotalSize();
             if (target.writableBytes() < totalRequired) {
                 currentPacket = packet;
-                return total;
+                break;
             }
             packet.unsafeToBuffer(target);
             if (logger.isTraceEnabled()) {
                 logger.trace("[{}] sent SIGNALING packet", packet);
             }
             packet = null;
-            total += totalRequired;
         }
-        return total;
+        return flag != target.writableBytes();
     }
 
     @Override

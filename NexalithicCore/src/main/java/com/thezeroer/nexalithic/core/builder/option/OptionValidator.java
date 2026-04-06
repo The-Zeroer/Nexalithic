@@ -17,6 +17,16 @@ public interface OptionValidator<T> {
     void validate(T value) throws IllegalArgumentException;
 
     /**
+     * nonNull
+     */
+    static <T> OptionValidator<T> nonNull() {
+        return value -> {
+            if (value == null)
+                throw new IllegalArgumentException("Value must not be null, but got: " + null);
+        };
+    }
+
+    /**
      * 验证必须是正数 (> 0)
      */
     static <T extends Number> OptionValidator<T> positive() {

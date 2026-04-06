@@ -322,12 +322,8 @@ public class NexalithicServer {
             return this;
         }
 
-        public Builder handshakeLoopThreadPool(ExecutorService threadPool) {
-            context.setModule(HandshakeLoop.Modules.ExecutorService, threadPool);
-            return this;
-        }
-        public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
-            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, threadPool);
+        public Builder setExecutorService(NexalithicModule<ExecutorService> module, ExecutorService threadPool) {
+            context.setModule(module, threadPool);
             return this;
         }
 
@@ -338,7 +334,7 @@ public class NexalithicServer {
 
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
-            context.setModule(BusinessPacketsAssembler.Modules.TransferTracer, new TransferTracer());
+            context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ServerBusinessPacketDispatcher(context));

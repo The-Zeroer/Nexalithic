@@ -14,7 +14,7 @@ import java.io.IOException;
 public interface PacketsFragmenter<W extends FragmentWrapper<?>> {
     boolean feed(W wrapper);
     int fill(W... wrappers);
-    int drain(LoopBuffer target) throws IOException;
+    boolean drain(LoopBuffer target) throws IOException;
     boolean isEmpty();
     void clear();
 }

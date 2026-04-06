@@ -2,6 +2,9 @@ package com.thezeroer.nexalithic.core.io.codec.assembler;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
@@ -24,6 +27,9 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private final Constant CONSTANT;
     private final PacketBuilder packetBuilder = new PacketBuilder();
     private final PayloadRegistry payloadRegistry;
+    private final TransferTracer transferTracer;
+    private TransferListener listener;
+    private TransferSnapshot snapshot;
     private BusinessPacket packet;
     private long remaining;
     private int packetId;
@@ -34,10 +40,19 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry, TransferTracer transferTracer) {
         CONSTANT = constant;
         this.payloadRegistry = payloadRegistry;
+        this.transferTracer = transferTracer;
     }
 
     public boolean hasFrame() {
-        return remaining > 0;
+        if (remaining > 0) {
+            return true;
+        } else {
+            packet = packetBuilder.build();
+            if (listener != null) {
+                transferTracer.onFinish(listener);
+            }
+            return false;
+        }
     }
 
     public int onFrame(LoopBuffer input, int quota, boolean isStartFrame) throws IOException {
@@ -50,6 +65,14 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
             }
             total += readPacketHeader(input);
             headerRead = true;
+            TransferListenerGroup visualizer = transferTracer.removeVisualizer(packetBuilder.taskId);
+            if (visualizer != null) {
+                listener = visualizer.responseTransferListener();
+                if (listener != null) {
+                    snapshot = new TransferSnapshot(remaining);
+                    transferTracer.onStart(listener, snapshot);
+                }
+            }
         }
         List<AbstractPayload<?>> payloads = packetBuilder.payloads;
         int read;
@@ -58,7 +81,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
             long totalSize = packetBuilder.payloadsMeta[payloadIndex * 2 + 1];
             long processedSize = payload.getProcessedSize();
             LoopBuffer.LimitedReadableView readableView = input.unsafeLimitedReadableView(
-                    Math.min((int) (totalSize - processedSize), quota - total)
+                    Math.toIntExact(Math.min(totalSize - processedSize, quota - total))
             );
             try {
                 if (processedSize == 0) {
@@ -77,8 +100,8 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
             }
         }
         remaining -= total;
-        if (remaining == 0) {
-            packet = packetBuilder.build();
+        if (snapshot != null) {
+            snapshot.updateRemaining(remaining);
         }
         return total;
     }
@@ -138,6 +161,8 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         headerRead = false;
         payloadIndex = 0;
         lastActiveTime = -1;
+        listener = null;
+        snapshot = null;
     }
 
     @Override
