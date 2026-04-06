@@ -157,7 +157,7 @@ public class OptionsDefinition {
     }
     private String getValueString(NexalithicOption<?> opt, NexalithicBuilderContext context) {
         StringBuilder vsb = new StringBuilder();
-        vsb.append("(default=").append(opt.defaultValue());
+        vsb.append("(default=").append(opt.defaultValue(context));
         if (context != null) {
             vsb.append(", current=").append(context.getOption(opt));
         }

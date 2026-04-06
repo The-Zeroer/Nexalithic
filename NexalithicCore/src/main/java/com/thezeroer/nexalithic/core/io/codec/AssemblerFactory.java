@@ -6,6 +6,7 @@ import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.assembler.SignalingPacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketAssemblyWrapper;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.recyclable.*;
 import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
@@ -30,10 +31,11 @@ public class AssemblerFactory {
                 context.getOption(BusinessPacketsAssembler.OPTIONS.MaxIdleTime)
         );
         PayloadRegistry payloadRegistry = context.getModule(BusinessPacketsAssembler.Modules.PayloadRegistry);
+        TransferTracer transferTracer = context.getModule(BusinessPacketsAssembler.Modules.TransferTracer);
         wrapperPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(SpscArrayQueue::new, context.getOption(BusinessPacketsAssembler.OPTIONS.WrapperPool_Capacity)),
                 PoolStrategy.alwaysCreate(),
-                () -> new BusinessPacketAssemblyWrapper(businessPacketAssemblyConstant, payloadRegistry)
+                () -> new BusinessPacketAssemblyWrapper(businessPacketAssemblyConstant, payloadRegistry, transferTracer)
         );
         timeWheel = context.getModule(BusinessPacketsAssembler.Modules.TimeWheel, () -> {
             GenericTimeWheel timeWheel = new GenericTimeWheel(

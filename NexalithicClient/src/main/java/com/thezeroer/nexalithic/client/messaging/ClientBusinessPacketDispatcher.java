@@ -28,6 +28,12 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
         protected Integer PacketWrapperPool_Capacity_DefaultValue() {
             return 64;
         }
+        protected Integer ThreadPool_CorePoolSize_DefaultValue() {
+            return Math.min(super.ThreadPool_CorePoolSize_DefaultValue(), 4);
+        }
+        protected Integer ThreadPool_MaximumPoolSize_DefaultValue() {
+            return ThreadPool_CorePoolSize_DefaultValue();
+        }
     }
 
     public ClientBusinessPacketDispatcher(NexalithicBuilderContext context) {

@@ -28,7 +28,7 @@ public class NexalithicBuilderContext {
     public <T> T getOption(NexalithicOption<T> option) {
         Object value = options.get(option);
         if (value == null) {
-            return option.defaultValue();
+            return option.defaultValue(this);
         } else {
             return (T) value;
         }

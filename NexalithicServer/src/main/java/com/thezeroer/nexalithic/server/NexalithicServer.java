@@ -15,6 +15,7 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
 import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
@@ -80,6 +81,9 @@ public class NexalithicServer {
     public static Builder builder() {
         logger.info(Banner.BANNER);
         return new Builder();
+    }
+    public static NexalithicServer unsafeCreate(NexalithicBuilderContext context) {
+        return new NexalithicServer(context);
     }
 
     /**
@@ -278,12 +282,6 @@ public class NexalithicServer {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            context.setModule(Modules.NetworkRouter, new NetworkRouter());
-            int cores = Runtime.getRuntime().availableProcessors();
-            context.setModule(HandshakeLoop.Modules.ExecutorService, new ThreadPoolExecutor(cores, cores * 2,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
-            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, new ThreadPoolExecutor(cores, cores * 2,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -292,7 +290,7 @@ public class NexalithicServer {
         }
 
         public Builder addRoute(AbstractPacket.PacketType type, String cidr, int port) throws UnknownHostException {
-            NetworkRouter router = context.getModule(Modules.NetworkRouter);
+            NetworkRouter router = context.getModule(Modules.NetworkRouter, NetworkRouter::new);
             router.addRoute(type, cidr, port);
             return this;
         }
@@ -334,13 +332,13 @@ public class NexalithicServer {
         }
 
         public NexalithicServer build() throws IOException {
-            verifyOptions();
             if (logger.isTraceEnabled()) {
                 logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
+            context.setModule(BusinessPacketsAssembler.Modules.TransferTracer, new TransferTracer());
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ServerBusinessPacketDispatcher(context));
@@ -360,10 +358,6 @@ public class NexalithicServer {
             context.setModule(LifecycleManager.Modules.AcceptorLoop, (AcceptorLoop) new AcceptorLoop(context).addIdToName("0"));
             context.setModule(Modules.LifecycleManager, new LifecycleManager(context));
             return new NexalithicServer(context);
-        }
-
-        private void verifyOptions() {
-
         }
     }
 

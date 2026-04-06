@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.util.function.Function;
 
 /**
  * 主选择器
@@ -38,14 +39,16 @@ import java.security.InvalidKeyException;
 public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> implements TimerExecutor<ServerSession> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, StewardLoop.class);
     public static final class Options extends ServiceLoop.Options {
-        private static final long HeatBeat_MaxInterval_DefaultValue = 60_000L;
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
-            protected Integer Slot_DefaultValue() {
-                return Math.toIntExact(HeatBeat_MaxInterval_DefaultValue / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            protected NexalithicOption<Integer> Slot() {
+                return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
+                                Math.toIntExact(context.getOption(OPTIONS.HeartBeat_MaxInterval) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                        , OptionValidator.positive()
+                );
             }
         };
         public final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create(
-                HeatBeat_MaxInterval_DefaultValue, OptionValidator.positive()
+                60_000L, OptionValidator.positive()
         );
         private Options(Class<?> holder) {
             super(holder);

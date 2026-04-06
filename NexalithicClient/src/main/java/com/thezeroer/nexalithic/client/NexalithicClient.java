@@ -18,6 +18,7 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
@@ -69,6 +70,9 @@ public class NexalithicClient {
     private NexalithicClient(NexalithicBuilderContext context) {
         this.generalLoop = context.getModule(Modules.GeneralLoop);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
+    }
+    public static NexalithicClient unsafeCreate(NexalithicBuilderContext context) {
+        return new NexalithicClient(context);
     }
 
     public static Builder builder() {
@@ -130,8 +134,6 @@ public class NexalithicClient {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, new ThreadPoolExecutor(4, 8,
-                    60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy()));
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -172,22 +174,18 @@ public class NexalithicClient {
         }
 
         public NexalithicClient build() throws Exception {
-            verifyOptions();
             if (logger.isTraceEnabled()) {
                 logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
+            context.setModule(BusinessPacketsAssembler.Modules.TransferTracer, new TransferTracer());
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
             context.setModule(Modules.GeneralLoop, new GeneralLoop(context));
 
             return new NexalithicClient(context);
-        }
-
-        private void verifyOptions() {
-
         }
     }
 

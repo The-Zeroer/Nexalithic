@@ -1,10 +1,12 @@
 package com.thezeroer.nexalithic.core.io.codec.assembler;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
@@ -20,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 业务包汇编器
@@ -32,8 +35,11 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, BusinessPacketsAssembler.class);
     public static final class Options extends OptionsDefinition {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
-            protected Integer Slot_DefaultValue() {
-                return Math.toIntExact(Options.this.MaxIdleTime_DefaultValue() / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            protected NexalithicOption<Integer> Slot() {
+                return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
+                                Math.toIntExact(context.getOption(OPTIONS.MaxIdleTime) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                        , OptionValidator.positive()
+                );
             }
         };
         public final NexalithicOption<Integer> WrapperPool_Capacity = NexalithicOption.create(
@@ -54,6 +60,7 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<PayloadRegistry> PayloadRegistry = NexalithicModule.create("BusinessPacketsAssembler_PayloadRegistry", PayloadRegistry.class);
+        public static final NexalithicModule<TransferTracer> TransferTracer = NexalithicModule.create("BusinessPacketsAssembler_TransferTracer", TransferTracer.class);
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", GenericTimeWheel.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsAssembler.class);

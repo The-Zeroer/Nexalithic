@@ -18,9 +18,9 @@ import com.thezeroer.nexalithic.core.recyclable.*;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.MpmcArrayQueue;
 
+import java.util.List;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.*;
 
 /**
  * 业务包分发器
@@ -57,6 +57,18 @@ public abstract class BusinessPacketDispatcher<
         protected Integer PacketWrapperPool_Capacity_DefaultValue() {
             return 4096;
         }
+        protected Integer ThreadPool_CorePoolSize_DefaultValue() {
+            return Runtime.getRuntime().availableProcessors();
+        }
+        protected Integer ThreadPool_MaximumPoolSize_DefaultValue() {
+            return ThreadPool_CorePoolSize_DefaultValue() * 2;
+        }
+        protected Long ThreadPool_KeepAliveTime_DefaultValue() {
+            return 60L;
+        }
+        protected Integer ThreadPool_WorkQueue_Capacity_DefaultValue() {
+            return 1024;
+        }
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<TaskTracer> TaskTracer = NexalithicModule.create("BusinessPacketDispatcher_TaskTracer", TaskTracer.class);
@@ -73,7 +85,12 @@ public abstract class BusinessPacketDispatcher<
     public BusinessPacketDispatcher(NexalithicBuilderContext context, Options options) {
         this.taskTracer = context.getModule(Modules.TaskTracer);
         this.handlerRegistry = context.getModule(Modules.HandlerRegistry);
-        this.threadPool = context.getModule(Modules.ExecutorService);
+        this.threadPool = context.getModule(Modules.ExecutorService, () -> {
+            int cores = Runtime.getRuntime().availableProcessors();
+            return new ThreadPoolExecutor(options.ThreadPool_CorePoolSize_DefaultValue(), options.ThreadPool_MaximumPoolSize_DefaultValue(),
+                    options.ThreadPool_KeepAliveTime_DefaultValue(), TimeUnit.SECONDS,
+                    new ArrayBlockingQueue<>(options.ThreadPool_WorkQueue_Capacity_DefaultValue()), new ThreadPoolExecutor.CallerRunsPolicy());
+        });
         this.waitQueue = new ConcurrentLinkedQueue<>();
         this.handlerContextPool = new TargetStaticWrapperPool<>(
                 PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.HandlerContextPool_Capacity)),

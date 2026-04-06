@@ -38,7 +38,11 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * 握手选择器
@@ -50,10 +54,12 @@ import java.util.concurrent.ExecutorService;
 public class HandshakeLoop extends AbstractLoop implements TimerExecutor<PendingChannel> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, HandshakeLoop.class);
     public static final class Options extends AbstractLoop.Options {
-        private static final long MaxWaitTime_DefaultValue = 3_000L;
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
-            protected Integer Slot_DefaultValue() {
-                return Math.toIntExact(MaxWaitTime_DefaultValue / com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            protected NexalithicOption<Integer> Slot() {
+                return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
+                                Math.toIntExact(context.getOption(OPTIONS.MaxWaitTime) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                        , OptionValidator.positive()
+                );
             }
         };
         public final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
@@ -63,7 +69,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                 256, OptionValidator.positive()
         );
         public final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
-                MaxWaitTime_DefaultValue, OptionValidator.positive()
+                3_000L, OptionValidator.positive()
         );
         private Options(Class<?> holder) {
             super(holder);
@@ -109,7 +115,11 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
             timeWheel.start();
             return timeWheel;
         });
-        threadPool = context.getModule(Modules.ExecutorService);
+        threadPool = context.getModule(Modules.ExecutorService, () -> {
+            int cores = Runtime.getRuntime().availableProcessors();
+            return new ThreadPoolExecutor(cores, cores * 2, 60, TimeUnit.SECONDS,
+                    new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+        });
         dispatchQueue = new MpscArrayQueue<>(context.getOption(OPTIONS.DispatchQueue_Capacity));
         certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());
         updateCertificateBuffer();

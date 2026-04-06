@@ -2,6 +2,7 @@ package com.thezeroer.nexalithic.core.io.codec.assembler;
 
 import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
@@ -30,7 +31,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private boolean headerRead;
     private long lastActiveTime;
 
-    public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry) {
+    public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry, TransferTracer transferTracer) {
         CONSTANT = constant;
         this.payloadRegistry = payloadRegistry;
     }

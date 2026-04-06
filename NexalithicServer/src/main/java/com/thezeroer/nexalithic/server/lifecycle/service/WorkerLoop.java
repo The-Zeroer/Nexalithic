@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.util.function.Function;
 
 /**
  * 从属选择器
@@ -37,14 +38,16 @@ import java.security.InvalidKeyException;
 public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragmentWrapper> implements TimerExecutor<ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, WorkerLoop.class);
     public static final class Options extends ServiceLoop.Options {
-        private static final long MaxIdleTime_DefaultValue = 600_000L;
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
-            protected Integer Slot_DefaultValue() {
-                return Math.toIntExact(MaxIdleTime_DefaultValue/ com.thezeroer.nexalithic.core.timer.TimeWheel.OPTIONS.Tick.defaultValue()) + 1;
+            protected NexalithicOption<Integer> Slot() {
+                return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
+                                Math.toIntExact(context.getOption(OPTIONS.MaxIdleTime) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                        , OptionValidator.positive()
+                );
             }
         };
         public final NexalithicOption<Long> MaxIdleTime = NexalithicOption.create(
-                MaxIdleTime_DefaultValue, OptionValidator.positive()
+                600_000L, OptionValidator.positive()
         );
         private Options(Class<?> holder) {
             super(holder);
