@@ -1,21 +1,22 @@
 import com.thezeroer.nexalithic.client.NexalithicClient;
 import com.thezeroer.nexalithic.client.security.DefaultClientSecurityPolicy;
+import com.thezeroer.nexalithic.client.security.EmptyClientSecurityPolicy;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
+import com.thezeroer.nexalithic.core.security.DefaultCertificate;
+import com.thezeroer.nexalithic.core.util.BinaryStorageUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.file.Paths;
 
 public class ClientTest {
     public static final Logger logger = LoggerFactory.getLogger(ClientTest.class);
@@ -25,22 +26,7 @@ public class ClientTest {
             NexalithicClient nexalithicClient = NexalithicClient.builder()
                     .apply(LoopThread.OPTIONS.GlobalLoopBufferPool_Capacity, 2)
                     .apply(LoopThread.OPTIONS.LocalLoopBufferPool_Capacity, 2)
-                    .securityPolicy(new DefaultClientSecurityPolicy() {
-                        @Override
-                        public int getServerCertificatesLength() {
-                            return 40;
-                        }
-
-                        @Override
-                        public void CertificatesFormBuffer(ByteBuffer buffer) {
-
-                        }
-
-                        @Override
-                        public boolean verifyOfLeafCertificate(ByteBuffer buffer) {
-                            return true;
-                        }
-                    })
+                    .securityPolicy(new TestSecurityPolicy())
                     .build();
             nexalithicClient.start();
             nexalithicClient.link(new InetSocketAddress("127.0.0.1", 7709));
@@ -64,7 +50,7 @@ public class ClientTest {
                                 })
                                 .onTimeout(() -> logger.debug("Timeout!"))
                                 .onFinish(() -> logger.debug("Finish!"))
-                                .setWaitTime(100),
+                                .setWaitTime(10),
                         TransferListenerGroup.builder()
                                 .onRequest(TransferListener.builder()
                                         .onStarted((snapshot -> {
@@ -83,6 +69,33 @@ public class ClientTest {
                 );
                 future.waitFinish();
             }
+        }
+    }
+
+    public static class TestSecurityPolicy extends DefaultClientSecurityPolicy {
+
+        @Override
+        public byte[] rootPublicKey() {
+            try {
+                return BinaryStorageUtils.loadBytes(Paths.get(this.getClass().getResource("rootPublicKey").toURI()).toString());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public int certificatesLength() {
+            return 272;
+        }
+
+        @Override
+        protected void loadLocalCertificates() {
+
+        }
+
+        @Override
+        protected void saveRemoteCertificates() {
+
         }
     }
 }

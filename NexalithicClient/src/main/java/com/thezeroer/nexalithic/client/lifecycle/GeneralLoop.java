@@ -8,15 +8,18 @@ import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.BareSignal;
+import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
-import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.security.SecurityPolicy;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +57,6 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     public record Constant(long HeartBeat_Interval) {}
     private final Constant CONSTANT;
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
-    private static final SignalingPacket heartbeatPacket = new SignalingPacket(SignalingPacket.Signal.HeartBeat);
     private final ClientSecurityPolicy securityPolicy;
     private final Queue<Runnable> eventQueue;
     private final NetworkRouter networkRouter;
@@ -74,40 +76,44 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
 
     public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel) throws IOException,
             NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException,
-            InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+            InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
+        socketChannel.write(ByteBuffer.allocate(SecurityPolicy.MAGIC_NUMBER_LENGTH).putLong(SecurityPolicy.MAGIC_NUMBER).flip());
         if (packetType == AbstractPacket.PacketType.SIGNALING) {
-            MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
-            ByteBuffer buffer1 = ByteBuffer.allocate(securityPolicy.getServerCertificatesLength());
-            ByteBuffer buffer2 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength());
-            if (socketChannel.read(new ByteBuffer[]{buffer1, buffer2}) == -1) {
+            MessageDigest transcriptHash = SecretKeyUtils.createTranscriptHash();
+            int certificatesLength = securityPolicy.certificatesLength();
+            int keyAndSignatureLength = SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength();
+            ByteBuffer readBuffer = ByteBuffer.allocate(Math.max(certificatesLength + keyAndSignatureLength,
+                    SecretKeyUtils.FINISHED_LENGTH + ClientSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH * 2));
+            if (socketChannel.read(readBuffer) == -1) {
                 return false;
             }
-            transcriptHash.update(buffer1.flip());
-            transcriptHash.update(buffer2.flip());
-            securityPolicy.CertificatesFormBuffer(buffer1.flip());
-            if (!securityPolicy.verifyOfLeafCertificate(buffer2.flip())) {
-                logger.warn("Certificate verification failed");
-                throw new SecurityException("Certificate verification failed");
+            transcriptHash.update(readBuffer.flip());
+            securityPolicy.certificatesFormBuffer(readBuffer.slice(0, certificatesLength));
+            if (!securityPolicy.verify(readBuffer.slice(certificatesLength, keyAndSignatureLength))) {
+                logger.warn("NexalithicCertificate verification failed");
+                throw new SecurityException("NexalithicCertificate verification failed");
             }
             KeyPair keyPair = SecretKeyUtils.generateKeyPair();
-            ByteBuffer buffer3 = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH).put(SecretKeyUtils.rawPublickey(keyPair.getPublic()));
-            transcriptHash.update(buffer3.flip());
-            socketChannel.write(buffer3.flip());
-            byte[] secret = SecretKeyUtils.compactSecret(keyPair.getPrivate(), buffer2.array());
+            ByteBuffer writeBuffer = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH + SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH);
+            writeBuffer.put(SecretKeyUtils.rawPublickey(keyPair.getPublic()));
+            transcriptHash.update(writeBuffer.flip());
+            writeBuffer.limit(writeBuffer.capacity());
+            byte[] secret = SecretKeyUtils.compactSecret(keyPair.getPrivate(), readBuffer.slice(certificatesLength, keyAndSignatureLength));
             byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
             SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_SIGNALING, SecretKeyUtils.LABEL_SERVER_SIGNALING);
-            ByteBuffer buffer4 = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
-            ByteBuffer buffer5 = ByteBuffer.allocate(ClientSession.SESSION_ID_LENGTH + SecretKeyContext.TAG_LENGTH);
-            socketChannel.write(buffer4);
-            if (socketChannel.read(new ByteBuffer[]{buffer4.clear(), buffer5}) == -1) {
+            writeBuffer.put((signalingSecretKey.encrypt(localFinished)));
+            socketChannel.write(writeBuffer.flip());
+            if (socketChannel.read(readBuffer.clear()) == -1) {
                 return false;
             }
-            byte[] remoteFinished = signalingSecretKey.decrypt(buffer4.array());
+            byte[] remoteFinished = signalingSecretKey.decrypt(readBuffer.flip().limit(SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH));
             if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
                 logger.warn("Finished verification failed");
                 throw new SecurityException("Finished verification failed");
             }
-            session = new ClientSession(new SessionId.Immutable(signalingSecretKey.decrypt(buffer5.array())), signalingSecretKey,
+            ByteBuffer tempBuffer = ByteBuffer.allocate(ClientSession.SESSION_KEY_LENGTH);
+            signalingSecretKey.decrypt(readBuffer.position(readBuffer.limit()).limit(readBuffer.limit() + ClientSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH), tempBuffer);
+            session = new ClientSession(new SessionKey.Immutable(tempBuffer.flip(), 0), signalingSecretKey,
                     SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS), factory);
             logger.info("Link server succeeded");
         } else {
@@ -138,7 +144,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         if (session != null) {
             long now = System.currentTimeMillis();
             if (now - session.getLastActiveTime() >= CONSTANT.HeartBeat_Interval) {
-                session.pushSignalingPacketWrapper(heartbeatPacket);
+                session.pushSignalingPacketWrapper(BareSignal.HeartBeat);
                 session.updateLastActiveTime(now);
             }
         }
@@ -186,7 +192,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             switch (packet.getSignal()) {
                 case SignalingPacket.Signal.BusinessChannelToken -> session.setBusinessChannelToken(packet.getContent());
                 case SignalingPacket.Signal.ResponseBusinessPort -> dispatch(AbstractPacket.PacketType.BUSINESS, SocketChannel
-                        .open(new InetSocketAddress(networkRouter.getServerHost(), AbstractPacket.bytesToInt(packet.getContent()))));
+                        .open(new InetSocketAddress(networkRouter.getServerHost(), ((ScalarSignal) packet).asInt())));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);

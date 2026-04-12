@@ -1,8 +1,8 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 

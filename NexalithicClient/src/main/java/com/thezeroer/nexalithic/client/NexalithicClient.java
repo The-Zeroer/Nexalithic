@@ -21,11 +21,11 @@ import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
@@ -68,6 +69,7 @@ public class NexalithicClient {
     private NexalithicClient(NexalithicBuilderContext context) {
         this.generalLoop = context.getModule(Modules.GeneralLoop);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
+        System.gc();
     }
     public static NexalithicClient unsafeCreate(NexalithicBuilderContext context) {
         return new NexalithicClient(context);
@@ -88,7 +90,7 @@ public class NexalithicClient {
         generalLoop.shutdown();
     }
 
-    public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+    public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
         generalLoop.getNetworkRouter().setServerHost(remote.getAddress().getHostAddress());
@@ -175,7 +177,7 @@ public class NexalithicClient {
             return this;
         }
 
-        public NexalithicClient build() throws Exception {
+        public NexalithicClient build() throws IOException {
             if (logger.isTraceEnabled()) {
                 logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }

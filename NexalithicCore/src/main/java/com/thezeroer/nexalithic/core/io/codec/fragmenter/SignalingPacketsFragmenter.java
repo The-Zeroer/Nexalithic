@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
@@ -64,16 +64,15 @@ public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPa
                     return false;
                 }
             }
-            int totalRequired = packet.getTotalSize();
-            if (target.writableBytes() < totalRequired) {
+            if (packet.toBuffer(target)) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("[{}] sent SIGNALING packet", packet);
+                }
+                packet = null;
+            } else {
                 currentPacket = packet;
                 break;
             }
-            packet.unsafeToBuffer(target);
-            if (logger.isTraceEnabled()) {
-                logger.trace("[{}] sent SIGNALING packet", packet);
-            }
-            packet = null;
         }
         return flag != target.writableBytes();
     }

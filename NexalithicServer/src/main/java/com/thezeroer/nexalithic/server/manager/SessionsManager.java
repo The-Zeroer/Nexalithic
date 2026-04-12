@@ -4,9 +4,10 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
+import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -30,10 +31,10 @@ public class SessionsManager {
             super(holder);
         }
     }
-    private static final ThreadLocal<SessionId.Mutable> LOOKUP_KEY = ThreadLocal.withInitial(SessionId.Mutable::new);
-    private final Map<SessionId, ServerSession> idToSessions;
+    private static final ThreadLocal<SessionKey.Mutable> LOOKUP_KEY = ThreadLocal.withInitial(SessionKey.Mutable::new);
+    private final Map<SessionKey, ServerSession> idToSessions;
     private final Map<String, ServerSession> nameToSessions;
-    private final Map<SessionId, ServerSession> tokens;
+    private final Map<SessionKey, ServerSession> tokens;
 
     public SessionsManager(NexalithicBuilderContext context) {
         idToSessions = new ConcurrentHashMap<>(context.getOption(OPTIONS.Sessions_Initial_Capacity));
@@ -42,7 +43,7 @@ public class SessionsManager {
     }
 
     public void putSession(ServerSession session) {
-        idToSessions.putIfAbsent(session.getSessionId(), session);
+        idToSessions.putIfAbsent(session.getSessionKey(), session);
     }
     public boolean setSessionName(String sessionName, ServerSession session) {
         if (nameToSessions.putIfAbsent(sessionName, session) != null) {
@@ -52,18 +53,15 @@ public class SessionsManager {
         return true;
     }
 
-    public ServerSession getSession(SessionId sessionId) {
-        return idToSessions.get(sessionId);
+    public ServerSession getSession(SessionKey sessionKey) {
+        return idToSessions.get(sessionKey);
     }
     public ServerSession getSession(String sessionName) {
         return nameToSessions.get(sessionName);
     }
-    public ServerSession getSession(byte[] rawSessionId) {
-        return idToSessions.get(LOOKUP_KEY.get().wrap(rawSessionId));
-    }
 
     public void removeSession(ServerSession session) {
-        idToSessions.remove(session.getSessionId());
+        idToSessions.remove(session.getSessionKey());
         String sessionName = session.getSessionName();
         if (sessionName != null) {
             nameToSessions.remove(sessionName);
@@ -72,14 +70,14 @@ public class SessionsManager {
     public void removeSession(String sessionName) {
         ServerSession session = nameToSessions.remove(sessionName);
         if (session != null) {
-            idToSessions.remove(session.getSessionId());
+            idToSessions.remove(session.getSessionKey());
         }
     }
 
-    public void relateChannelToken(byte[] token, ServerSession session) {
-        tokens.put(new SessionId.Immutable(token), session);
+    public void relateChannelToken(SessionKey.Immutable sessionKey, ServerSession session) {
+        tokens.put(sessionKey, session);
     }
-    public ServerSession verifyAndConsumeToken(byte[] token) {
-        return tokens.remove(LOOKUP_KEY.get().wrap(token));
+    public ServerSession verifyAndConsumeToken(ByteBuffer buffer, int offset) {
+        return tokens.remove(LOOKUP_KEY.get().wrap(buffer, offset));
     }
 }

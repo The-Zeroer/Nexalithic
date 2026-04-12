@@ -1,12 +1,11 @@
 package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
-import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
-import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
-import com.thezeroer.nexalithic.core.timer.Expirable;
+import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.io.IOException;
@@ -24,9 +23,8 @@ import java.security.PrivateKey;
  * @version 1.0.0
  */
 public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
-    public record Constant(long MaxWaitTime) {}
+    public record Constant(long MaxWaitTime, int readBufferCapacity, int writeBufferCapacity) {}
     public enum State {
-        STEP_0,
         STEP_1,
         STEP_2,
     }
@@ -36,26 +34,25 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
     private volatile State state;
-    private final ByteBuffer[] readBuffers = new ByteBuffer[2];
-    private final ByteBuffer[] writeBuffers = new ByteBuffer[2];
+    private final ByteBuffer readBuffer;
+    private final ByteBuffer writeBuffer;
     private volatile PrivateKey privateKey;
     private volatile MessageDigest transcriptHash;
     private volatile ServerSession session;
-    private volatile SessionId sessionId;
+    private volatile SessionKey sessionKey;
     private volatile SecretKeyContext signalingSecretContext, businessSecretContext;
-
     private volatile long lastActiveTime = -1;
 
     public PendingChannel(Constant constant) {
         CONSTANT = constant;
-        readBuffers[0] = ByteBuffer.allocate(SecretKeyUtils.ECDH_LENGTH);
-        readBuffers[1] = ByteBuffer.allocate(SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH);
+        readBuffer = ByteBuffer.allocate(constant.readBufferCapacity);
+        writeBuffer = ByteBuffer.allocate(constant.writeBufferCapacity);
     }
 
     public PendingChannel init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
         this.packetType = packetType;
         this.socketChannel = socketChannel;
-        state = PendingChannel.State.STEP_0;
+        state = State.STEP_1;
         return this;
     }
 
@@ -73,11 +70,11 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         return state;
     }
 
-    public ByteBuffer[] getReadBuffers() {
-        return readBuffers;
+    public ByteBuffer getReadBuffer() {
+        return readBuffer;
     }
-    public ByteBuffer[] getWriteBuffers() {
-        return writeBuffers;
+    public ByteBuffer getWriteBuffer() {
+        return writeBuffer;
     }
 
     public PendingChannel setSelectionKey(SelectionKey selectionKey) {
@@ -108,12 +105,12 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     public ServerSession getSession() {
         return session;
     }
-    public PendingChannel setSessionId(SessionId sessionId) {
-        this.sessionId = sessionId;
+    public PendingChannel setSessionKey(SessionKey sessionKey) {
+        this.sessionKey = sessionKey;
         return this;
     }
-    public SessionId getSessionId() {
-        return sessionId;
+    public SessionKey getSessionKey() {
+        return sessionKey;
     }
     public PendingChannel setSignalingSecretContext(SecretKeyContext signalingSecretContext) {
         this.signalingSecretContext = signalingSecretContext;
@@ -141,17 +138,15 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     protected void onRecycle() {
+        readBuffer.clear();
+        writeBuffer.clear();
         packetType = null;
         socketChannel = null;
         selectionKey = null;
-        readBuffers[0].clear();
-        readBuffers[1].clear();
-        writeBuffers[0] = null;
-        writeBuffers[1] = null;
         privateKey = null;
         transcriptHash = null;
         session = null;
-        sessionId = null;
+        selectionKey = null;
         signalingSecretContext = null;
         businessSecretContext = null;
         lastActiveTime = -1;
@@ -180,7 +175,7 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     public boolean isCancelled() {
-        return packetType == null;
+        return isRecycled();
     }
 
     @Override

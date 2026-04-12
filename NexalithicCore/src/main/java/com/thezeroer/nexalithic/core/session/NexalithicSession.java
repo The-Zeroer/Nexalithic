@@ -3,8 +3,8 @@ package com.thezeroer.nexalithic.core.session;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
@@ -27,16 +27,16 @@ public abstract class NexalithicSession <
         SW extends FragmentWrapper<SignalingPacket>,
         BW extends FragmentWrapper<BusinessPacket>
     > {
-    public static final int SESSION_ID_LENGTH = 32;
+    public static final int SESSION_KEY_LENGTH = SessionKey.LENGTH;
     protected final long creationTime;
-    protected final SessionId sessionId;
+    protected final SessionKey sessionKey;
     protected final SC signalingChannel;
     protected final BC businessChannel;
     protected volatile String sessionName;
     protected volatile long lastActiveTime = -1;
 
-    public NexalithicSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ChannelFactory<S, SC, BC, SW, BW> factory) {
-        this.sessionId = sessionId;
+    public NexalithicSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ChannelFactory<S, SC, BC, SW, BW> factory) {
+        this.sessionKey = sessionKey;
         this.signalingChannel = factory.createSignalingChannel((S) this, signalingSecretKey);
         this.businessChannel = factory.createBusinessChannel((S) this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
@@ -129,8 +129,8 @@ public abstract class NexalithicSession <
         return sessionName;
     }
 
-    public final SessionId getSessionId() {
-        return sessionId;
+    public final SessionKey getSessionKey() {
+        return sessionKey;
     }
     public final long getCreationTime() {
         return creationTime;

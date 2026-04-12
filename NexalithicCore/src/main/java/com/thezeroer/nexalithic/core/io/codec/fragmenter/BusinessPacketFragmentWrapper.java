@@ -1,15 +1,15 @@
 package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.recyclable.TargetDynamicWrapperPool;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicWrapperPool;
 
 import java.io.IOException;
 import java.util.List;

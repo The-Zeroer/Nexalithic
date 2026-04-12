@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
  * @since 2026/02/02
  * @version 1.0.0
  */
-public abstract class AbstractPacket extends AbstractModel {
+public abstract class AbstractPacket implements AbstractModel {
     public static final int MAX_PAYLOAD_COUNT = Byte.MAX_VALUE;
     public enum PacketType {
         /** 信令包 */ SIGNALING,
@@ -24,7 +24,7 @@ public abstract class AbstractPacket extends AbstractModel {
      * @return {@link PacketType }
      */
     public abstract PacketType packetType();
-    public ModelType modelType() {
+    public final ModelType modelType() {
         return ModelType.Packet;
     }
 

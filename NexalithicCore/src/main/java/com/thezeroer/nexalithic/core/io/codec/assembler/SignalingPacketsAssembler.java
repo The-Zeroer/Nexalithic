@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.io.codec.assembler;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import org.jctools.queues.SpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,16 +33,10 @@ public class SignalingPacketsAssembler implements PacketsAssembler<SignalingPack
             if (readable < SignalingPacket.HEADER_LENGTH) {
                 break;
             }
-            source.markHead();
-            byte signal = source.unsafeGetByte();
-            short length = source.unsafeGetShort();
-            if (source.readableBytes() < length) {
-                source.resetHead();
+            SignalingPacket packet = SignalingPacket.fromBuffer(source);
+            if (packet == null) {
                 break;
             }
-            byte[] content = new byte[length];
-            source.unsafeGetBytes(content, length);
-            SignalingPacket packet = new SignalingPacket(signal, content);
             if (logger.isTraceEnabled()) {
                 logger.trace("[{}] received SIGNALING packet", packet);
             }

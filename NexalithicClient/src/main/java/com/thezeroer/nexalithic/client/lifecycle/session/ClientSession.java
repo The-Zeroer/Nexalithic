@@ -6,11 +6,12 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.BareSignal;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
-import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 
 /**
@@ -28,14 +29,14 @@ public class ClientSession extends NexalithicSession<
         BusinessPacketFragmentWrapper> {
     private volatile byte[] businessChannelToken;
 
-    public ClientSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ClientChannelFactory factory) {
-        super(sessionId, signalingSecretKey, businessSecretKey, factory);
+    public ClientSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ClientChannelFactory factory) {
+        super(sessionKey, signalingSecretKey, businessSecretKey, factory);
     }
 
     @Override
     protected boolean onPushBusinessPacket() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacketWrapper(new SignalingPacket(SignalingPacket.Signal.RequestBusinessPort));
+            return pushSignalingPacketWrapper(BareSignal.RequestBusinessPort);
         }
         return true;
     }

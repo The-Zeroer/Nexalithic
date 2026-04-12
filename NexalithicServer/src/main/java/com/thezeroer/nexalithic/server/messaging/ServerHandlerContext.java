@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.server.messaging;
 
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 /**

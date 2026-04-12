@@ -5,7 +5,7 @@ import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
-import com.thezeroer.nexalithic.core.loadbalance.P2CBalancer;
+import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
@@ -16,14 +16,14 @@ import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.FilePayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.SerializablePayload;
-import com.thezeroer.nexalithic.core.model.packet.payload.TextPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
@@ -43,10 +43,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -76,6 +73,7 @@ public class NexalithicServer {
         this.sessionsManager = context.getModule(Modules.SessionsManager);
         this.networkRouter = context.getModule(Modules.NetworkRouter);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
+        System.gc();
     }
 
     public static Builder builder() {

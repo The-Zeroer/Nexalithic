@@ -1,9 +1,8 @@
 package com.thezeroer.nexalithic.core.messaging.task;
 
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.timer.Expirable;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

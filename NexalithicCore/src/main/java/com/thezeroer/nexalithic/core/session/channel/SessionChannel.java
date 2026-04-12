@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
@@ -151,7 +151,7 @@ public abstract class SessionChannel<
             } else {
                 throw new IllegalStateException(
                         String.format("Thread safety violation: [Session-%s] read/write must be performed in LoopThread. Current thread: %s",
-                                session.getSessionId(), Thread.currentThread().getName()));
+                                session.getSessionKey(), Thread.currentThread().getName()));
             }
         }
         boolean progressed;
@@ -180,7 +180,7 @@ public abstract class SessionChannel<
             } else {
                 throw new IllegalStateException(
                         String.format("Thread safety violation: [Session-%s] read/write must be performed in LoopThread. Current thread: %s",
-                                session.getSessionId(), Thread.currentThread().getName()));
+                                session.getSessionKey(), Thread.currentThread().getName()));
             }
         }
         long read = readCipheBuffer.readFromChannel(socketChannel);
@@ -208,6 +208,10 @@ public abstract class SessionChannel<
     }
     public final ChannelLoop<?> localLoop() {
         return loop;
+    }
+    @SuppressWarnings("unchecked")
+    public final <C extends ChannelLoop<?>> C asLocalLoop() {
+        return (C) loop;
     }
     public final AbstractPacket.PacketType getType() {
         return type;

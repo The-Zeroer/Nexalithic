@@ -3,27 +3,32 @@ package com.thezeroer.nexalithic.server.lifecycle.handshake;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.infra.executor.BlockingTaskQueue;
+import com.thezeroer.nexalithic.core.infra.executor.FixedTaskExecutor;
+import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
-import com.thezeroer.nexalithic.core.session.SessionId;
-import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
-import com.thezeroer.nexalithic.core.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.security.SecurityPolicy;
+import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
+import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.MpscArrayQueue;
 import org.jctools.queues.SpmcArrayQueue;
 import org.slf4j.Logger;
@@ -32,13 +37,13 @@ import org.slf4j.LoggerFactory;
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
@@ -60,6 +65,8 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                 );
             }
         };
+        public final FixedTaskExecutor.Options FixedTaskExecutor = new FixedTaskExecutor.Options(holder) {
+        };
         public final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(
                 1024, OptionValidator.positive()
         );
@@ -69,13 +76,16 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         public final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
                 3_000L, OptionValidator.positive()
         );
+        public final NexalithicOption<Boolean> SharedFixedTaskExecutor = NexalithicOption.create(
+                true, OptionValidator.nonNull()
+        );
         private Options(Class<?> holder) {
             super(holder);
         }
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("HandshakeLoop_TimeWheel", GenericTimeWheel.class);
-        public static final NexalithicModule<ExecutorService> ExecutorService = NexalithicModule.create("HandshakeLoop_ExecutorService", ExecutorService.class);
+        public static final NexalithicModule<FixedTaskExecutor<PendingChannel, ExecutorThread>> FixedTaskExecutor = NexalithicModule.create("HandshakeLoop_FixedTaskExecutor", FixedTaskExecutor.class);
     }
     public record Constant(int DrainLimit) {}
     private static final Logger logger = LoggerFactory.getLogger(HandshakeLoop.class);
@@ -84,9 +94,8 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     private final ServerSecurityPolicy securityPolicy;
     private final LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer;
     private final GenericTimeWheel timeWheel;
-    private final ExecutorService threadPool;
+    private final FixedTaskExecutor<PendingChannel, ExecutorThread> executor;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
-    private final ByteBuffer certificateBuffer;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public HandshakeLoop(NexalithicBuilderContext context) throws IOException {
@@ -110,62 +119,115 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     ),
                     HandshakeLoop.class.getSimpleName()
             );
-            timeWheel.start();
+//            timeWheel.start();
             return timeWheel;
         });
-        threadPool = context.getModule(Modules.ExecutorService, () -> {
-            int cores = Runtime.getRuntime().availableProcessors();
-            return new ThreadPoolExecutor(cores, cores * 2, 60, TimeUnit.SECONDS,
-                    new ArrayBlockingQueue<>(1024),
-                    new ThreadFactory() {
-                        private final AtomicInteger counter = new AtomicInteger(1);
-                        @Override
-                        public Thread newThread(Runnable r) {
-                            Thread t = new Thread(r, "HandshakeLoop-ExecutorService-" + counter.getAndIncrement());
-                            t.setDaemon(true);
-                            return t;
-                        }
-                    },
-                    new ThreadPoolExecutor.CallerRunsPolicy());
-        });
+        if (context.getOption(OPTIONS.SharedFixedTaskExecutor)) {
+            executor = context.getModule(Modules.FixedTaskExecutor, () -> createFixedTaskExecutor(context, true));
+        } else {
+            executor = createFixedTaskExecutor(context,false);
+        }
         dispatchQueue = new MpscArrayQueue<>(context.getOption(OPTIONS.DispatchQueue_Capacity));
-        certificateBuffer = ByteBuffer.allocateDirect(securityPolicy.getAllCertificateLength());
-        updateCertificateBuffer();
     }
-
-    public void updateCertificateBuffer() {
-        certificateBuffer.clear();
-        securityPolicy.CertificatesToBuffer(certificateBuffer);
-        certificateBuffer.flip();
+    private FixedTaskExecutor<PendingChannel, ExecutorThread> createFixedTaskExecutor(NexalithicBuilderContext context, boolean shared) {
+        return new FixedTaskExecutor<>(
+                context.getOption(OPTIONS.FixedTaskExecutor.CoreWorkerSize),
+                context.getOption(OPTIONS.FixedTaskExecutor.MaxWorkerSize),
+                context.getOption(OPTIONS.FixedTaskExecutor.KeepAliveTimeNanos),
+                BlockingTaskQueue.of(shared
+                        ? new MpmcArrayQueue<>(context.getOption(OPTIONS.FixedTaskExecutor.TaskQueue_Capacity))
+                        : new SpmcArrayQueue<>(context.getOption(OPTIONS.FixedTaskExecutor.TaskQueue_Capacity))
+                ),
+                new TypedThreadFactory<>() {
+                    private final AtomicInteger counter = new AtomicInteger(1);
+                    @Override
+                    public ExecutorThread newThread(Runnable runnable) {
+                        String name;
+                        if (shared) {
+                            name = "HandshakeLoop-ExecutorService-" + counter.getAndIncrement();
+                        } else {
+                            name = HandshakeLoop.this.name + "-ExecutorService-" + counter.getAndIncrement();
+                        }
+                        ExecutorThread thread = new ExecutorThread(runnable, name);
+                        thread.setDaemon(true);
+                        return thread;
+                    }
+                },
+                (task, executor) -> closeChannel(task),
+                (channel, thread) -> {
+                    if (channel.isRecycled()) {
+                        return;
+                    }
+                    ByteBuffer writeBuffer = channel.getWriteBuffer();
+                    switch (channel.getState()) {
+                        case STEP_1 -> {
+                            try {
+                                KeyPair keyPair = SecretKeyUtils.generateKeyPair();
+                                MessageDigest transcriptHash = SecretKeyUtils.createTranscriptHash();
+                                byte[] rawPublickey = SecretKeyUtils.rawPublickey(keyPair.getPublic());
+                                securityPolicy.certificatesToBuffer(writeBuffer);
+                                securityPolicy.signature(rawPublickey, writeBuffer.put(rawPublickey));
+                                transcriptHash.update(writeBuffer.flip());
+                                writeBuffer.flip();
+                                channel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).getSelectionKey().interestOps(SelectionKey.OP_WRITE);
+                                wakeupIfNeeded();
+                            } catch (Exception e) {
+                                closeChannel(channel);
+                                logger.error(e.getMessage(), e);
+                            }
+                        }
+                        case STEP_2 -> {
+                            writeBuffer.clear();
+                            ByteBuffer readBuffer = channel.getReadBuffer();
+                            MessageDigest transcriptHash = channel.getTranscriptHash();
+                            transcriptHash.update(readBuffer.flip().limit(SecretKeyUtils.ECDH_LENGTH));
+                            try {
+                                byte[] secret = SecretKeyUtils.compactSecret(channel.getPrivateKey(), readBuffer.rewind());
+                                byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
+                                SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_SIGNALING, SecretKeyUtils.LABEL_CLIENT_SIGNALING);
+                                byte[] remoteFinished = signalingSecretKey.decrypt(readBuffer.limit(readBuffer.capacity()));
+                                if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
+                                    closeChannel(channel);
+                                    logger.warn("Finished verification failed");
+                                    return;
+                                }
+                                writeBuffer.put(signalingSecretKey.encrypt(localFinished));
+                                SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
+                                signalingSecretKey.encrypt(sessionKey.toByteBuffer(thread.getTempBuffer()).flip(), writeBuffer);
+                                writeBuffer.flip();
+                                channel.setSessionKey(sessionKey)
+                                        .setSignalingSecretContext(signalingSecretKey)
+                                        .setBusinessSecretContext(SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_BUSINESS, SecretKeyUtils.LABEL_CLIENT_BUSINESS))
+                                        .setState(PendingChannel.State.STEP_2);
+                                channel.getSelectionKey().interestOps(SelectionKey.OP_WRITE);
+                                wakeupIfNeeded();
+                            } catch (BadPaddingException | IllegalBlockSizeException e) {
+                                String remoteAddress = null;
+                                try {
+                                    remoteAddress = channel.getSocketChannel().getRemoteAddress().toString();
+                                } catch (IOException ignored) {}
+                                closeChannel(channel);
+                                logger.warn("Security verification failed: [reason: {}] [remote: {}]", e.getMessage(), remoteAddress);
+                            } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeySpecException e) {
+                                closeChannel(channel);
+                                logger.error("Cryptographic environment fatal error: ensure JCE provider (e.g., BouncyCastle) is correctly configured", e);
+                            } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+                                closeChannel(channel);
+                                logger.error("Invalid cryptographic parameters detected : {}", e.getMessage(), e);
+                            } catch (ShortBufferException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                }
+        );
     }
 
     public void dispatch(PendingChannel pendingChannel) {
         if (dispatchQueue.offer(pendingChannel)) {
             loadScore.increment();
-            if (pendingChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                threadPool.execute(() -> {
-                    try {
-                        KeyPair keyPair = SecretKeyUtils.generateKeyPair();
-                        MessageDigest transcriptHash = MessageDigest.getInstance("SHA-256");
-                        ByteBuffer[] writeBuffers = pendingChannel.getWriteBuffers();
-                        writeBuffers[0] = certificateBuffer.duplicate();
-                        writeBuffers[1] = securityPolicy.signatureOfLeafCertificate(ByteBuffer
-                                .allocate(SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength())
-                                .put(SecretKeyUtils.rawPublickey(keyPair.getPublic())));
-                        transcriptHash.update(writeBuffers[0]);
-                        transcriptHash.update(writeBuffers[1]);
-                        writeBuffers[0].flip();
-                        writeBuffers[1].flip();
-                        pendingChannel.setPrivateKey(keyPair.getPrivate()).setTranscriptHash(transcriptHash).setState(PendingChannel.State.STEP_1);
-                        timeWheel.schedule(pendingChannel, HandshakeLoop.this);
-                        wakeupIfNeeded();
-                    } catch (Exception e) {
-                        logger.error(e.getMessage(), e);
-                    }
-                });
-            } else {
-                wakeupIfNeeded();
-            }
+            timeWheel.schedule(pendingChannel, HandshakeLoop.this);
+            wakeupIfNeeded();
         } else {
             pendingChannel.close();
         }
@@ -173,114 +235,77 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
 
     @Override
     public boolean onAsyncEvent() {
-        dispatchQueue.drain(pendingChannel -> {
+        dispatchQueue.drain(channel -> {
             try {
-                if (pendingChannel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                    pendingChannel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_WRITE).attach(pendingChannel);
-                } else {
-                    pendingChannel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ).attach(pendingChannel);
-                }
+                SelectionKey key = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
+                key.attach(channel.setSelectionKey(key));
+                channel.getReadBuffer().limit(SecurityPolicy.MAGIC_NUMBER_LENGTH);
             } catch (IOException ignored) {}
         }, CONSTANT.DrainLimit);
         return dispatchQueue.isEmpty();
     }
 
     @Override
-    public void onReadyEvent(SelectionKey key) throws IOException {
+    public void onReadyEvent(SelectionKey key) {
         PendingChannel channel = (PendingChannel) key.attachment();
         channel.updateLastActiveTime(System.currentTimeMillis());
         try {
             SocketChannel socketChannel = channel.getSocketChannel();
-            if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                if (key.isWritable()) {
-                    switch (channel.getState()) {
-                        case STEP_0 -> {
-                            closeChannel(key, channel);
-                            return;
-                        }
-                        case STEP_1 -> {
-                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                            socketChannel.write(writeBuffers);
-                            if (!writeBuffers[1].hasRemaining()) {
-                                key.interestOps(SelectionKey.OP_READ);
+            if (key.isReadable()) {
+                switch (channel.getState()) {
+                    case STEP_1 -> {
+                        if (verifyMagicNumber(channel)) {
+                            if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                                key.interestOps(0);
+                                executor.submit(channel);
+                            } else {
+                                channel.setState(PendingChannel.State.STEP_2);
                             }
                         }
-                        case STEP_2 -> {
-                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                            socketChannel.write(writeBuffers);
-                            if (!writeBuffers[1].hasRemaining()) {
-                                key.cancel();
-                                serviceUnitLoadBalancer.select(null).getStewardLoop().dispatch(channel);
-                                loadScore.decrement();
-                                return;
+                    }
+                    case STEP_2 -> {
+                        ByteBuffer readBuffer = channel.getReadBuffer();
+                        if (socketChannel.read(readBuffer) == -1) {
+                            closeChannel(key, channel);
+                        }
+                        if (!readBuffer.hasRemaining()) {
+                            if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                                key.interestOps(0);
+                                executor.submit(channel);
+                            } else {
+                                ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffer, 0);
+                                if (session != null) {
+                                    key.cancel();
+                                    loadScore.decrement();
+                                    session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
+                                } else {
+                                    closeChannel(key, channel);
+                                }
                             }
                         }
                     }
                 }
-                if (key.isReadable()) {
-                    ByteBuffer[] readBuffers = channel.getReadBuffers();
-                    if (socketChannel.read(readBuffers) == -1) {
-                        closeChannel(key, channel);
-                        return;
-                    }
-                    if (!readBuffers[1].hasRemaining()) {
-                        MessageDigest transcriptHash = channel.getTranscriptHash();
-                        transcriptHash.update(readBuffers[0].flip());
-                        try {
-                            byte[] secret = SecretKeyUtils.compactSecret(channel.getPrivateKey(), readBuffers[0].array());
-                            byte[] localFinished = SecretKeyUtils.generateFinished(secret, transcriptHash.digest());
-                            SecretKeyContext signalingSecretKey = SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_SERVER_SIGNALING, SecretKeyUtils.LABEL_CLIENT_SIGNALING);
-                            byte[] remoteFinished = signalingSecretKey.decrypt(readBuffers[1].array());
-                            if (!MessageDigest.isEqual(localFinished, remoteFinished)) {
-                                closeChannel(key, channel);
-                                logger.warn("Finished verification failed");
-                                return;
-                            }
-                            ByteBuffer[] writeBuffers = channel.getWriteBuffers();
-                            writeBuffers[0] = ByteBuffer.wrap(signalingSecretKey.encrypt(localFinished));
-                            byte[] sessionIdBytes = new byte[ServerSession.SESSION_ID_LENGTH];
-                            secureRandom.nextBytes(sessionIdBytes);
-                            writeBuffers[1] = ByteBuffer.wrap(signalingSecretKey.encrypt(sessionIdBytes));
-                            channel.setSessionId(new SessionId.Immutable(sessionIdBytes))
-                                    .setSignalingSecretContext(signalingSecretKey)
-                                    .setBusinessSecretContext(SecretKeyUtils.generateSessionSecretKey(secret,
-                                            SecretKeyUtils.LABEL_SERVER_BUSINESS, SecretKeyUtils.LABEL_CLIENT_BUSINESS))
-                                    .setState(PendingChannel.State.STEP_2);
-                            key.interestOps(SelectionKey.OP_WRITE);
-                        } catch (BadPaddingException | IllegalBlockSizeException e) {
-                            String remoteAddress = socketChannel.getRemoteAddress().toString();
-                            closeChannel(key, channel);
-                            logger.warn("Security verification failed: [reason: {}] [remote: {}]", e.getMessage(), remoteAddress);
-                        } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeySpecException e) {
-                            closeChannel(key, channel);
-                            logger.error("Cryptographic environment fatal error: ensure JCE provider (e.g., BouncyCastle) is correctly configured", e);
-                        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-                            closeChannel(key, channel);
-                            logger.error("Invalid cryptographic parameters detected : {}", e.getMessage(), e);
+            } else if (key.isWritable()) {
+                ByteBuffer writeBuffer = channel.getWriteBuffer();
+                socketChannel.write(writeBuffer);
+                switch (channel.getState()) {
+                    case STEP_1 -> {
+                        if (!writeBuffer.hasRemaining()) {
+                            channel.setState(PendingChannel.State.STEP_2);
+                            key.interestOps(SelectionKey.OP_READ);
                         }
                     }
-                }
-            } else {
-                if (key.isReadable()) {
-                    ByteBuffer[] readBuffers = channel.getReadBuffers();
-                    if (socketChannel.read(readBuffers[0]) == -1) {
-                        closeChannel(key, channel);
-                    }
-                    if (!readBuffers[0].hasRemaining()) {
-                        ServerSession session = sessionsManager.verifyAndConsumeToken(readBuffers[0].array());
-                        if (session != null) {
+                    case STEP_2 -> {
+                        if (!writeBuffer.hasRemaining()) {
                             key.cancel();
+                            serviceUnitLoadBalancer.select(null).getStewardLoop().dispatch(channel);
                             loadScore.decrement();
-                            session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
-                        } else {
-                            closeChannel(key, channel);
                         }
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             closeChannel(key, channel);
-            throw e;
         }
     }
 
@@ -296,14 +321,49 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     @Override
     public void trigger(PendingChannel channel) {
         logger.warn("[{}] handshake timeout", channel.toString());
-        closeChannel(channel.getSelectionKey(), channel);
+        closeChannel(channel);
     }
 
+    private boolean verifyMagicNumber(PendingChannel channel) throws IOException {
+        ByteBuffer readBuffer = channel.getReadBuffer();
+        if (channel.getSocketChannel().read(readBuffer) == -1) {
+            closeChannel(channel);
+            return false;
+        }
+        if (!readBuffer.hasRemaining()) {
+            if (readBuffer.flip().getLong() != SecurityPolicy.MAGIC_NUMBER) {
+                closeChannel(channel);
+                return false;
+            } else {
+                readBuffer.clear();
+                if (channel.getType() != AbstractPacket.PacketType.SIGNALING) {
+                    readBuffer.limit(SessionKey.LENGTH);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
     private void closeChannel(SelectionKey key, PendingChannel channel) {
         if (key != null) {
             key.cancel();
         }
         channel.close();
         loadScore.decrement();
+    }
+    private void closeChannel(PendingChannel channel) {
+        closeChannel(channel.getSelectionKey(), channel);
+    }
+
+    public static class ExecutorThread extends Thread {
+        private final ByteBuffer tempBuffer = ByteBuffer.allocate(SessionKey.LENGTH);
+
+        private ExecutorThread(Runnable runnable, String name) {
+            super(runnable, name);
+        }
+
+        public ByteBuffer getTempBuffer() {
+            return tempBuffer.clear();
+        }
     }
 }

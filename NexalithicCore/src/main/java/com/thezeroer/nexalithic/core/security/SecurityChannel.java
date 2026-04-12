@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.security;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;

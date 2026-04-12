@@ -63,6 +63,7 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
                 logger.warn("[{}] failed to ready event: ", name, e);
                 if (key.attachment() instanceof NexalithicChannel channel) {
                     channel.close();
+                    loadScore.decrement();
                 }
             }
         }

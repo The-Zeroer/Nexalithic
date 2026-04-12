@@ -6,7 +6,7 @@ import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
@@ -27,7 +27,7 @@ public class LifecycleManager {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, LifecycleManager.class);
     public static final class Options extends OptionsDefinition {
         public final NexalithicOption<Integer> HandshakeLoop_Count = NexalithicOption.create(
-                4, OptionValidator.positive()
+                1, OptionValidator.positive()
         );
         public final NexalithicOption<Integer> ServiceUnit_Count = NexalithicOption.create(
                 1, OptionValidator.positive()

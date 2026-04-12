@@ -5,14 +5,14 @@ import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
-import com.thezeroer.nexalithic.core.session.SessionId;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
-import com.thezeroer.nexalithic.core.timer.Expirable;
+import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
@@ -36,15 +36,15 @@ public class ServerSession extends NexalithicSession<
     private volatile ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
-    public ServerSession(SessionId sessionId, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant) {
-        super(sessionId, signalingSecretKey, businessSecretKey, factory);
+    public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant) {
+        super(sessionKey, signalingSecretKey, businessSecretKey, factory);
         CONSTANT = constant;
     }
 
     @Override
     protected boolean onPushBusinessPacket() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress())) == 0;
+            return getSignalingChannel().<StewardLoop>asLocalLoop().prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress());
         }
         return true;
     }

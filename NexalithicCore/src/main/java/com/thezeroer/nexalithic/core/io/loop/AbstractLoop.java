@@ -2,7 +2,7 @@ package com.thezeroer.nexalithic.core.io.loop;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalanceable;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
@@ -32,7 +32,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                 300000L, OptionValidator.positive()
         );
         public final NexalithicOption<Long> Selector_Timeout = NexalithicOption.create(
-                30000L, OptionValidator.nonNegative()
+                3000L, OptionValidator.nonNegative()
         );
         protected Options(Class<?> holder) {
             super(holder);
@@ -56,7 +56,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
     protected volatile Selector selector;
 
     protected final LoopThread thread;
-    protected String name = getClass().getSimpleName();
+    protected volatile String name = getClass().getSimpleName();
 
     public AbstractLoop(NexalithicBuilderContext context, Options options) throws IOException {
         CONSTANT = context.getConstant(this.getClass(), Constant.class, () -> new Constant(
@@ -142,11 +142,14 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
                         if (asyncEvent()) {
                             if (state.compareAndSet(State.WORKING, State.WAITING)) {
                                 start = System.currentTimeMillis();
-                                try {
+                                // 再次检查 asyncEvent，防止在 CAS 之后、select 之前有新任务进来
+                                if (!onAsyncEvent()) {
+                                    state.set(State.WORKING);
+                                    readyCount = localSelector.selectNow();
+                                } else {
                                     readyCount = localSelector.select(CONSTANT.Selector_Timeout);
-                                } finally {
-                                    state.compareAndSet(State.WAITING, State.WORKING);
                                 }
+                                state.compareAndSet(State.WAITING, State.WORKING);
                                 end = System.currentTimeMillis();
                             } else {
                                 continue;

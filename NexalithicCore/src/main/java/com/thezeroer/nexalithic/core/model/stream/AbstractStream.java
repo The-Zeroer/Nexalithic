@@ -11,7 +11,7 @@ import com.thezeroer.nexalithic.core.model.stream.chunk.AbstractChunk;
  * @since 2026/03/03
  * @version 1.0.0
  */
-public abstract class AbstractStream<C extends AbstractChunk> extends AbstractModel {
+public abstract class AbstractStream<C extends AbstractChunk> implements AbstractModel {
     public enum StreamType {
         /** 媒体 */ MEDIA,
         /** 文件 */ FILE

@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 
 /**

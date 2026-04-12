@@ -32,7 +32,7 @@ public class TransferSnapshot {
     private final long startTimeNanos;
     private long lastSnapshotTimeNanos;
     private long lastRemaining;
-    private int lastFrameIndex = 0;
+    private int lastFrameIndex;
 
     public TransferSnapshot(long total) {
         this.total = total;

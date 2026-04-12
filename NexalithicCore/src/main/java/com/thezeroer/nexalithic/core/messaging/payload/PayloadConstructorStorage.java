@@ -1,6 +1,6 @@
 package com.thezeroer.nexalithic.core.messaging.payload;
 
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
 
 import java.util.Arrays;
 import java.util.Collection;

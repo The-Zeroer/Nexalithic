@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.recyclable.TargetStaticWrapperPool;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.infra.recyclable.TargetStaticWrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 
 /**
@@ -41,7 +41,7 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>>
         }
 
         @Override
-        protected void onRecycle(T target) {
+        protected void onRecycle() {
             target.request = null;
             target.session = null;
         }

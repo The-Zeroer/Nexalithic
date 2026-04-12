@@ -2,7 +2,7 @@ package com.thezeroer.nexalithic.client.messaging;
 
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 
 /**
  * 客户端处理器上下文

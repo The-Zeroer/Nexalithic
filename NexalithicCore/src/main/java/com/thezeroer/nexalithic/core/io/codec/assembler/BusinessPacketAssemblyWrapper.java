@@ -1,15 +1,15 @@
 package com.thezeroer.nexalithic.core.io.codec.assembler;
 
-import com.thezeroer.nexalithic.core.io.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
-import com.thezeroer.nexalithic.core.model.packet.BusinessPacket;
-import com.thezeroer.nexalithic.core.model.packet.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
-import com.thezeroer.nexalithic.core.timer.Expirable;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -177,7 +177,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
 
     @Override
     public boolean isCancelled() {
-        return lastActiveTime == -1;
+        return isRecycled();
     }
 
     private static class PacketBuilder {

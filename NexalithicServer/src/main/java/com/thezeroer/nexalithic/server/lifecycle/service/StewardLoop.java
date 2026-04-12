@@ -4,19 +4,23 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.model.packet.SignalingPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.recyclable.SelfStaticWrapperPool;
-import com.thezeroer.nexalithic.core.timer.GenericTimeWheel;
-import com.thezeroer.nexalithic.core.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.model.packet.signaling.TokenSignal;
+import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
+import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 import org.jctools.queues.SpmcArrayQueue;
 
@@ -24,9 +28,11 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.ShortBufferException;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.channels.SelectionKey;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.SecureRandom;
 import java.util.function.Function;
 
 /**
@@ -58,18 +64,21 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("StewardLoop_TimeWheel", GenericTimeWheel.class);
     }
     private final ServerSession.Constant serverSessionConstant;
-    private final SessionsManager sessionsManager;
     private final ServerSession.ServerChannelFactory factory;
+    private final SessionsManager sessionsManager;
+    private final NetworkRouter networkRouter;
     private final GenericTimeWheel timeWheel;
     private final ServiceUnit serviceUnit;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     public StewardLoop(NexalithicBuilderContext context, ServiceUnit unit) throws IOException {
         super(context, OPTIONS);
         serverSessionConstant = context.getConstant(ServerSession.class, ServerSession.Constant.class, () -> new ServerSession.Constant(
                 context.getOption(OPTIONS.HeartBeat_MaxInterval)
         ));
-        sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         factory = new ServerSession.ServerChannelFactory(context, this);
+        sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
+        networkRouter = context.getModule(NexalithicServer.Modules.NetworkRouter);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
             GenericTimeWheel timeWheel = new GenericTimeWheel(
                     context.getOption(OPTIONS.TimeWheel.Tick),
@@ -89,12 +98,21 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         serviceUnit = unit;
     }
 
+    public boolean prepareChannelAccess(ServerSession session, AbstractPacket.PacketType type, InetAddress remoteAddress) {
+        SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
+        sessionsManager.relateChannelToken(sessionKey, session);
+        return session.pushSignalingPacketWrappers(
+                new TokenSignal(sessionKey),
+                ScalarSignal.ofInt(SignalingPacket.Signal.ResponseBusinessPort, networkRouter.choosePort(type, remoteAddress))
+        ) == 0;
+    }
+
     @Override
     protected boolean onAsyncEvent() {
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSession session = new ServerSession(channel.getSessionId(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant);
+                ServerSession session = new ServerSession(channel.getSessionKey(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant);
                 selectionKey.attach(session.setServiceUnit(serviceUnit).getSignalingChannel().updateChannel(selectionKey));
                 sessionsManager.putSession(session);
                 timeWheel.schedule(session, this);
@@ -143,7 +161,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
             }
             case SignalingPacket.Signal.RequestBusinessPort -> {
                 ServerSession session = channel.session();
-                if (session.pushSignalingPacketWrappers(serviceUnit.prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())) != 0) {
+                if (!prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())) {
                     logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
                     closeChannel(channel);
                 }

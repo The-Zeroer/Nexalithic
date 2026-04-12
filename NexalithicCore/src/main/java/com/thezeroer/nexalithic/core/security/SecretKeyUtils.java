@@ -7,6 +7,7 @@ import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
@@ -44,6 +45,13 @@ public class SecretKeyUtils {
             throw new IllegalStateException("HmacSHA256 not supported", e);
         }
     });
+    private static final ThreadLocal<MessageDigest> SHA256_HOLDER = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new InternalError("SHA-256 not supported", e);
+        }
+    });
 
     static {
         try {
@@ -68,6 +76,13 @@ public class SecretKeyUtils {
     public static KeyPair generateKeyPair() {
         return KEY_PAIR_GEN.generateKeyPair();
     }
+
+    public static MessageDigest createTranscriptHash() {
+        MessageDigest digest = SHA256_HOLDER.get();
+        digest.reset();
+        return digest;
+    }
+
     public static byte[] rawPublickey(PublicKey publicKey) {
         byte[] encoded = publicKey.getEncoded();
         if (encoded.length == 44) {
@@ -91,6 +106,19 @@ public class SecretKeyUtils {
 
         return HKDF.extract(null, ka.generateSecret());
     }
+    public static byte[] compactSecret(PrivateKey privateKey, ByteBuffer publicKeyBuffer)
+            throws NoSuchAlgorithmException, InvalidKeyException, InvalidKeySpecException {
+        byte[] fullEncoded = new byte[44];
+        System.arraycopy(X509_X25519_HEADER, 0, fullEncoded, 0, 12);
+        publicKeyBuffer.get(fullEncoded, 12, 32);
+        PublicKey pubKey = KEY_FACTORY.generatePublic(new X509EncodedKeySpec(fullEncoded));
+        KeyAgreement ka = KeyAgreement.getInstance("XDH", XDH_PROVIDER);
+        ka.init(privateKey);
+        ka.doPhase(pubKey, true);
+
+        return HKDF.extract(null, ka.generateSecret());
+    }
+
     public static byte[] generateFinished(byte[] secret, byte[] handshakeHash) throws NoSuchAlgorithmException, InvalidKeyException {
         return HKDF.extract(HKDF.expand(secret, LABEL_FINISHED, 32), handshakeHash);
     }
@@ -115,6 +143,7 @@ public class SecretKeyUtils {
             mac.init(new SecretKeySpec(salt, HMAC_ALGO));
             return mac.doFinal(ikm);
         }
+
         public static byte[] expand(byte[] prk, byte[] label, int outLen) throws InvalidKeyException {
             Mac mac = MAC_HOLDER.get();
             mac.init(new SecretKeySpec(prk, HMAC_ALGO));
