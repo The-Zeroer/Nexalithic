@@ -267,6 +267,7 @@ public abstract class SessionChannel<
             }
             fragmenter.clear();
             assembler.clear();
+            remoteAddress = null;
             loop = null;
             lastActiveTime = -1;
         }

@@ -18,7 +18,6 @@ public class ClientHandlerContext extends HandlerContext<ClientSession> {
         this.dispatcher = dispatcher;
     }
 
-
     @Override
     public boolean pushResponse(BusinessPacket response) {
         return dispatcher.egress(session, response.setTaskId(request.getTaskId()));

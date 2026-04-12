@@ -10,6 +10,7 @@ import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 会话管理器
@@ -27,6 +28,9 @@ public class SessionsManager {
         public final NexalithicOption<Integer> Tokens_Initial_Capacity = NexalithicOption.create(
                 1024, OptionValidator.positive()
         );
+        public final NexalithicOption<Integer> Sessions_Lock_Stripes = NexalithicOption.create(
+                1024, OptionValidator.powerOfTwo()
+        );
         public Options(Class<?> holder) {
             super(holder);
         }
@@ -35,22 +39,51 @@ public class SessionsManager {
     private final Map<SessionKey, ServerSession> idToSessions;
     private final Map<String, ServerSession> nameToSessions;
     private final Map<SessionKey, ServerSession> tokens;
+    private final ReentrantLock[] stripes;
 
     public SessionsManager(NexalithicBuilderContext context) {
         idToSessions = new ConcurrentHashMap<>(context.getOption(OPTIONS.Sessions_Initial_Capacity));
         nameToSessions = new ConcurrentHashMap<>(context.getOption(OPTIONS.Sessions_Initial_Capacity));
         tokens = new ConcurrentHashMap<>(context.getOption(OPTIONS.Tokens_Initial_Capacity));
+        stripes = new ReentrantLock[context.getOption(OPTIONS.Sessions_Lock_Stripes)];
+        for (int i = 0; i < stripes.length; i++) {
+            stripes[i] = new ReentrantLock();
+        }
     }
 
     public void putSession(ServerSession session) {
         idToSessions.putIfAbsent(session.getSessionKey(), session);
     }
-    public boolean setSessionName(String sessionName, ServerSession session) {
-        if (nameToSessions.putIfAbsent(sessionName, session) != null) {
-            return false;
+
+    /**
+     * 抢占式设置：返回被抢占的Session
+     */
+    public ServerSession forceSetSessionName(String name, ServerSession session) {
+        ReentrantLock lock = getLock(name);
+        lock.lock();
+        try {
+            ServerSession existing = nameToSessions.put(name, session);
+            session.setSessionName(name);
+            return existing;
+        } finally {
+            lock.unlock();
         }
-        session.setSessionName(sessionName);
-        return true;
+    }
+    /**
+     * 保护式设置：如果名字已存在，返回 false 且不修改现有状态
+     */
+    public boolean trySetSessionName(String name, ServerSession session) {
+        ReentrantLock lock = getLock(name);
+        lock.lock();
+        try {
+            if (nameToSessions.putIfAbsent(name, session) == null) {
+                session.setSessionName(name);
+                return true;
+            }
+            return false;
+        } finally {
+            lock.unlock();
+        }
     }
 
     public ServerSession getSession(SessionKey sessionKey) {
@@ -64,13 +97,25 @@ public class SessionsManager {
         idToSessions.remove(session.getSessionKey());
         String sessionName = session.getSessionName();
         if (sessionName != null) {
-            nameToSessions.remove(sessionName);
+            ReentrantLock lock = getLock(sessionName);
+            lock.lock();
+            try {
+                nameToSessions.remove(sessionName, session);
+            } finally {
+                lock.unlock();
+            }
         }
     }
     public void removeSession(String sessionName) {
-        ServerSession session = nameToSessions.remove(sessionName);
-        if (session != null) {
-            idToSessions.remove(session.getSessionKey());
+        ReentrantLock lock = getLock(sessionName);
+        lock.lock();
+        try {
+            ServerSession session = nameToSessions.remove(sessionName);
+            if (session != null) {
+                idToSessions.remove(session.getSessionKey());
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -79,5 +124,11 @@ public class SessionsManager {
     }
     public ServerSession verifyAndConsumeToken(ByteBuffer buffer, int offset) {
         return tokens.remove(LOOKUP_KEY.get().wrap(buffer, offset));
+    }
+
+    private ReentrantLock getLock(String name) {
+        int h = name.hashCode();
+        h ^= (h >>> 16);
+        return stripes[h & (stripes.length - 1)];
     }
 }

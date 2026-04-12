@@ -57,9 +57,8 @@ public class ServerSession extends NexalithicSession<
         return serviceUnit;
     }
 
-    public ServerSession attach(SessionAttachment attachment) {
+    public void attach(SessionAttachment attachment) {
         this.attachment = attachment;
-        return this;
     }
     @SuppressWarnings("unchecked")
     public <T extends SessionAttachment> T attachment()  {

@@ -3,7 +3,9 @@ package com.thezeroer.nexalithic.server.messaging;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
+import com.thezeroer.nexalithic.server.manager.SessionsManager;
 
 /**
  * 服务器业务分组器
@@ -23,14 +25,16 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
             super(holder);
         }
     }
+    private final SessionsManager sessionsManager;
 
     public ServerBusinessPacketDispatcher(NexalithicBuilderContext context) {
         super(context, OPTIONS);
+        sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
     }
 
     @Override
     protected ServerHandlerContext createHandlerContext() {
-        return new ServerHandlerContext(this);
+        return new ServerHandlerContext(this, sessionsManager);
     }
 
     @Override
