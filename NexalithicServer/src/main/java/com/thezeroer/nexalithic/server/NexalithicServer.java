@@ -15,6 +15,7 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
@@ -43,7 +44,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
-import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -253,12 +254,19 @@ public class NexalithicServer {
         }
     }
 
-    public TaskFuture submit(NexalithicTask task, String sessionName) {
+    public TaskFuture submit(String sessionName, NexalithicTask.Builder taskBuilder) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return null;
         }
-        return businessPacketDispatcher.submitNexalithicTask(session, task);
+        return businessPacketDispatcher.submitNexalithicTask(session, taskBuilder, null);
+    }
+    public TaskFuture submit(String sessionName, NexalithicTask.Builder taskBuilder, TransferListenerGroup.Builder transferVisualizerBuilder) {
+        ServerSession session = sessionsManager.getSession(sessionName);
+        if (session == null) {
+            return null;
+        }
+        return businessPacketDispatcher.submitNexalithicTask(session, taskBuilder, transferVisualizerBuilder);
     }
 
     public boolean push(String sessionName, BusinessPacket packet) {
@@ -298,7 +306,7 @@ public class NexalithicServer {
             return this;
         }
 
-        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Supplier<TrieNodeChildrenStorage<ServerHandlerContext>> factory) {
+        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Function<Integer, TrieNodeChildrenStorage<ServerHandlerContext>> factory) {
             handlerRegistryBuilder.factory(factory);
             return this;
         }
@@ -307,7 +315,7 @@ public class NexalithicServer {
             return this;
         }
         public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder);
+            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder, ServerHandlerContext.class);
             return this;
         }
 
@@ -317,11 +325,6 @@ public class NexalithicServer {
         }
         public Builder registerPayload(Supplier<? extends AbstractPayload<?>> constructor) {
             payloadRegistryBuilder.register(constructor);
-            return this;
-        }
-
-        public Builder setExecutorService(NexalithicModule<ExecutorService> module, ExecutorService threadPool) {
-            context.setModule(module, threadPool);
             return this;
         }
 

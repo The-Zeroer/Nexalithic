@@ -83,7 +83,7 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
                 currentLinkedCount.incrementAndGet();
             } else {
                 if (logger.isTraceEnabled()) {
-                    logger.trace("[{}] sent BUSINESS packet", wrapper.unwrap());
+                    logger.trace("sent BUSINESS packet [{}]", wrapper.unwrap());
                 }
                 wrapper.recycle();
             }
@@ -98,7 +98,7 @@ public class BusinessPacketsFragmenter implements PacketsFragmenter<BusinessPack
                 wrapper = wrapper.getNext();
             } else {
                 if (logger.isTraceEnabled()) {
-                    logger.trace("[{}] sent BUSINESS packet", wrapper.unwrap());
+                    logger.trace("sent BUSINESS packet [{}]", wrapper.unwrap());
                 }
                 BusinessPacketFragmentWrapper next = wrapper.removeSelfAndGetNext();
                 currentLinkedCount.decrementAndGet();

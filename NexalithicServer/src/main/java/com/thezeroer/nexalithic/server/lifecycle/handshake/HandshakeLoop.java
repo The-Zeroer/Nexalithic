@@ -119,7 +119,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     ),
                     HandshakeLoop.class.getSimpleName()
             );
-//            timeWheel.start();
+            timeWheel.start();
             return timeWheel;
         });
         if (context.getOption(OPTIONS.SharedFixedTaskExecutor)) {
@@ -144,16 +144,16 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     public ExecutorThread newThread(Runnable runnable) {
                         String name;
                         if (shared) {
-                            name = "HandshakeLoop-ExecutorService-" + counter.getAndIncrement();
+                            name = "HandshakeLoop-FixedTaskExecutor-" + counter.getAndIncrement();
                         } else {
-                            name = HandshakeLoop.this.name + "-ExecutorService-" + counter.getAndIncrement();
+                            name = HandshakeLoop.this.name + "-FixedTaskExecutor-" + counter.getAndIncrement();
                         }
                         ExecutorThread thread = new ExecutorThread(runnable, name);
                         thread.setDaemon(true);
                         return thread;
                     }
                 },
-                (task, executor) -> closeChannel(task),
+                (channel, executor) -> closeChannel(channel),
                 (channel, thread) -> {
                     if (channel.isRecycled()) {
                         return;
@@ -237,6 +237,9 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     public boolean onAsyncEvent() {
         dispatchQueue.drain(channel -> {
             try {
+                if (channel.isRecycled()) {
+                    return;
+                }
                 SelectionKey key = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 key.attach(channel.setSelectionKey(key));
                 channel.getReadBuffer().limit(SecurityPolicy.MAGIC_NUMBER_LENGTH);

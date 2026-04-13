@@ -48,4 +48,9 @@ public class BareSignal extends SignalingPacket {
     public short getContentLength() {
         return 0;
     }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "-> Signal: " + toName(signal);
+    }
 }

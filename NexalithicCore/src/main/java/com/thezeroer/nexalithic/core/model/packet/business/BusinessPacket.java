@@ -1,9 +1,11 @@
 package com.thezeroer.nexalithic.core.model.packet.business;
 
+import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,6 +68,7 @@ public class BusinessPacket extends AbstractPacket {
     public static BusinessPacket create(Way way, short... path) {
         return new BusinessPacket(way, path);
     }
+
     public final BusinessPacket attach(AbstractPayload<?> payload) {
         if (sealed) {
             throw new IllegalStateException("Cannot attach payload to a sealed packet.");
@@ -221,5 +224,21 @@ public class BusinessPacket extends AbstractPacket {
     @Override
     public final PacketType packetType() {
         return PacketType.BUSINESS;
+    }
+
+    @Override
+    public final String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Way: ").append(WAYS[way]).append(", Path: ").append(Arrays.toString(path)).append(", TaskId: ").append(taskId)
+                .append(", PacketSize: ").append(TransferSnapshot.formatSize(packetSize)).append(", PayloadCount: ").append(payloadCount);
+        if (payloads != null) {
+            sb.append(", Payloads: { ");
+            for (AbstractPayload<?> payload : payloads) {
+                sb.append(payload.getClass().getSimpleName()).append(": ").append(payload).append(", ");
+            }
+            sb.delete(sb.length() - 2, sb.length());
+            sb.append(" }");
+        }
+        return sb.toString();
     }
 }

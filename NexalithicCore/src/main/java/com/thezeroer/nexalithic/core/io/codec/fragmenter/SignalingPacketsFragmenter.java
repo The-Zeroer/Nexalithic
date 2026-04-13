@@ -66,7 +66,7 @@ public class SignalingPacketsFragmenter implements PacketsFragmenter<SignalingPa
             }
             if (packet.toBuffer(target)) {
                 if (logger.isTraceEnabled()) {
-                    logger.trace("[{}] sent SIGNALING packet", packet);
+                    logger.trace("sent SIGNALING packet [{}]", packet);
                 }
                 packet = null;
             } else {

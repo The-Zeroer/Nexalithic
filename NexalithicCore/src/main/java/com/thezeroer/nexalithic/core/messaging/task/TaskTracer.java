@@ -61,14 +61,24 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
     }
 
     public NexalithicTask pick(long taskId) {
-        return taskMap.remove(taskId);
+        NexalithicTask task = taskMap.get(taskId);
+        if (task == null) {
+            return null;
+        }
+        if (task.getPattern() == NexalithicTask.Pattern.STREAM) {
+            return task;
+        }
+        taskMap.remove(taskId);
+        return task;
     }
 
-    public void cancel(long taskId) {
+    public boolean cancel(long taskId) {
         NexalithicTask task = taskMap.remove(taskId);
-        if (task != null) {
-            task.cancel();
+        if (task == null) {
+            return false;
         }
+        task.cancel();
+        return true;
     }
 
     public boolean hasTrackingTasks() {
@@ -77,7 +87,7 @@ public class TaskTracer implements TimerExecutor<NexalithicTask> {
 
     @Override
     public void trigger(NexalithicTask target) {
-        NexalithicTask task = pick(target.getTaskId());
+        NexalithicTask task = taskMap.remove(target.getTaskId());
         if (task != null) {
             task.timeout();
         }

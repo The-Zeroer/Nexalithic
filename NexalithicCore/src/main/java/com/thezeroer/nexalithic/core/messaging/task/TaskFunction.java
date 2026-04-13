@@ -12,7 +12,7 @@ import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
  * [提交任务] -> request() -> (网络传输) -> [等待响应/超时/异常]
  * |--> 正常响应: response(BusinessPacket) -> finish()
  * |--> 触发超时: timeout() -> finish()
- * |--> 运行异常: exception(ExceptionAction) -> finish()
+ * |--> 运行异常: exception(FailedAction) -> finish()
  * |--> 主动取消: cancel() -> finish()
  * </pre>
  *
@@ -27,6 +27,10 @@ public interface TaskFunction {
     }
     @FunctionalInterface
     interface ResponseAction extends TaskFunction {
+        void execute(BusinessPacket packet, TaskFuture future);
+    }
+    @FunctionalInterface
+    interface SimpleResponseAction extends TaskFunction {
         void execute(BusinessPacket packet);
     }
     @FunctionalInterface
@@ -42,7 +46,7 @@ public interface TaskFunction {
         void execute();
     }
     @FunctionalInterface
-    interface ExceptionAction extends TaskFunction {
+    interface FailedAction extends TaskFunction {
         void execute(Exception e);
     }
 }

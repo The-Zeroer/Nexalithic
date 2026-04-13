@@ -4,6 +4,8 @@ import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 
+import java.lang.reflect.Field;
+
 /**
  * 信令包
  *
@@ -21,8 +23,20 @@ public abstract class SignalingPacket extends AbstractPacket implements Fragment
     public static final int HEADER_LENGTH = Byte.BYTES + Short.BYTES;
     public static final int MAX_PACKET_LENGTH = 1024 * 4;
 
+    protected static final String[] NAMES = new String[256];
     protected final byte signal;
     protected short length;
+
+    static {
+        for (Field field : Signal.class.getDeclaredFields()) {
+            if (field.getType() == byte.class) {
+                try {
+                    byte value = field.getByte(null);
+                    NAMES[value & 0xFF] = field.getName();
+                } catch (IllegalAccessException ignored) {}
+            }
+        }
+    }
 
     protected SignalingPacket(byte signal) {
         this.signal = signal;
@@ -71,6 +85,11 @@ public abstract class SignalingPacket extends AbstractPacket implements Fragment
     protected abstract void onToBuffer(LoopBuffer buffer);
     public abstract byte[] getContent();
     public abstract short getContentLength();
+
+    public static String toName(byte signal) {
+        String name = NAMES[signal & 0xFF];
+        return name != null ? name : "UNKNOWN_SIGNAL(" + String.format("0x%02X", signal) + ")";
+    }
 
     @Override
     public PacketType packetType() {

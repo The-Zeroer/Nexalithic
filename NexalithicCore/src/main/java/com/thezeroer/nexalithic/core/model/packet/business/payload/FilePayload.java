@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.core.model.packet.business.payload;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -108,6 +109,11 @@ public class FilePayload extends AbstractPayload<File> {
     @Override
     public long getPayloadUID() {
         return UID;
+    }
+
+    @Override
+    public String toString() {
+        return "[SrcFileName: " + sourceFileName + ", Size:" + TransferSnapshot.formatSize(totalSize - metaBytes.length) + ", CurrentPath: " + value.getAbsolutePath() + "]";
     }
 
     private static class Interior {

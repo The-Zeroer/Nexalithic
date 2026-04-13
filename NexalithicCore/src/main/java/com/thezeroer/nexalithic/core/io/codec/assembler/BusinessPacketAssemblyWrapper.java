@@ -106,25 +106,25 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
         return total;
     }
     private int readPacketHeader(LoopBuffer input) throws IOException {
-        int read = BusinessPacket.BASE_HEADER_SIZE;
-        packetBuilder.taskId = input.unsafeGetLong();
-        packetBuilder.packetSize = input.unsafeGetLong();
-        remaining = packetBuilder.packetSize;
-        packetBuilder.way = input.unsafeGetShort();
+        long taskId = input.unsafeGetLong();
+        long packetSize = input.unsafeGetLong();
+        short way = input.unsafeGetShort();
         byte depth = input.unsafeGetByte();
-        packetBuilder.pathDepth = depth;
+        short[] path = null;
+        int read = BusinessPacket.BASE_HEADER_SIZE;
         if (depth > 0) {
-            packetBuilder.path = new short[depth];
+            path = new short[depth];
             for (int i = 0; i < depth; i++) {
-                packetBuilder.path[i] = input.unsafeGetShort();
+                path[i] = input.unsafeGetShort();
             }
             read += depth * Short.BYTES;
         }
         byte count = input.unsafeGetByte();
-        packetBuilder.payloadCount = count;
+        List<AbstractPayload<?>> payloads = null;
+        long[] payloadsMeta = null;
         if (count > 0) {
-            packetBuilder.payloads = new ArrayList<>(count);
-            packetBuilder.payloadsMeta = new long[count * 2];
+            payloads = new ArrayList<>(count);
+            payloadsMeta = new long[count * 2];
             for (int i = 0; i < count; i++) {
                 long uid = input.unsafeGetLong();
                 long size = input.unsafeGetLong();
@@ -132,12 +132,21 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
                 if (payload == null) {
                     throw new IOException("Unknown Payload UID: " + uid);
                 }
-                packetBuilder.payloads.add(payload);
-                packetBuilder.payloadsMeta[i * 2] = uid;
-                packetBuilder.payloadsMeta[i * 2 + 1] = size;
+                payloads.add(payload);
+                payloadsMeta[i * 2] = uid;
+                payloadsMeta[i * 2 + 1] = size;
             }
             read += count * Long.BYTES * 2;
         }
+        this.remaining = packetSize;
+        packetBuilder.taskId = taskId;
+        packetBuilder.packetSize = packetSize;
+        packetBuilder.way = way;
+        packetBuilder.pathDepth = depth;
+        packetBuilder.path = path;
+        packetBuilder.payloadCount = count;
+        packetBuilder.payloads = payloads;
+        packetBuilder.payloadsMeta = payloadsMeta;
         return read;
     }
 
@@ -196,10 +205,12 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
             if (packetSize != packet.getPacketSize()) {
                 throw new IllegalStateException("Packet Size Mismatch, %d or %d".formatted(packetSize, packet.getPacketSize()));
             }
-            for (int i = 0; i < payloadsMeta.length; i++) {
-                long[] payloadsMeta = packet.getPayloadsMeta();
-                if (this.payloadsMeta[i] != payloadsMeta[i]) {
-                    throw new IllegalStateException("Payloads Meta Mismatch");
+            if (payloadsMeta != null) {
+                for (int i = 0; i < payloadsMeta.length; i++) {
+                    long[] payloadsMeta = packet.getPayloadsMeta();
+                    if (this.payloadsMeta[i] != payloadsMeta[i]) {
+                        throw new IllegalStateException("Payloads Meta Mismatch");
+                    }
                 }
             }
             return packet;

@@ -58,4 +58,9 @@ public class TextPayload extends AbstractPayload<String> {
     public long getPayloadUID() {
         return UID;
     }
+
+    @Override
+    public String toString() {
+        return "\"" + value + "\"";
+    }
 }

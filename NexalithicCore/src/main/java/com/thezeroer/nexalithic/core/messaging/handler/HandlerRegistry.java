@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
 import java.util.*;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -140,17 +140,25 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             return null;
         }
         PathMatcher matcher = new PathMatcher();
-        for (HandlerMapping.Level level : mapping.value()) {
-            short[] levelValue = level.value();
-            if (levelValue == null || levelValue.length == 0) {
-                matcher.addWildcard();
-            } else if (levelValue.length == 1) {
-                matcher.addDepth(levelValue[0]);
-            } else {
-                matcher.addBreadth(levelValue);
+        short[] simplePath = mapping.value();
+        HandlerMapping.Level[] levels = mapping.levels();
+        if (levels.length > 0) {
+            for (HandlerMapping.Level level : levels) {
+                processLevel(matcher, level.value());
             }
+        } else if (simplePath.length > 0) {
+            processLevel(matcher, simplePath);
         }
         return matcher;
+    }
+    private static void processLevel(PathMatcher matcher, short[] values) {
+        if (values == null || values.length == 0) {
+            matcher.addWildcard();
+        } else if (values.length == 1) {
+            matcher.addDepth(values[0]);
+        } else {
+            matcher.addBreadth(values);
+        }
     }
 
     /**
@@ -184,14 +192,15 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
         if (handler == null) {
             TrieNode<HC> wildcardNode = current.getWildcard();
             if (wildcardNode != null) {
-                handler = doMatch(wildcardNode, path, depth + 1);
+                doMatch(wildcardNode, path, depth + 1);
             }
+            handler = current.getHandler();
         }
         return handler;
     }
 
     public static class Builder<HC extends HandlerContext<?>> {
-        private Supplier<TrieNodeChildrenStorage<HC>> factory = TrieNodeChildrenStorage.MapTrieNodeChildrenStorage::new;
+        private Function<Integer, TrieNodeChildrenStorage<HC>> factory = (count) -> new TrieNodeChildrenStorage.MapTrieNodeChildrenStorage<>();
         private final MutableNode<HC> root = new MutableNode<>();
 
         /**
@@ -203,15 +212,15 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             if (matcher == null || handler == null) {
                 return;
             }
+            if (handler.getName() == null) {
+                handler.setName(matcher.formatPath());
+            }
             List<List<Short>> levels = matcher.getLevels();
             if (levels.isEmpty()) {
                 root.handler = handler;
                 return;
             }
             doRegister(root, levels, 0, handler);
-            if (handler.getName() == null) {
-                handler.setName(matcher.formatPath());
-            }
         }
         private void doRegister(MutableNode<HC> parent, List<List<Short>> levels, int depth, NexalithicHandler<HC> handler) {
             for (Short key : levels.get(depth)) {
@@ -224,7 +233,7 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             }
         }
 
-        public void factory(Supplier<TrieNodeChildrenStorage<HC>> factory) {
+        public void factory(Function<Integer, TrieNodeChildrenStorage<HC>> factory) {
             this.factory = factory;
         }
 
@@ -232,7 +241,7 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             return new HandlerRegistry<>(freeze(root));
         }
         private TrieNode<HC> freeze(MutableNode<HC> mutable) {
-            TrieNodeChildrenStorage<HC> storage = factory.get();
+            TrieNodeChildrenStorage<HC> storage = factory.apply(mutable.children.size());
             for (Map.Entry<Short, MutableNode<HC>> entry : mutable.children.entrySet()) {
                 storage.put(entry.getKey(), freeze(entry.getValue()));
             }

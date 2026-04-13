@@ -1,8 +1,6 @@
 package com.thezeroer.nexalithic.core.messaging.visual;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
-import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
@@ -28,9 +26,6 @@ public class TransferTracer {
             super(holder);
         }
     }
-    public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<ExecutorService> ExecutorService = NexalithicModule.create("TransferTracer_ExecutorService", ExecutorService.class);
-    }
     public record Constant(long UpdateRunnable_Delay) {}
     private final Constant CONSTANT;
     private final Map<Long, TransferListenerGroup> visualizers = new ConcurrentHashMap<>();
@@ -43,7 +38,7 @@ public class TransferTracer {
     public TransferTracer(NexalithicBuilderContext context) {
         CONSTANT = new Constant(context.getOption(OPTIONS.ProgressPoller_Delay));
         if (context.getOption(OPTIONS.Enable_ExecutorService)) {
-            executorService = context.getModule(Modules.ExecutorService, () -> new ThreadPoolExecutor(
+            executorService = new ThreadPoolExecutor(
                     0, 1, 60L, TimeUnit.SECONDS,
                     new LinkedBlockingQueue<>(1024),
                     runnable -> {
@@ -51,7 +46,7 @@ public class TransferTracer {
                         t.setDaemon(true);
                         return t;
                     }
-            ));
+            );
         } else {
             executorService = null;
         }

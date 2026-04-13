@@ -38,7 +38,7 @@ public class SignalingPacketsAssembler implements PacketsAssembler<SignalingPack
                 break;
             }
             if (logger.isTraceEnabled()) {
-                logger.trace("[{}] received SIGNALING packet", packet);
+                logger.trace("received SIGNALING packet [{}]", packet);
             }
             if (packets.offer(packet)) {
                 source.dropMarkHead();

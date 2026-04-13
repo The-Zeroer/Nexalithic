@@ -136,6 +136,9 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
         }
     }
     private int writePayloads(LoopBuffer output, int quota) throws IOException {
+        if (payloads == null) {
+            return 0;
+        }
         int total = 0, written, size = payloads.size();
         while (payloadIndex < size) {
             AbstractPayload<?> payload = payloads.get(payloadIndex);

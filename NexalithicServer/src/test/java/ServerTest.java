@@ -34,6 +34,8 @@ public class ServerTest {
         NexalithicServer nexalithicServer = NexalithicServer.builder()
                 .apply(LifecycleManager.OPTIONS.ServiceUnit_Count, 2)
                 .apply(ServiceUnit.OPTIONS.WorkerLoop_Count, 2)
+//                .apply(StewardLoop.OPTIONS.HeartBeat_MaxInterval, 1000000L)
+//                .apply(WorkerLoop.OPTIONS.MaxIdleTime,  1000000L)
                 .addRoute(AbstractPacket.PacketType.BUSINESS, "0.0.0.0/0", 7710)
                 .securityPolicy(new TestSecurityPolicy())
                 .registerHandler(new HandlerRegistry.PathMatcher(), new NexalithicHandler<>((context -> {

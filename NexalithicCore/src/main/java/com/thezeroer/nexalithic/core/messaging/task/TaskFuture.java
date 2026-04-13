@@ -13,16 +13,20 @@ import java.util.concurrent.TimeUnit;
 public class TaskFuture {
     private final CountDownLatch latch = new CountDownLatch(1);
     private final NexalithicTask task;
+    private final TaskTracer tracer;
 
-    public TaskFuture(NexalithicTask task) {
+    public TaskFuture(NexalithicTask task, TaskTracer tracer) {
         this.task = task;
+        this.tracer = tracer;
     }
 
     public NexalithicTask.State getState() {
         return task.getState();
     }
     public void cancel() {
-        task.cancel();
+        if (!tracer.cancel(task.getTaskId())) {
+            task.cancel();
+        }
         latch.countDown();
     }
 
@@ -60,5 +64,8 @@ public class TaskFuture {
      */
     void internalComplete() {
         latch.countDown();
+    }
+    boolean isDone() {
+        return latch.getCount() == 0;
     }
 }

@@ -106,7 +106,7 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
                 assemblingMap.remove(packetId);
                 BusinessPacket packet = wrapper.getPacket();
                 if (logger.isTraceEnabled()) {
-                    logger.trace("[{}] received BUSINESS packet", packet);
+                    logger.trace("received BUSINESS packet [{}]", packet);
                 }
                 wrapper.recycle();
                 if (!completedPackets.offer(packet)) {

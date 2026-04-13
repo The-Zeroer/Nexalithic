@@ -3,7 +3,11 @@ package com.thezeroer.nexalithic.server.messaging;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.server.NexalithicServer;
+import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
 
@@ -28,7 +32,7 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
     private final SessionsManager sessionsManager;
 
     public ServerBusinessPacketDispatcher(NexalithicBuilderContext context) {
-        super(context, OPTIONS);
+        super(context, OPTIONS, context.getOption(LifecycleManager.OPTIONS.ServiceUnit_Count) != 1 || context.getOption(ServiceUnit.OPTIONS.WorkerLoop_Count) != 1);
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
     }
 
@@ -40,5 +44,18 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
     @Override
     protected ServerHandlerContext.Recyclable createRecyclableWrapper(ServerHandlerContext context) {
         return new ServerHandlerContext.Recyclable(context);
+    }
+
+    @Override
+    protected boolean onIngest(BusinessPacket packet, ServerSession session, NexalithicHandler<ServerHandlerContext> handler) {
+        if (handler == null) {
+            egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_NotHandler).setTaskId(packet.getTaskId()));
+            return false;
+        }
+        if (handler.requireAuth() && session.getSessionName() == null) {
+            egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_Unauthorized).setTaskId(packet.getTaskId()));
+            return false;
+        }
+        return true;
     }
 }

@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
+import com.thezeroer.nexalithic.core.messaging.Dispatchable;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.infra.recyclable.TargetStaticWrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
@@ -12,8 +13,8 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
  * @version 1.0.0
  */
 public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>> {
-    protected S session;
-    protected BusinessPacket request;
+    protected volatile S session;
+    protected volatile BusinessPacket request;
 
     public HandlerContext() {
     }
@@ -28,22 +29,36 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>>
             S extends NexalithicSession<?, ?, ?, ?, ?>,
             T extends HandlerContext<S>,
             W extends Recyclable<S, T, W>
-        > extends TargetStaticWrapperPool.InteriorRecyclableWrapper<T, W> {
+        > extends TargetStaticWrapperPool.InteriorRecyclableWrapper<T, W> implements Dispatchable {
+
+        private volatile NexalithicHandler<T> handler;
+
         public Recyclable(T target) {
             super(target);
         }
 
-        @SuppressWarnings("unchecked")
-        public W initTarget(BusinessPacket request, S session) {
+        public void initTarget(BusinessPacket request, S session, NexalithicHandler<T> handler) {
             target.request = request;
             target.session = session;
-            return (W) this;
+            this.handler = handler;
         }
 
         @Override
         protected void onRecycle() {
             target.request = null;
             target.session = null;
+        }
+
+        public S getSession() {
+            return target.session;
+        }
+        public NexalithicHandler<T> getHandler() {
+            return handler;
+        }
+
+        @Override
+        public final Type type() {
+            return Type.Handler;
         }
     }
 }

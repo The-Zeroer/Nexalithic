@@ -60,4 +60,9 @@ public class TokenSignal extends SignalingPacket {
     public short getContentLength() {
         return LENGTH;
     }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName();
+    }
 }

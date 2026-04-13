@@ -44,8 +44,8 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -98,11 +98,10 @@ public class NexalithicClient {
     }
 
     public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
-        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder.build());
+        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder, null);
     }
     public TaskFuture submit(NexalithicTask.Builder taskBuilder, TransferListenerGroup.Builder transferVisualizerBuilder) {
-        NexalithicTask task = taskBuilder.build();
-        return businessPacketDispatcher.submitNexalithicTask(getSession(), task, transferVisualizerBuilder.build(task.getTaskId()));
+        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder, transferVisualizerBuilder);
     }
     public boolean push(BusinessPacket packet) {
         return businessPacketDispatcher.egress(getSession(), packet);
@@ -150,7 +149,7 @@ public class NexalithicClient {
             return this;
         }
 
-        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Supplier<TrieNodeChildrenStorage<ClientHandlerContext>> factory) {
+        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Function<Integer, TrieNodeChildrenStorage<ClientHandlerContext>> factory) {
             handlerRegistryBuilder.factory(factory);
             return this;
         }
@@ -159,7 +158,7 @@ public class NexalithicClient {
             return this;
         }
         public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder);
+            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder, ClientHandlerContext.class);
             return this;
         }
 
@@ -169,11 +168,6 @@ public class NexalithicClient {
         }
         public Builder registerPayload(Supplier<? extends AbstractPayload<?>> constructor) {
             payloadRegistryBuilder.register(constructor);
-            return this;
-        }
-
-        public Builder businessPacketDispatcherThreadPool(ExecutorService threadPool) {
-            context.setModule(BusinessPacketDispatcher.Modules.ExecutorService, threadPool);
             return this;
         }
 

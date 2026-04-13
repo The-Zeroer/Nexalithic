@@ -2,6 +2,8 @@ package com.thezeroer.nexalithic.core.model.packet.signaling;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 
+import java.util.Arrays;
+
 /**
  * 原始信号
  *
@@ -35,5 +37,10 @@ public class RawSignal extends SignalingPacket {
     }
     public byte[] getContent() {
         return content;
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "-> Signal: " + toName(signal) + ", Length: " + length + ", Content" + Arrays.toString(content);
     }
 }

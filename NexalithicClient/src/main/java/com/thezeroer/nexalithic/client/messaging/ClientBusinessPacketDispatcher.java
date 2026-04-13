@@ -4,6 +4,10 @@ import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 客户端业务分发器
@@ -28,16 +32,11 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
         protected Integer PacketWrapperPool_Capacity_DefaultValue() {
             return 64;
         }
-        protected Integer ThreadPool_CorePoolSize_DefaultValue() {
-            return Math.min(super.ThreadPool_CorePoolSize_DefaultValue(), 4);
-        }
-        protected Integer ThreadPool_MaximumPoolSize_DefaultValue() {
-            return ThreadPool_CorePoolSize_DefaultValue();
-        }
     }
+    private static final Logger logger = LoggerFactory.getLogger(ClientBusinessPacketDispatcher.class);
 
     public ClientBusinessPacketDispatcher(NexalithicBuilderContext context) {
-        super(context, OPTIONS);
+        super(context, OPTIONS, false);
     }
 
     @Override
@@ -48,5 +47,14 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
     @Override
     protected ClientHandlerContext.Recyclable createRecyclableWrapper(ClientHandlerContext context) {
         return new ClientHandlerContext.Recyclable(context);
+    }
+
+    @Override
+    protected boolean onIngest(BusinessPacket packet, ClientSession session, NexalithicHandler<ClientHandlerContext> handler) {
+        if (handler == null) {
+            logger.warn("No handler registered for path {}", packet.getPath());
+            return false;
+        }
+        return true;
     }
 }

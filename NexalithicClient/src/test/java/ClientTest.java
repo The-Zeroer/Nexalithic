@@ -41,7 +41,7 @@ public class ClientTest {
 //                                    } catch (FileNotFoundException e) {
 //                                        throw new RuntimeException(e);
 //                                    }
-                                    return BusinessPacket.create(BusinessPacket.Way.DEFAULT).attach(new TextPayload("Hello Server!"));
+                                    return BusinessPacket.create(BusinessPacket.Way.DEFAULT, (short) 1, (short) 2).attach(new TextPayload("Hello Server!"));
                                 })
                                 .onResponse(response -> {
                                     if (response.firstPayload() instanceof TextPayload textPayload) {

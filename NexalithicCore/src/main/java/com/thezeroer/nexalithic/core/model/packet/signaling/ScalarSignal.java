@@ -86,4 +86,9 @@ public class ScalarSignal extends SignalingPacket {
     public short getContentLength() {
         return Long.BYTES;
     }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "-> Signal: " + toName(signal) + ", Value: " + value;
+    }
 }

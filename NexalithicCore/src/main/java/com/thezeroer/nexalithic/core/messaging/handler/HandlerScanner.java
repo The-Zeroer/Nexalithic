@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class HandlerScanner {
 
-    public static <HC extends HandlerContext<?>> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry.Builder<HC> builder) throws Throwable {
+    public static <HC extends HandlerContext<?>> void scanAndRegister(String packageName, BeanFactory factory, HandlerRegistry.Builder<HC> builder, Class<HC> paramType) throws Throwable {
         List<Class<?>> classes = ClassScanner.scan(packageName);
         for (Class<?> clazz : classes) {
             HandlerMapping classAnnotation = clazz.getAnnotation(HandlerMapping.class);
@@ -33,16 +33,16 @@ public class HandlerScanner {
                 HandlerRegistry.PathMatcher methodMatcher = HandlerRegistry.parse(methodAnnotation);
                 HandlerRegistry.PathMatcher fullMatcher = new HandlerRegistry.PathMatcher();
                 fullMatcher.combine(classMatcher).combine(methodMatcher);
-                builder.register(fullMatcher, createHandler(bean, method));
+                builder.register(fullMatcher, createHandler(bean, method, paramType));
             }
         }
     }
-    private static <HC extends HandlerContext<?>> NexalithicHandler<HC> createHandler(Object bean, Method method) throws Throwable {
+    private static <HC extends HandlerContext<?>> NexalithicHandler<HC> createHandler(Object bean, Method method, Class<HC> paramType) throws Throwable {
         MethodHandles.Lookup lookup = MethodHandles.lookup();
         MethodHandle methodHandle = lookup.unreflect(method);
-        MethodType methodType = MethodType.methodType(void.class, HandlerContext.class);
+        MethodType methodType = MethodType.methodType(void.class, paramType);
         MethodType factoryType = MethodType.methodType(HandlerFunction.class, bean.getClass());
-        MethodType instantiatedMethodType = MethodType.methodType(void.class, HandlerContext.class);
+        MethodType instantiatedMethodType = MethodType.methodType(void.class, paramType);
         CallSite site = LambdaMetafactory.metafactory(
                 lookup,
                 "handle", // 接口中的方法名
