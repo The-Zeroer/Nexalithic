@@ -1,6 +1,10 @@
 package com.thezeroer.nexalithic.client;
 
+import com.thezeroer.nexalithic.client.event.LinkStatusListener;
+import com.thezeroer.nexalithic.client.event.Registration;
+import com.thezeroer.nexalithic.client.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
+import com.thezeroer.nexalithic.client.manager.LinkStatusManager;
 import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
 import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
@@ -44,6 +48,9 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -58,17 +65,22 @@ import java.util.function.Supplier;
 @SuppressWarnings("UnusedReturnValue")
 public class NexalithicClient {
     public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<GeneralLoop> GeneralLoop = NexalithicModule.create("NexalithicClient_GeneralLoop", GeneralLoop.class);
+        public static final NexalithicModule<LifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicClient_LifecycleManager", LifecycleManager.class);
+        public static final NexalithicModule<LinkStatusManager> LinkStatusManager = NexalithicModule.create("NexalithicClient_LinkStatusManager", LinkStatusManager.class);
         public static final NexalithicModule<ClientBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicClient_BusinessPacketDispatcher", ClientBusinessPacketDispatcher.class);
         public static final NexalithicModule<ClientSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicClient_SecurityPolicy", ClientSecurityPolicy.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
+    private final LifecycleManager lifecycleManager;
+    private final LinkStatusManager linkStatusManager;
     private final GeneralLoop generalLoop;
     private final ClientBusinessPacketDispatcher businessPacketDispatcher;
 
     private NexalithicClient(NexalithicBuilderContext context) {
-        this.generalLoop = context.getModule(Modules.GeneralLoop);
+        this.lifecycleManager = context.getModule(Modules.LifecycleManager);
+        this.linkStatusManager = context.getModule(Modules.LinkStatusManager);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
+        this.generalLoop = context.getModule(LifecycleManager.Modules.GeneralLoop);
         System.gc();
     }
     public static NexalithicClient unsafeCreate(NexalithicBuilderContext context) {
@@ -80,21 +92,25 @@ public class NexalithicClient {
         return new Builder();
     }
 
-    public void start() throws Exception {
-        generalLoop.start();
+    public void start() {
+        lifecycleManager.start();
     }
-    public void stop() throws Exception {
-        generalLoop.stop();
+    public void stop() {
+        lifecycleManager.stop();
     }
-    public void shutdown() throws Exception {
-        generalLoop.shutdown();
+    public void shutdown() {
+        lifecycleManager.shutdown();
     }
 
     public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
-        generalLoop.getNetworkRouter().setServerHost(remote.getAddress().getHostAddress());
-        return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel);
+        if (linkStatusManager.getCurrentStatus() != LinkStatusListener.Status.UNLINKED) {
+            throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getCurrentStatus() + ", must be " + LinkStatusListener.Status.UNLINKED);
+        }
+        linkStatusManager.trigger(LinkStatusListener.Status.LINKING);
+        generalLoop.getNetworkRouter().setServerAddress(remote);
+        return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel, null);
     }
 
     public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
@@ -105,6 +121,47 @@ public class NexalithicClient {
     }
     public boolean push(BusinessPacket packet) {
         return businessPacketDispatcher.egress(getSession(), packet);
+    }
+
+    /**
+     * @see LinkStatusManager#onStatusTransition(LinkStatusListener.EventKey event, LinkStatusListener listener)
+     */
+    public Registration onStatusTransition(LinkStatusListener.EventKey event, LinkStatusListener listener) {
+        return linkStatusManager.onStatusTransition(event, listener);
+    }
+    /**
+     * @see LinkStatusManager#onStatusTransitionOnce(LinkStatusListener.EventKey event, LinkStatusListener listener)
+     */
+    public Registration onStatusTransitionOnce(LinkStatusListener.EventKey event, LinkStatusListener listener) {
+        return linkStatusManager.onStatusTransitionOnce(event, listener);
+    }
+    /**
+     * @see LinkStatusManager#onStatusTransition(LinkStatusListener.Status from, LinkStatusListener.Status to, LinkStatusListener listener)
+     */
+    public Registration onStatusTransition(LinkStatusListener.Status from, LinkStatusListener.Status to, LinkStatusListener listener) {
+        return linkStatusManager.onStatusTransition(from, to, listener);
+    }
+    /**
+     * @see LinkStatusManager#onEnterStatus(LinkStatusListener.Status to, LinkStatusListener listener)
+     */
+    public Registration onEnterStatus(LinkStatusListener.Status to, LinkStatusListener listener) {
+        return linkStatusManager.onEnterStatus(to, listener);
+    }
+    /**
+     * @see LinkStatusManager#onLeaveStatus(LinkStatusListener.Status from, LinkStatusListener listener)
+     */
+    public Registration onLeaveStatus(LinkStatusListener.Status from, LinkStatusListener listener) {
+        return linkStatusManager.onLeaveStatus(from, listener);
+    }
+    /**
+     * @see LinkStatusManager#getCurrentStatus()
+     */
+    public LinkStatusListener.Status getLinkStatus() {
+        return linkStatusManager.getCurrentStatus();
+    }
+
+    public LifecycleManager.State getState() {
+        return lifecycleManager.getState();
     }
 
     private ClientSession getSession() {
@@ -181,7 +238,9 @@ public class NexalithicClient {
             context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
-            context.setModule(Modules.GeneralLoop, new GeneralLoop(context));
+            context.setModule(Modules.LinkStatusManager, new LinkStatusManager());
+            context.setModule(LifecycleManager.Modules.GeneralLoop, new GeneralLoop(context));
+            context.setModule(Modules.LifecycleManager, new LifecycleManager(context));
 
             return new NexalithicClient(context);
         }

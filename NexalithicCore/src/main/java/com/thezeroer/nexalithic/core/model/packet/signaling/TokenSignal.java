@@ -17,13 +17,13 @@ public class TokenSignal extends SignalingPacket {
     private final long keyHigh, keyLow;
 
     public TokenSignal(SessionKey key) {
-        super(Signal.BusinessChannelToken);
+        super(Signal.BusinessChannelToken_Response);
         keyHigh = key.high();
         keyLow = key.low();
         length = LENGTH;
     }
     public TokenSignal(LoopBuffer buffer) {
-        super(Signal.BusinessChannelToken);
+        super(Signal.BusinessChannelToken_Response);
         keyHigh = buffer.unsafeGetLong();
         keyLow = buffer.unsafeGetLong();
         length = LENGTH;

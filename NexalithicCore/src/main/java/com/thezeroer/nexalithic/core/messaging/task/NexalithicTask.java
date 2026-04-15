@@ -271,6 +271,10 @@ public class NexalithicTask implements Expirable, Dispatchable {
             this.requestAction = requestAction;
             return this;
         }
+        public Builder onRequest(BusinessPacket packet) {
+            this.requestAction = () -> packet;
+            return this;
+        }
         public Builder onResponse(TaskFunction.ResponseAction responseAction) {
             this.responseAction = responseAction;
             return this;

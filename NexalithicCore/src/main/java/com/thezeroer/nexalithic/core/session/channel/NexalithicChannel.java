@@ -12,6 +12,8 @@ public interface NexalithicChannel {
         Unconnected,
         Connecting,
         Connected,
+        Closing,
+        Closed,
     }
 
     void updateLastActiveTime(long lastActiveTime);

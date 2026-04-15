@@ -102,8 +102,8 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
         sessionsManager.relateChannelToken(sessionKey, session);
         return session.pushSignalingPacketWrappers(
-                new TokenSignal(sessionKey),
-                ScalarSignal.ofInt(SignalingPacket.Signal.ResponseBusinessPort, networkRouter.choosePort(type, remoteAddress))
+                ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response, networkRouter.choosePort(type, remoteAddress)),
+                new TokenSignal(sessionKey)
         ) == 0;
     }
 
@@ -112,8 +112,8 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSession session = new ServerSession(channel.getSessionKey(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant);
-                selectionKey.attach(session.setServiceUnit(serviceUnit).getSignalingChannel().updateChannel(selectionKey));
+                ServerSession session = new ServerSession(channel.getSessionKey(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant, serviceUnit);
+                selectionKey.attach(session.getSignalingChannel().updateChannel(selectionKey));
                 sessionsManager.putSession(session);
                 timeWheel.schedule(session, this);
             } catch (IOException ignored) {
@@ -155,17 +155,19 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
     }
 
     private void handleSignalPacket(ServerSessionChannel<SignalingPacket, ?> channel, SignalingPacket packet) {
-        switch (packet.getSignal()) {
-            case SignalingPacket.Signal.HeartBeat -> {
-
-            }
-            case SignalingPacket.Signal.RequestBusinessPort -> {
+        if (!switch (packet.getSignal()) {
+            case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacketWrapper(ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response,
+                    networkRouter.choosePort(AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())));
+            case SignalingPacket.Signal.BusinessChannelToken_Request -> {
+                SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
                 ServerSession session = channel.session();
-                if (!prepareChannelAccess(session, AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())) {
-                    logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
-                    closeChannel(channel);
-                }
+                sessionsManager.relateChannelToken(sessionKey, session);
+                yield session.pushSignalingPacketWrapper(new TokenSignal(sessionKey));
             }
+            default -> true;
+        }) {
+            logger.warn("ServerSessionChannel[{}] signalingPacket overflow", channel);
+            closeChannel(channel);
         }
     }
 

@@ -1,5 +1,11 @@
 package com.thezeroer.nexalithic.client.manager;
 
+import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+
+import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 网络路由器
  *
@@ -8,12 +14,24 @@ package com.thezeroer.nexalithic.client.manager;
  * @version 1.0.0
  */
 public class NetworkRouter {
-    public volatile String serverHost;
+    private volatile InetSocketAddress serverAddress;
+    private final Map<AbstractPacket.PacketType, Integer> ports = new ConcurrentHashMap<>();
 
-    public void setServerHost(String serverHost) {
-        this.serverHost = serverHost;
+    public void setServerAddress(InetSocketAddress serverAddress) {
+        this.serverAddress = serverAddress;
+        ports.put(AbstractPacket.PacketType.SIGNALING, serverAddress.getPort());
+    }
+    public InetSocketAddress getServerAddress() {
+        return serverAddress;
     }
     public String getServerHost() {
-        return serverHost;
+        return serverAddress.getAddress().getHostAddress();
+    }
+
+    public void setPort(AbstractPacket.PacketType type, int port) {
+        ports.put(type, port);
+    }
+    public Integer getPort(AbstractPacket.PacketType type) {
+        return ports.get(type);
     }
 }

@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.client.lifecycle.session;
 
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
+import com.thezeroer.nexalithic.client.manager.NetworkRouter;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
@@ -13,6 +14,8 @@ import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 客户端会话
@@ -27,34 +30,39 @@ public class ClientSession extends NexalithicSession<
         ClientSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
         SignalingPacket,
         BusinessPacketFragmentWrapper> {
-    private volatile byte[] businessChannelToken;
+    private final NetworkRouter networkRouter;
+    private final AtomicReference<byte[]> businessChannelToken = new AtomicReference<>(null);
 
-    public ClientSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ClientChannelFactory factory) {
+    public ClientSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ClientChannelFactory factory, NetworkRouter networkRouter) {
         super(sessionKey, signalingSecretKey, businessSecretKey, factory);
+        this.networkRouter = networkRouter;
     }
 
     @Override
-    protected boolean onPushBusinessPacket() {
+    protected boolean connectBusinessChannel() {
         if (businessChannel.becomeConnecting()) {
-            return pushSignalingPacketWrapper(BareSignal.RequestBusinessPort);
+            Integer port = networkRouter.getPort(AbstractPacket.PacketType.BUSINESS);
+            if (port == null) {
+                return pushSignalingPacketWrappers(BareSignal.BusinessChannelPort_Request, BareSignal.BusinessChannelToken_Request) == 0;
+            } else {
+                return pushSignalingPacketWrapper(BareSignal.BusinessChannelToken_Request);
+            }
         }
         return true;
     }
 
     public void setBusinessChannelToken(byte[] businessChannelToken) {
-        this.businessChannelToken = businessChannelToken;
+        this.businessChannelToken.set(businessChannelToken);
     }
 
     public byte[] getBusinessChannelToken() {
-        byte[] token = businessChannelToken;
-        businessChannelToken = null;
-        return token;
+        return businessChannelToken.getAndSet(null);
     }
 
     @Override
     public void close() {
         super.close();
-        businessChannelToken = null;
+        businessChannelToken.set(null);
     }
 
     public static class ClientChannelFactory implements ChannelFactory<

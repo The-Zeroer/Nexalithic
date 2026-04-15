@@ -17,7 +17,6 @@ import java.security.InvalidKeyException;
  * @since 2026/02/12
  */
 public abstract class SecurityChannel {
-    public static final int CHANNEL_TOKEN_LENGTH = SecretKeyUtils.ECDH_LENGTH;
     public static final int FRAME_HEADER_LENGTH = Short.BYTES;
     public static final int MAX_FRAME_SIZE = 1024 * 16;
     public static final int MAX_PAYLOAD_SIZE = MAX_FRAME_SIZE - FRAME_HEADER_LENGTH - SecretKeyContext.TAG_LENGTH;

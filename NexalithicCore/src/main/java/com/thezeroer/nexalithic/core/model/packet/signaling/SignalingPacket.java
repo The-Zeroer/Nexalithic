@@ -15,10 +15,11 @@ import java.lang.reflect.Field;
  */
 public abstract class SignalingPacket extends AbstractPacket implements FragmentWrapper<SignalingPacket> {
     public static class Signal {
-        public static final byte HeartBeat = 0x00;
-        public static final byte BusinessChannelToken = 0x01;
-        public static final byte RequestBusinessPort = 0x11;
-        public static final byte ResponseBusinessPort = 0x12;
+        public static final byte HeartBeat = 0x0;
+        public static final byte BusinessChannelToken_Request = -0x1;
+        public static final byte BusinessChannelToken_Response = 0x1;
+        public static final byte BusinessChannelPort_Request = -0x2;
+        public static final byte BusinessChannelPort_Response = 0x2;
     }
     public static final int HEADER_LENGTH = Byte.BYTES + Short.BYTES;
     public static final int MAX_PACKET_LENGTH = 1024 * 4;
@@ -60,8 +61,8 @@ public abstract class SignalingPacket extends AbstractPacket implements Fragment
             return null;
         }
         return switch (signal) {
-            case Signal.BusinessChannelToken -> new TokenSignal(buffer);
-            case Signal.ResponseBusinessPort -> new ScalarSignal(signal, buffer.unsafeGetLong());
+            case Signal.BusinessChannelPort_Response -> new ScalarSignal(signal, buffer.unsafeGetLong());
+            case Signal.BusinessChannelToken_Response -> new TokenSignal(buffer);
             default -> {
                 if (length == 0) {
                     BareSignal bare = BareSignal.find(signal);

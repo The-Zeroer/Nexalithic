@@ -33,26 +33,23 @@ public class ServerSession extends NexalithicSession<
     > implements Expirable {
     public record Constant(long HeartBeat_MaxInterval) {}
     private final Constant CONSTANT;
-    private volatile ServiceUnit serviceUnit;
+    private final ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
-    public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant) {
+    public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant, ServiceUnit serviceUnit) {
         super(sessionKey, signalingSecretKey, businessSecretKey, factory);
         CONSTANT = constant;
+        this.serviceUnit = serviceUnit;
     }
 
     @Override
-    protected boolean onPushBusinessPacket() {
+    protected boolean connectBusinessChannel() {
         if (businessChannel.becomeConnecting()) {
             return getSignalingChannel().<StewardLoop>asLocalLoop().prepareChannelAccess(this, AbstractPacket.PacketType.BUSINESS, signalingChannel.getRemoteAddress().getAddress());
         }
         return true;
     }
 
-    public ServerSession setServiceUnit(ServiceUnit serviceUnit) {
-        this.serviceUnit = serviceUnit;
-        return this;
-    }
     public ServiceUnit getServiceUnit() {
         return serviceUnit;
     }
@@ -68,7 +65,6 @@ public class ServerSession extends NexalithicSession<
     @Override
     public void close() {
         super.close();
-        serviceUnit = null;
         if (attachment != null) {
             attachment.clear();
             attachment = null;
@@ -87,7 +83,7 @@ public class ServerSession extends NexalithicSession<
 
     @Override
     public boolean isCancelled() {
-        return serviceUnit == null;
+        return lastActiveTime == -1;
     }
 
     public static class ServerChannelFactory implements ChannelFactory <

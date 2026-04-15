@@ -20,5 +20,6 @@
     </inspection_tool>
     <inspection_tool class="LoggingSimilarMessage" enabled="true" level="INFORMATION" enabled_by_default="true" />
     <inspection_tool class="OptionalOfNullableMisuse" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="UnnecessaryToStringCall" enabled="true" level="INFORMATION" enabled_by_default="true" />
   </profile>
 </component>

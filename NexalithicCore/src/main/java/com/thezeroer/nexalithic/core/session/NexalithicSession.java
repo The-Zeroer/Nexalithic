@@ -49,7 +49,7 @@ public abstract class NexalithicSession <
         if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
             return updateChannelInterest(signalingChannel);
         }
-        return false;
+        return true;
     }
     public final int pushSignalingPacketWrappers(SW... wrappers) {
         int count = signalingChannel.fill(wrappers);
@@ -68,7 +68,7 @@ public abstract class NexalithicSession <
         }
         switch (businessChannel.getState()) {
             case Unconnected -> {
-                return onPushBusinessPacket();
+                return connectBusinessChannel();
             }
             case Connected -> {
                 if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
@@ -82,7 +82,7 @@ public abstract class NexalithicSession <
         int count = businessChannel.fill(wrappers);
         switch (businessChannel.getState()) {
             case Unconnected -> {
-                if (!onPushBusinessPacket()) {
+                if (!connectBusinessChannel()) {
                     return -1;
                 }
             }
@@ -140,6 +140,7 @@ public abstract class NexalithicSession <
     }
 
     public void close() {
+        lastActiveTime = -1;
         if (signalingChannel != null) {
             signalingChannel.close();
         }
@@ -148,7 +149,7 @@ public abstract class NexalithicSession <
         }
     }
 
-    protected abstract boolean onPushBusinessPacket();
+    protected abstract boolean connectBusinessChannel();
 
     private boolean updateChannelInterest(SessionChannel<?, ?, ?> channel) {
         ChannelLoop<?> loop = channel.localLoop();

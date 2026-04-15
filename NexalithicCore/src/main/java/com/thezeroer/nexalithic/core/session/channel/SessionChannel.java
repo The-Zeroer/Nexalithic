@@ -272,4 +272,9 @@ public abstract class SessionChannel<
             lastActiveTime = -1;
         }
     }
+
+    @Override
+    public String toString() {
+        return "Type: " + type + ", State: " + state + ", SocketChannel: " + socketChannel;
+    }
 }

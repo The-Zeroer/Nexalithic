@@ -11,12 +11,14 @@ import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
  */
 public class BareSignal extends SignalingPacket {
     public static final BareSignal HeartBeat = new BareSignal(Signal.HeartBeat);
-    public static final BareSignal RequestBusinessPort = new BareSignal(Signal.RequestBusinessPort);
+    public static final BareSignal BusinessChannelToken_Request = new BareSignal(Signal.BusinessChannelToken_Request);
+    public static final BareSignal BusinessChannelPort_Request = new BareSignal(Signal.BusinessChannelPort_Request);
 
     private static final BareSignal[] LOOKUP = new BareSignal[256];
     static {
         register(HeartBeat);
-        register(RequestBusinessPort);
+        register(BusinessChannelToken_Request);
+        register(BusinessChannelPort_Request);
     }
 
     private static void register(BareSignal instance) {

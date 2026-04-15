@@ -68,7 +68,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         thread.setDaemon(false);
     }
 
-    public final void start() throws Exception {
+    public final void start() {
         synchronized (this) {
             if (!state.compareAndSet(State.NEW, State.STARTING)) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
@@ -78,7 +78,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         }
     }
 
-    public final void stop() throws Exception {
+    public final void stop() {
         synchronized (this) {
             if (state.get() == State.STOPPING || state.get() == State.TERMINATED) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
@@ -88,7 +88,7 @@ public abstract class AbstractLoop implements LoadBalanceable, Runnable {
         }
     }
 
-    public final void shutdown() throws Exception {
+    public final void shutdown() {
         synchronized (this) {
             if (state.get() == State.SHUTTING_DOWN || state.get() == State.STOPPING || state.get() == State.TERMINATED) {
                 throw new IllegalStateException("Loop already [%s]".formatted(state.get()));

@@ -106,10 +106,8 @@ public class NexalithicServer {
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#NEW}状态时抛出
-     * @throws Exception 当任一核心组件启动失败时抛出
      */
-    public void start() throws Exception {
+    public void start() {
         lifecycleManager.start();
     }
     /**
@@ -133,10 +131,8 @@ public class NexalithicServer {
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#RUNNING}状态时抛出
-     * @throws Exception 当任一核心组件停止失败时抛出
      */
-    public void stop() throws Exception {
+    public void stop() {
         lifecycleManager.stop();
     }
     /**
@@ -164,10 +160,8 @@ public class NexalithicServer {
      * </ul>
      * </p>
      *
-     * @throws IllegalStateException 当服务器不处于{@link LifecycleManager.State#RUNNING}状态时抛出
-     * @throws Exception 当任一核心组件关闭失败时抛出
      */
-    public void shutdown() throws Exception {
+    public void shutdown() {
         lifecycleManager.shutdown();
     }
     /**
