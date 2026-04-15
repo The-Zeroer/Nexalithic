@@ -50,7 +50,7 @@ public abstract class ServiceLoop<P extends AbstractPacket, W extends FragmentWr
             loadScore.increment();
             wakeupIfNeeded();
         } else {
-            pendingChannel.close();
+            pendingChannel.closeChannel();
         }
     }
 }

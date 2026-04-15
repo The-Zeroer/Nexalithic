@@ -248,6 +248,15 @@ public class NexalithicServer {
         }
     }
 
+    public boolean unlink(String sessionName) {
+        ServerSession session = sessionsManager.removeSession(sessionName);
+        if (session == null) {
+            return false;
+        }
+        session.close();
+        return true;
+    }
+
     public TaskFuture submit(String sessionName, NexalithicTask.Builder taskBuilder) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {

@@ -153,14 +153,22 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     @Override
-    public void close() {
-        if (socketChannel != null) {
-            try {
-                socketChannel.close();
-            } catch (IOException ignored) {
-            }
+    public boolean closeChannel() {
+        if (isRecycled()) {
+            return false;
         }
+        try {
+            if (selectionKey != null) {
+                selectionKey.cancel();
+                selectionKey = null;
+            }
+            if (socketChannel != null) {
+                socketChannel.close();
+                socketChannel = null;
+            }
+        } catch (IOException ignored) {}
         recycle();
+        return true;
     }
 
     @Override

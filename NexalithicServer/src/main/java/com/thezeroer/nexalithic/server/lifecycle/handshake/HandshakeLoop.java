@@ -229,7 +229,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
             timeWheel.schedule(pendingChannel, HandshakeLoop.this);
             wakeupIfNeeded();
         } else {
-            pendingChannel.close();
+            pendingChannel.closeChannel();
         }
     }
 
@@ -269,7 +269,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     case STEP_2 -> {
                         ByteBuffer readBuffer = channel.getReadBuffer();
                         if (socketChannel.read(readBuffer) == -1) {
-                            closeChannel(key, channel);
+                            closeChannel(channel);
                         }
                         if (!readBuffer.hasRemaining()) {
                             if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
@@ -282,7 +282,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                                     loadScore.decrement();
                                     session.getServiceUnit().selectWorkerLoop().dispatch(channel.setSession(session));
                                 } else {
-                                    closeChannel(key, channel);
+                                    closeChannel(channel);
                                 }
                             }
                         }
@@ -308,7 +308,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                 }
             }
         } catch (IOException e) {
-            closeChannel(key, channel);
+            closeChannel(channel);
         }
     }
 
@@ -347,15 +347,10 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         }
         return false;
     }
-    private void closeChannel(SelectionKey key, PendingChannel channel) {
-        if (key != null) {
-            key.cancel();
-        }
-        channel.close();
-        loadScore.decrement();
-    }
     private void closeChannel(PendingChannel channel) {
-        closeChannel(channel.getSelectionKey(), channel);
+        if (channel.closeChannel()) {
+            loadScore.decrement();
+        }
     }
 
     public static class ExecutorThread extends Thread {

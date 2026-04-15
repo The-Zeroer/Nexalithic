@@ -48,9 +48,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -110,7 +107,23 @@ public class NexalithicClient {
         }
         linkStatusManager.trigger(LinkStatusListener.Status.LINKING);
         generalLoop.getNetworkRouter().setServerAddress(remote);
-        return generalLoop.dispatch(AbstractPacket.PacketType.SIGNALING, socketChannel, null);
+        try {
+            if (generalLoop.link(AbstractPacket.PacketType.SIGNALING, socketChannel, null)) {
+                return true;
+            }
+        } catch (Exception e) {
+            if (e instanceof IOException) {
+                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.NETWORK_ERROR);
+            } else {
+                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.PROTOCOL_ERROR);
+            }
+            throw e;
+        }
+        linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.REMOTE_ACTIVE);
+        return false;
+    }
+    public void unlink() {
+        generalLoop.unlink();
     }
 
     public TaskFuture submit(NexalithicTask.Builder taskBuilder) {

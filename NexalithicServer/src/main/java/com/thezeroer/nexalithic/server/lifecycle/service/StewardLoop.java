@@ -173,18 +173,17 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
 
     private void closeChannel(ServerSessionChannel<?, ?> channel) {
         ServerSession session = channel.session();
-        sessionsManager.removeSession(session);
-        loadScore.decrement();
+        if (super.closeChannel(channel)) {
+            sessionsManager.removeSession(session);
+        }
         session.close();
     }
 
     @Override
     public void trigger(ServerSession session) {
         if (logger.isDebugEnabled()) {
-            logger.debug("[{}] heartbeat timeout", session);
+            logger.debug("heartbeat timeout [{}]", session.toString());
         }
-        sessionsManager.removeSession(session);
-        loadScore.decrement();
-        session.close();
+        closeChannel(session.getSignalingChannel());
     }
 }

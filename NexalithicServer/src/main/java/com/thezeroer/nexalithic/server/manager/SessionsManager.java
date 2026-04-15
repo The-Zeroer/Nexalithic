@@ -63,6 +63,9 @@ public class SessionsManager {
         lock.lock();
         try {
             ServerSession existing = nameToSessions.put(name, session);
+            if (existing != null) {
+                idToSessions.remove(existing.getSessionKey());
+            }
             session.setSessionName(name);
             return existing;
         } finally {
@@ -94,6 +97,9 @@ public class SessionsManager {
     }
 
     public void removeSession(ServerSession session) {
+        if (session == null) {
+            return;
+        }
         idToSessions.remove(session.getSessionKey());
         String sessionName = session.getSessionName();
         if (sessionName != null) {
@@ -106,14 +112,16 @@ public class SessionsManager {
             }
         }
     }
-    public void removeSession(String sessionName) {
+    public ServerSession removeSession(String sessionName) {
         ReentrantLock lock = getLock(sessionName);
         lock.lock();
         try {
             ServerSession session = nameToSessions.remove(sessionName);
-            if (session != null) {
-                idToSessions.remove(session.getSessionKey());
+            if (session == null) {
+                return null;
             }
+            idToSessions.remove(session.getSessionKey());
+            return session;
         } finally {
             lock.unlock();
         }

@@ -142,9 +142,4 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     public void trigger(ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> channel) {
         closeChannel(channel);
     }
-
-    private void closeChannel(ServerSessionChannel<?, ?> channel) {
-        loadScore.decrement();
-        channel.close();
-    }
 }

@@ -55,7 +55,7 @@ public interface LinkStatusListener extends EventListener {
      * @version 1.0.0
      */
     enum DisconnectReason {
-        /** 无原因（非断开状态时的默认值） */
+        /** 无原因或未知原因 */
         NONE,
         /** 客户端主动关闭 */
         LOCAL_ACTIVE,

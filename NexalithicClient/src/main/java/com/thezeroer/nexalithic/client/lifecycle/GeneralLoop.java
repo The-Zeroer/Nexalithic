@@ -78,7 +78,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         eventQueue = new ConcurrentLinkedQueue<>();
     }
 
-    public boolean dispatch(AbstractPacket.PacketType packetType, SocketChannel socketChannel, byte[] token) throws IOException,
+    public boolean link(AbstractPacket.PacketType packetType, SocketChannel socketChannel, byte[] token) throws IOException,
             NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException,
             InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
         socketChannel.write(ByteBuffer.allocate(SecurityPolicy.MAGIC_NUMBER_LENGTH).putLong(SecurityPolicy.MAGIC_NUMBER).flip());
@@ -121,15 +121,12 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                     SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS), factory, networkRouter);
             logger.info("Link server succeeded");
         } else {
-            if (token == null) {
-                return false;
-            }
             socketChannel.write(ByteBuffer.wrap(token));
         }
         eventQueue.add(() -> {
+            ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) session.getChannel(packetType);
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) session.getChannel(packetType);
                 selectionKey.attach(channel.updateChannel(selectionKey));
                 logger.debug("[{}] channel updateSelectionKey succeeded", packetType);
                 if (!channel.fragmenterIsEmpty() && channel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
@@ -140,14 +137,36 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                 }
             } catch (IOException e) {
                 logger.error("[{}] channel updateSelectionKey failed", packetType, e);
+                if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+                    linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED);
+                }
             }
         });
         wakeupIfNeeded();
         return true;
     }
 
+    public void unlink() {
+        eventQueue.add(() -> {
+            LinkStatusListener.Status current = linkStatusManager.getCurrentStatus();
+            if (current == LinkStatusListener.Status.UNLINKED) {
+                logger.info("Server already unlinked, skipping.");
+                return;
+            }
+            logger.info("Initiating active unlink from state: {}", current);
+            linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.LOCAL_ACTIVE);
+            if (session != null) {
+                session.close();
+                session = null;
+                logger.info("Session closed and resources recycled.");
+            }
+            networkRouter.clear();
+        });
+        wakeupIfNeeded();
+    }
+
     @Override
-    public boolean onAsyncEvent() {
+    protected boolean onAsyncEvent() {
         while (!eventQueue.isEmpty()) {
             eventQueue.poll().run();
         }
@@ -162,7 +181,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     }
 
     @Override
-    public void onReadyEvent(SelectionKey selectionKey, ClientSessionChannel<?, ?> channel) {
+    protected void onReadyEvent(SelectionKey selectionKey, ClientSessionChannel<?, ?> channel) {
         try {
             if (selectionKey.isReadable()) {
                 if (channel.read() == -1) {
@@ -196,6 +215,14 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         }
     }
 
+    @Override
+    protected void keyNotValid(SelectionKey selectionKey) {
+        ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) selectionKey.attachment();
+        if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
+            closeChannel(channel, false);
+        }
+    }
+
     private void handleSignalPacket(SignalingPacket packet) throws Exception {
         switch (packet.getSignal()) {
             case SignalingPacket.Signal.BusinessChannelToken_Response -> {
@@ -204,7 +231,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                 if (port == null) {
                     session.setBusinessChannelToken(token);
                 } else {
-                    dispatch(AbstractPacket.PacketType.BUSINESS,
+                    link(AbstractPacket.PacketType.BUSINESS,
                             SocketChannel.open(new InetSocketAddress(networkRouter.getServerHost(), port)),
                             token);
                 }
@@ -214,7 +241,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                 networkRouter.setPort(AbstractPacket.PacketType.BUSINESS, port);
                 byte[] token = session.getBusinessChannelToken();
                 if (token != null) {
-                    dispatch(AbstractPacket.PacketType.BUSINESS,
+                    link(AbstractPacket.PacketType.BUSINESS,
                             SocketChannel.open(new InetSocketAddress(networkRouter.getServerHost(), port)),
                             token);
                 }
@@ -230,19 +257,21 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     }
 
     private void closeChannel(ClientSessionChannel<?, ?> channel, boolean reconnect) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("closeChannel[{}]", channel.toString());
-        }
+        String channelInfo = channel.toString();
+        logger.debug("closeChannel[{}]", channelInfo);
         AbstractPacket.PacketType type = channel.getType();
         if (type == AbstractPacket.PacketType.SIGNALING) {
             channel.session().close();
             session = null;
         } else {
-            channel.close();
+            channel.closeChannel();
         }
         if (!reconnect) {
             if (type == AbstractPacket.PacketType.SIGNALING) {
+                logger.info("Signaling channel closed without reconnection request.");
                 linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.REMOTE_ACTIVE);
+            } else {
+                logger.debug("Business channel closed without reconnection request.");
             }
             return;
         }
@@ -256,7 +285,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             for (int i = 1; i < 6; i++) {
                 logger.debug("Signaling reconnection attempt [{}/5] to {}", i, networkRouter.getServerAddress());
                 try {
-                    if (dispatch(AbstractPacket.PacketType.SIGNALING, SocketChannel.open(networkRouter.getServerAddress()), null)) {
+                    if (link(AbstractPacket.PacketType.SIGNALING, SocketChannel.open(networkRouter.getServerAddress()), null)) {
                         logger.info("Signaling reconnection successful at attempt {}", i);
                         success = true;
                         break;

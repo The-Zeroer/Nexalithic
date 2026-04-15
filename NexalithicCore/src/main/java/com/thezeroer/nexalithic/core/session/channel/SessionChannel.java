@@ -10,6 +10,7 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecurityChannel;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import com.thezeroer.nexalithic.core.util.TimeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -237,7 +238,7 @@ public abstract class SessionChannel<
     }
 
     @Override
-    public final void close() {
+    public final boolean closeChannel() {
         if (state.compareAndSet(State.Connected, State.Unconnected) || state.compareAndSet(State.Connecting, State.Unconnected)) {
             try {
                 if (selectionKey != null) {
@@ -270,11 +271,13 @@ public abstract class SessionChannel<
             remoteAddress = null;
             loop = null;
             lastActiveTime = -1;
+            return true;
         }
+        return false;
     }
 
     @Override
     public String toString() {
-        return "Type: " + type + ", State: " + state + ", SocketChannel: " + socketChannel;
+        return "Type: " + type + ", State: " + state + ", LastActiveTime: " + TimeUtils.format(lastActiveTime) + ", SocketChannel: " + socketChannel;
     }
 }

@@ -8,6 +8,7 @@ import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
+import com.thezeroer.nexalithic.core.util.TimeUtils;
 
 import java.nio.channels.SelectionKey;
 import java.util.concurrent.locks.LockSupport;
@@ -142,10 +143,10 @@ public abstract class NexalithicSession <
     public void close() {
         lastActiveTime = -1;
         if (signalingChannel != null) {
-            signalingChannel.close();
+            signalingChannel.closeChannel();
         }
         if (businessChannel != null) {
-            businessChannel.close();
+            businessChannel.closeChannel();
         }
     }
 
@@ -172,5 +173,10 @@ public abstract class NexalithicSession <
             }
         }
         return false;
+    }
+
+    @Override
+    public String toString() {
+        return "SessionName: " + sessionName + ", CreationTime: " + TimeUtils.format(creationTime) + ", SignalingChannel[" + signalingChannel + "], BusinessChannel[" + businessChannel + "]";
     }
 }

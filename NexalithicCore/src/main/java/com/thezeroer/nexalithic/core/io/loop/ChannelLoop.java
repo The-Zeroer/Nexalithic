@@ -55,6 +55,10 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
         while (iterator.hasNext()) {
             SelectionKey key = iterator.next();
             iterator.remove();
+            if (!key.isValid()) {
+                keyNotValid(key);
+                continue;
+            }
             try {
                 C channel = (C) key.attachment();
                 channel.updateLastActiveTime(System.currentTimeMillis());
@@ -62,13 +66,24 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
             } catch (Exception e) {
                 logger.warn("[{}] failed to ready event: ", name, e);
                 if (key.attachment() instanceof NexalithicChannel channel) {
-                    channel.close();
-                    loadScore.decrement();
+                    closeChannel(channel);
                 }
             }
         }
     }
     protected abstract void onReadyEvent(SelectionKey selectionKey, C channel);
+    protected void keyNotValid(SelectionKey selectionKey) {
+        if (selectionKey.attachment() instanceof NexalithicChannel channel) {
+            closeChannel(channel);
+        }
+    }
+    protected boolean closeChannel(NexalithicChannel channel) {
+        if (channel.closeChannel()) {
+            loadScore.decrement();
+            return true;
+        }
+        return false;
+    }
 
     @Override
     protected final void onReadyEvent(SelectionKey selectionKey) {}

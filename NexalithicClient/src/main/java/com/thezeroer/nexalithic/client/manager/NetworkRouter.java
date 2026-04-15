@@ -34,4 +34,9 @@ public class NetworkRouter {
     public Integer getPort(AbstractPacket.PacketType type) {
         return ports.get(type);
     }
+
+    public void clear() {
+        serverAddress = null;
+        ports.clear();
+    }
 }
