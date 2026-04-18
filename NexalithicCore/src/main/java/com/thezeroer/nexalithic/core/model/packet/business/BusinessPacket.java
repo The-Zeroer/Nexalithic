@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.core.model.packet.business;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -226,6 +227,14 @@ public class BusinessPacket extends AbstractPacket {
         return PacketType.BUSINESS;
     }
 
+    public String getDisplayMessage() {
+        return switch (firstPayload()) {
+            case null -> "";
+            case TextPayload tp -> tp.value();
+            case Object other -> other.toString();
+        };
+    }
+
     @Override
     public final String toString() {
         StringBuilder sb = new StringBuilder();
@@ -234,7 +243,7 @@ public class BusinessPacket extends AbstractPacket {
         if (payloads != null) {
             sb.append(", Payloads: { ");
             for (AbstractPayload<?> payload : payloads) {
-                sb.append(payload.getClass().getSimpleName()).append(": ").append(payload).append(", ");
+                sb.append(payload).append(", ");
             }
             sb.delete(sb.length() - 2, sb.length());
             sb.append(" }");

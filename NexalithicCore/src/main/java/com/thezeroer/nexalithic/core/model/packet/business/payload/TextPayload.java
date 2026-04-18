@@ -61,6 +61,6 @@ public class TextPayload extends AbstractPayload<String> {
 
     @Override
     public String toString() {
-        return "\"" + value + "\"";
+        return getClass().getSimpleName() + ": \"" + value + "\"";
     }
 }

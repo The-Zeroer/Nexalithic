@@ -40,7 +40,7 @@ public class HandlerScanner {
     private static <HC extends HandlerContext<?>> NexalithicHandler<HC> createHandler(Object bean, Method method, Class<HC> paramType) throws Throwable {
         MethodHandles.Lookup lookup = MethodHandles.lookup();
         MethodHandle methodHandle = lookup.unreflect(method);
-        MethodType methodType = MethodType.methodType(void.class, paramType);
+        MethodType methodType = MethodType.methodType(void.class, HandlerContext.class);
         MethodType factoryType = MethodType.methodType(HandlerFunction.class, bean.getClass());
         MethodType instantiatedMethodType = MethodType.methodType(void.class, paramType);
         CallSite site = LambdaMetafactory.metafactory(

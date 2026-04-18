@@ -113,7 +113,7 @@ public class FilePayload extends AbstractPayload<File> {
 
     @Override
     public String toString() {
-        return "[SrcFileName: " + sourceFileName + ", Size:" + TransferSnapshot.formatSize(totalSize - metaBytes.length) + ", CurrentPath: " + value.getAbsolutePath() + "]";
+        return getClass().getSimpleName() + "[SrcFileName: " + sourceFileName + ", Size:" + TransferSnapshot.formatSize(totalSize - metaBytes.length) + ", CurrentPath: " + value.getAbsolutePath() + "]";
     }
 
     private static class Interior {
