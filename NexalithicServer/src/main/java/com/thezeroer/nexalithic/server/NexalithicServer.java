@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
@@ -21,6 +22,7 @@ import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPaylo
 import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
+import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.util.BeanFactory;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -44,7 +46,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -62,18 +66,21 @@ public class NexalithicServer {
         public static final NexalithicModule<NetworkRouter> NetworkRouter = NexalithicModule.create("NexalithicServer_NetworkRouter", NetworkRouter.class);
         public static final NexalithicModule<ServerBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicServer_BusinessPacketDispatcher", ServerBusinessPacketDispatcher.class);
         public static final NexalithicModule<ServerSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicServer_SecurityPolicy", ServerSecurityPolicy.class);
+        public static final NexalithicModule<NexalithicEventBus> EventBus = NexalithicModule.create("NexalithicServer_EventBus", NexalithicEventBus.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
     private final LifecycleManager lifecycleManager;
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
     private final ServerBusinessPacketDispatcher businessPacketDispatcher;
+    private final NexalithicEventBus eventBus;
 
     private NexalithicServer(NexalithicBuilderContext context) {
         this.lifecycleManager = context.getModule(Modules.LifecycleManager);
         this.sessionsManager = context.getModule(Modules.SessionsManager);
         this.networkRouter = context.getModule(Modules.NetworkRouter);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
+        this.eventBus = context.getModule(Modules.EventBus);
         System.gc();
     }
 
@@ -164,34 +171,6 @@ public class NexalithicServer {
     public void shutdown() {
         lifecycleManager.shutdown();
     }
-    /**
-     * 获取Nexalithic服务器当前的运行状态。
-     * <p>此方法提供了线程安全的状态查询机制，允许外部调用者监控服务器的生命周期状态。</p>
-     *
-     * @return 服务器当前的运行状态，可能为以下值之一：
-     *         {@link LifecycleManager.State#NEW}、{@link LifecycleManager.State#STARTING}、{@link LifecycleManager.State#RUNNING}、
-     *         {@link LifecycleManager.State#STOPPING}、{@link LifecycleManager.State#SHUTTING_DOWN}、{@link LifecycleManager.State#TERMINATED}、
-     *         {@link LifecycleManager.State#ERROR}
-     */
-    public LifecycleManager.State getState() {
-        return lifecycleManager.getState();
-    }
-
-    /**
-     * <p>获取当前服务器的路由管理器。</p>
-     * <ul>
-     * <li><b>前置性：</b> 开发者必须在调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)} 开启端口监听<b>之前</b>，
-     * 通过此方法获取路由器并完成所有初始路由规则的添加（{@link NetworkRouter#addRoutes}）。</li>
-     * <li><b>冷启动保护：</b> 若在 open 之后才添加路由，可能会导致服务器启动瞬间涌入的Channel
-     * 因找不到匹配端口（Return -1）而触发静默丢弃或连接断开。</li>
-     * <li><b>动态性：</b> 服务器运行期间仍支持动态增删路由，但基础骨干路由应在 open 前就位。</li>
-     * </ul>
-     *
-     * @return 全局唯一的网络路由器实例 {@link NetworkRouter}
-     */
-    public NetworkRouter getNetworkRouter() {
-        return networkRouter;
-    }
 
     /**
      * 使用默认的旁路过滤策略绑定并监听指定地址。
@@ -248,7 +227,7 @@ public class NexalithicServer {
         }
     }
 
-    public boolean unlink(String sessionName) {
+    public boolean kick(String sessionName) {
         ServerSession session = sessionsManager.removeSession(sessionName);
         if (session == null) {
             return false;
@@ -272,12 +251,69 @@ public class NexalithicServer {
         return businessPacketDispatcher.submitNexalithicTask(session, taskBuilder, transferVisualizerBuilder);
     }
 
+    /**
+     * 向指定的用户推送数据包
+     *
+     * @param sessionName 目标会话名
+     * @param packet 业务数据包
+     */
     public boolean push(String sessionName, BusinessPacket packet) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return false;
         }
         return businessPacketDispatcher.egress(session, packet);
+    }
+
+    /**
+     * 向所有已命名（已登录）的用户推送数据包
+     *
+     * @param packet 业务数据包
+     */
+    public void pushToAll(BusinessPacket packet) {
+        packet.seal();
+        sessionsManager.forEachNamedSession(session -> businessPacketDispatcher.egress(session, packet.duplicate()));
+    }
+
+    /**
+     * 遍历所有会话的业务附件
+     * @param action 业务处理逻辑
+     */
+    public void forEachSession(Consumer<SessionAttachment> action) {
+        sessionsManager.forEachNamedSession(session -> action.accept(session.attachment()));
+    }
+
+    /**
+     * 获取Nexalithic服务器当前的运行状态。
+     * <p>此方法提供了线程安全的状态查询机制，允许外部调用者监控服务器的生命周期状态。</p>
+     *
+     * @return 服务器当前的运行状态，可能为以下值之一：
+     *         {@link LifecycleManager.State#NEW}、{@link LifecycleManager.State#STARTING}、{@link LifecycleManager.State#RUNNING}、
+     *         {@link LifecycleManager.State#STOPPING}、{@link LifecycleManager.State#SHUTTING_DOWN}、{@link LifecycleManager.State#TERMINATED}、
+     *         {@link LifecycleManager.State#ERROR}
+     */
+    public LifecycleManager.State getState() {
+        return lifecycleManager.getState();
+    }
+
+    /**
+     * <p>获取当前服务器的路由管理器。</p>
+     * <ul>
+     * <li><b>前置性：</b> 开发者必须在调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)} 开启端口监听<b>之前</b>，
+     * 通过此方法获取路由器并完成所有初始路由规则的添加（{@link NetworkRouter#addRoutes}）。</li>
+     * <li><b>冷启动保护：</b> 若在 open 之后才添加路由，可能会导致服务器启动瞬间涌入的Channel
+     * 因找不到匹配端口（Return -1）而触发静默丢弃或连接断开。</li>
+     * <li><b>动态性：</b> 服务器运行期间仍支持动态增删路由，但基础骨干路由应在 open 前就位。</li>
+     * </ul>
+     *
+     * @return 全局唯一的网络路由器实例 {@link NetworkRouter}
+     */
+    public NetworkRouter getNetworkRouter() {
+        return networkRouter;
+    }
+
+    public NexalithicEventBus getEventBus() {
+        return eventBus;
     }
 
     public static final class Builder {
@@ -336,6 +372,7 @@ public class NexalithicServer {
                 logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
+            context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
             context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));

@@ -78,6 +78,22 @@ public class FilePayload extends AbstractPayload<File> {
     }
 
     @Override
+    public AbstractPayload<File> duplicate() {
+        try {
+            FilePayload clone = new FilePayload();
+            clone.value = this.value;
+            clone.sourceFileName = this.sourceFileName;
+            clone.metaBytes = this.metaBytes;
+            clone.totalSize = this.totalSize;
+            clone.processedSize = 0;
+            clone.metaProcessed = false;
+            return clone;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to duplicate FilePayload", e);
+        }
+    }
+
+    @Override
     public void prepareEncode() throws IOException {
         randomAccessFile = new RandomAccessFile(value, "r");
         fileChannel = randomAccessFile.getChannel();

@@ -84,7 +84,7 @@ public abstract class BusinessPacketDispatcher<
     protected final FixedTaskExecutor<Dispatchable, ?> executor;
     protected final Queue<NexalithicTask> waitQueue;
 
-    public BusinessPacketDispatcher(NexalithicBuilderContext context, Options options, boolean shared) {
+    protected BusinessPacketDispatcher(NexalithicBuilderContext context, Options options, boolean shared) {
         taskTracer = context.getModule(Modules.TaskTracer);
         transferTracer = context.getModule(Modules.TransferTracer);
         handlerRegistry = context.getModule(Modules.HandlerRegistry);
@@ -95,7 +95,6 @@ public abstract class BusinessPacketDispatcher<
                 this::createHandlerContext,
                 this::createRecyclableWrapper
         );
-        handlerContextPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
         packetWrapperPool = new TargetDynamicWrapperPool<>(
                 PoolStorage.of(MpmcArrayQueue::new, context.getOption(options.PacketWrapperPool_Capacity)),
                 PoolStrategy.alwaysCreate(),
@@ -156,6 +155,9 @@ public abstract class BusinessPacketDispatcher<
         );
     }
 
+    protected void init(NexalithicBuilderContext context, Options options) {
+        handlerContextPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
+    }
     protected abstract HC createHandlerContext();
     protected abstract HR createRecyclableWrapper(HC hc);
     protected abstract boolean onIngest(BusinessPacket packet, S session, NexalithicHandler<HC> handler);

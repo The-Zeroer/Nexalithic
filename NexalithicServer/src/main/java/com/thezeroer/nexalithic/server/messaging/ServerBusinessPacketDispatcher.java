@@ -34,6 +34,7 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
     public ServerBusinessPacketDispatcher(NexalithicBuilderContext context) {
         super(context, OPTIONS, context.getOption(LifecycleManager.OPTIONS.ServiceUnit_Count) != 1 || context.getOption(ServiceUnit.OPTIONS.WorkerLoop_Count) != 1);
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
+        init(context, OPTIONS);
     }
 
     @Override

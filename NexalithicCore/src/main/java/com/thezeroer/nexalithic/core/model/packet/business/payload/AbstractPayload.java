@@ -84,6 +84,12 @@ public abstract class AbstractPayload<T> {
     public abstract int decode(LoopBuffer.LimitedReadableView input) throws IOException;
 
     /**
+     * 创建一个指向相同数据源，但进度重置为 0 的新实例。
+     * 用于多线程并发发送同一报文。
+     */
+    public abstract AbstractPayload<T> duplicate();
+
+    /**
      * 获取有效载荷的唯一标识（UID）。
      * <p>默认实现基于类名及字段结构生成 CRC32 校验码，用于协议版本识别和类型安全校验。
      * <b>建议：</b>在生产环境中重写此方法，返回一个固定的常量 {@code long} 值以提升性能。</p>

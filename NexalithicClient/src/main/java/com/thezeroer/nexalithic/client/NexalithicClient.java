@@ -11,6 +11,7 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
@@ -66,18 +67,21 @@ public class NexalithicClient {
         public static final NexalithicModule<LinkStatusManager> LinkStatusManager = NexalithicModule.create("NexalithicClient_LinkStatusManager", LinkStatusManager.class);
         public static final NexalithicModule<ClientBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicClient_BusinessPacketDispatcher", ClientBusinessPacketDispatcher.class);
         public static final NexalithicModule<ClientSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicClient_SecurityPolicy", ClientSecurityPolicy.class);
+        public static final NexalithicModule<NexalithicEventBus> EventBus = NexalithicModule.create("NexalithicClient_EventBus", NexalithicEventBus.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
     private final LifecycleManager lifecycleManager;
     private final LinkStatusManager linkStatusManager;
     private final GeneralLoop generalLoop;
     private final ClientBusinessPacketDispatcher businessPacketDispatcher;
+    private final NexalithicEventBus eventBus;
 
     private NexalithicClient(NexalithicBuilderContext context) {
         this.lifecycleManager = context.getModule(Modules.LifecycleManager);
         this.linkStatusManager = context.getModule(Modules.LinkStatusManager);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
         this.generalLoop = context.getModule(LifecycleManager.Modules.GeneralLoop);
+        this.eventBus = context.getModule(Modules.EventBus);
         System.gc();
     }
     public static NexalithicClient unsafeCreate(NexalithicBuilderContext context) {
@@ -177,6 +181,10 @@ public class NexalithicClient {
         return lifecycleManager.getState();
     }
 
+    public NexalithicEventBus getEventBus() {
+        return eventBus;
+    }
+
     private ClientSession getSession() {
         ClientSession session = generalLoop.getSession();
         if (session == null) {
@@ -246,6 +254,7 @@ public class NexalithicClient {
                 logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
+            context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
             context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));

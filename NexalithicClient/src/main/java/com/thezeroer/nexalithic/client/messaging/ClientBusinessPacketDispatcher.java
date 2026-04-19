@@ -37,6 +37,7 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
 
     public ClientBusinessPacketDispatcher(NexalithicBuilderContext context) {
         super(context, OPTIONS, false);
+        init(context, OPTIONS);
     }
 
     @Override

@@ -114,7 +114,10 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 ServerSession session = new ServerSession(channel.getSessionKey(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant, serviceUnit);
                 selectionKey.attach(session.getSignalingChannel().updateChannel(selectionKey));
-                sessionsManager.putSession(session);
+                if (!sessionsManager.putSession(session)) {
+                    closeChannel(session.getSignalingChannel());
+                    return;
+                }
                 timeWheel.schedule(session, this);
             } catch (IOException ignored) {
             } finally {

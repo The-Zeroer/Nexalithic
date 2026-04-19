@@ -52,6 +52,16 @@ public class SerializablePayload extends AbstractPayload<Serializable>{
     }
 
     @Override
+    public SerializablePayload duplicate() {
+        SerializablePayload clone = new SerializablePayload();
+        clone.value = this.value;
+        clone.bytes = this.bytes;
+        clone.totalSize = this.totalSize;
+        clone.processedSize = 0;
+        return clone;
+    }
+
+    @Override
     public void prepareDecode(long totalSize) throws IOException {
         super.prepareDecode(totalSize);
         bytes = new byte[Math.toIntExact(totalSize)];

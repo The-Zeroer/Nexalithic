@@ -140,6 +140,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                 if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
                     linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED);
                 }
+                closeChannel(channel);
             }
         });
         wakeupIfNeeded();

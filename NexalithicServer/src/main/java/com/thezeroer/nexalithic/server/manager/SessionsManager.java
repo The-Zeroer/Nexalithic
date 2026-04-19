@@ -4,13 +4,20 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.event.EventDefinition;
+import com.thezeroer.nexalithic.core.event.EventTopic;
+import com.thezeroer.nexalithic.core.event.NexalithicEvent;
+import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
+import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.SessionKey;
+import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
 /**
  * 会话管理器
@@ -35,13 +42,29 @@ public class SessionsManager {
             super(holder);
         }
     }
+    public static final class Events extends EventDefinition {
+        public record NamedSession(String sessionName) implements NexalithicEvent {}
+        public record RemovedSession(String sessionName, SessionAttachment attachment) implements NexalithicEvent {}
+        private final EventTopic<NamedSession> NamedSessionTopic;
+        private final EventTopic<RemovedSession> RemovedSessionTopic;
+        private Events(EventTopic<NamedSession> namedSessionTopic, EventTopic<RemovedSession> removedSessionTopic) {
+            NamedSessionTopic = namedSessionTopic;
+            RemovedSessionTopic = removedSessionTopic;
+        }
+    }
     private static final ThreadLocal<SessionKey.Mutable> LOOKUP_KEY = ThreadLocal.withInitial(SessionKey.Mutable::new);
     private final Map<SessionKey, ServerSession> idToSessions;
     private final Map<String, ServerSession> nameToSessions;
     private final Map<SessionKey, ServerSession> tokens;
     private final ReentrantLock[] stripes;
+    private final Events events;
 
     public SessionsManager(NexalithicBuilderContext context) {
+        NexalithicEventBus eventBus = context.getModule(NexalithicServer.Modules.EventBus);
+        events = new Events(
+                eventBus.registerTopic(Events.NamedSession.class),
+                eventBus.registerTopic(Events.RemovedSession.class)
+        );
         idToSessions = new ConcurrentHashMap<>(context.getOption(OPTIONS.Sessions_Initial_Capacity));
         nameToSessions = new ConcurrentHashMap<>(context.getOption(OPTIONS.Sessions_Initial_Capacity));
         tokens = new ConcurrentHashMap<>(context.getOption(OPTIONS.Tokens_Initial_Capacity));
@@ -51,8 +74,8 @@ public class SessionsManager {
         }
     }
 
-    public void putSession(ServerSession session) {
-        idToSessions.putIfAbsent(session.getSessionKey(), session);
+    public boolean putSession(ServerSession session) {
+        return idToSessions.putIfAbsent(session.getSessionKey(), session) == null;
     }
 
     /**
@@ -65,8 +88,14 @@ public class SessionsManager {
             ServerSession existing = nameToSessions.put(name, session);
             if (existing != null) {
                 idToSessions.remove(existing.getSessionKey());
+                if (events.RemovedSessionTopic.isSubscribed()) {
+                    events.RemovedSessionTopic.publish(new Events.RemovedSession(name, existing.attachment()));
+                }
             }
             session.setSessionName(name);
+            if (events.NamedSessionTopic.isSubscribed()) {
+                events.NamedSessionTopic.publish(new Events.NamedSession(name));
+            }
             return existing;
         } finally {
             lock.unlock();
@@ -81,6 +110,9 @@ public class SessionsManager {
         try {
             if (nameToSessions.putIfAbsent(name, session) == null) {
                 session.setSessionName(name);
+                if (events.NamedSessionTopic.isSubscribed()) {
+                    events.NamedSessionTopic.publish(new Events.NamedSession(name));
+                }
                 return true;
             }
             return false;
@@ -111,6 +143,9 @@ public class SessionsManager {
                 lock.unlock();
             }
         }
+        if (events.RemovedSessionTopic.isSubscribed()) {
+            events.RemovedSessionTopic.publish(new Events.RemovedSession(sessionName, session.attachment()));
+        }
     }
     public ServerSession removeSession(String sessionName) {
         ReentrantLock lock = getLock(sessionName);
@@ -121,10 +156,24 @@ public class SessionsManager {
                 return null;
             }
             idToSessions.remove(session.getSessionKey());
+            if (events.RemovedSessionTopic.isSubscribed()) {
+                events.RemovedSessionTopic.publish(new Events.RemovedSession(sessionName, session.attachment()));
+            }
             return session;
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * 遍历所有已命名的在线会话
+     * @param action 对每个会话执行的操作
+     */
+    public void forEachNamedSession(Consumer<ServerSession> action) {
+        nameToSessions.values().forEach(action);
+    }
+    public void forEachSession(Consumer<ServerSession> action) {
+        idToSessions.values().forEach(action);
     }
 
     public void relateChannelToken(SessionKey.Immutable sessionKey, ServerSession session) {

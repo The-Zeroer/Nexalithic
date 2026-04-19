@@ -160,6 +160,30 @@ public class BusinessPacket extends AbstractPacket {
         return this;
     }
 
+    /**
+     * 深度克隆报文结构，但保持 Payload 数据的引用。
+     * 专门用于 pushToAll 场景。
+     */
+    public BusinessPacket duplicate() {
+        if (!this.sealed) {
+            throw new IllegalStateException("Only sealed packets can be duplicated for broadcast.");
+        }
+        BusinessPacket clone = new BusinessPacket(this.getWay(), this.path);
+        clone.taskId = this.taskId;
+        clone.packetSize = this.packetSize;
+        clone.pathDepth = this.pathDepth;
+        clone.payloadCount = this.payloadCount;
+        clone.payloadsMeta = this.payloadsMeta;
+        if (this.payloads != null) {
+            clone.payloads = new ArrayList<>(this.payloadCount);
+            for (AbstractPayload<?> p : this.payloads) {
+                clone.payloads.add(p.duplicate());
+            }
+        }
+        clone.sealed = true;
+        return clone;
+    }
+
     public final List<AbstractPayload<?>> payloads() {
         return payloads;
     }

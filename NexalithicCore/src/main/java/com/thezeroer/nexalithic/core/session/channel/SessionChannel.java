@@ -66,6 +66,9 @@ public abstract class SessionChannel<
     }
 
     public final boolean becomeConnecting() {
+        if (state.get() == State.Closing || state.get() == State.Closed) {
+            return false;
+        }
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
     public final SessionChannel<P, W, S> updateChannel(SelectionKey selectionKey) throws IOException {
@@ -272,6 +275,9 @@ public abstract class SessionChannel<
             loop = null;
             lastActiveTime = -1;
             return true;
+        }
+        if (session.getLastActiveTime() < 0) {
+            state.set(State.Closed);
         }
         return false;
     }

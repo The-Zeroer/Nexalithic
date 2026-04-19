@@ -45,6 +45,16 @@ public class TextPayload extends AbstractPayload<String> {
     }
 
     @Override
+    public AbstractPayload<String> duplicate() {
+        TextPayload clone = new TextPayload();
+        clone.value = this.value;
+        clone.bytes = this.bytes;
+        clone.totalSize = this.totalSize;
+        clone.processedSize = 0;
+        return clone;
+    }
+
+    @Override
     public void prepareDecode(long totalSize) throws IOException {
         super.prepareDecode(totalSize);
         bytes = new byte[(int) totalSize];
