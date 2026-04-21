@@ -159,13 +159,21 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
 
     private void handleSignalPacket(ServerSessionChannel<SignalingPacket, ?> channel, SignalingPacket packet) {
         if (!switch (packet.getSignal()) {
-            case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacketWrapper(ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response,
-                    networkRouter.choosePort(AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())));
+            case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacketWrapper(
+                    ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response,
+                            networkRouter.choosePort(AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())));
             case SignalingPacket.Signal.BusinessChannelToken_Request -> {
                 SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
                 ServerSession session = channel.session();
                 sessionsManager.relateChannelToken(sessionKey, session);
                 yield session.pushSignalingPacketWrapper(new TokenSignal(sessionKey));
+            }
+            case SignalingPacket.Signal.BusinessChannelRate -> {
+                long rate = ((ScalarSignal) packet).asLong();
+                ServerSessionChannel<?, ?> businessChannel = channel.session().getBusinessChannel();
+                businessChannel.updateWriteRate(rate);
+                ((WorkerLoop) businessChannel.localLoop()).postRateUpdate(businessChannel);
+                yield true;
             }
             default -> true;
         }) {

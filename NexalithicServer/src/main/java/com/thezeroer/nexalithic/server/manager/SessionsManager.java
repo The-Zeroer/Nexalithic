@@ -14,6 +14,7 @@ import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.nio.ByteBuffer;
+import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -174,6 +175,10 @@ public class SessionsManager {
     }
     public void forEachSession(Consumer<ServerSession> action) {
         idToSessions.values().forEach(action);
+    }
+
+    public Collection<String> allSessionName() {
+        return nameToSessions.keySet();
     }
 
     public void relateChannelToken(SessionKey.Immutable sessionKey, ServerSession session) {

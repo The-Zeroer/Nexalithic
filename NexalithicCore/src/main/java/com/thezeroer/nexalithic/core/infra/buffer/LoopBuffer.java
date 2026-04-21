@@ -67,7 +67,7 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
      * @return 实际读取的总字节数。
      * @throws IOException 如果 I/O 发生错误。
      */
-    public int readFromChannel(ScatteringByteChannel channel) throws IOException {
+    public long readFromChannel(ScatteringByteChannel channel) throws IOException {
         if (isFull()) {
             return 0;
         }
@@ -75,7 +75,23 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         if (bytesRead > 0) {
             tail += bytesRead;
         }
-        return (int) bytesRead;
+        return bytesRead;
+    }
+    /**
+     * 从通道读取数据，并限制最大读取量
+     * @param channel 数据源通道。
+     * @param limit 最大允许读取的字节数。
+     * @return 实际读取的总字节数。
+     */
+    public long readFromChannel(ScatteringByteChannel channel, int limit) throws IOException {
+        if (isFull() || limit <= 0) {
+            return 0;
+        }
+        long bytesRead = channel.read(applyLimit(writableViews(), limit));
+        if (bytesRead > 0) {
+            tail += bytesRead;
+        }
+        return bytesRead;
     }
     /**
      * 将缓冲区中的数据写入到通道。
@@ -83,7 +99,7 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
      * @return 实际写入的总字节数。
      * @throws IOException 如果 I/O 发生错误。
      */
-    public int writeToChannel(GatheringByteChannel channel) throws IOException {
+    public long writeToChannel(GatheringByteChannel channel) throws IOException {
         if (isEmpty()) {
             return 0;
         }
@@ -91,7 +107,23 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         if (bytesWritten > 0) {
             head += bytesWritten;
         }
-        return (int) bytesWritten;
+        return bytesWritten;
+    }
+    /**
+     * 将缓冲区数据写入通道，并限制最大写入量
+     * @param channel 目标输出通道。
+     * @param limit 最大允许写入的字节数。
+     * @return 实际写入的总字节数。
+     */
+    public long writeToChannel(GatheringByteChannel channel, int limit) throws IOException {
+        if (isEmpty() || limit <= 0) {
+            return 0;
+        }
+        long bytesWritten = channel.write(applyLimit(readableViews(), limit));
+        if (bytesWritten > 0) {
+            head += bytesWritten;
+        }
+        return bytesWritten;
     }
 
     /**
@@ -482,6 +514,26 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
     @Override
     protected void onRecycle() {
         clear();
+    }
+
+    /**
+     * 限制 ByteBuffer 数组的总可用长度
+     * @param views 原始视图数组
+     * @param maxBytes 最大允许的长度
+     * @return 调整后的视图数组
+     */
+    private ByteBuffer[] applyLimit(ByteBuffer[] views, int maxBytes) {
+        int remaining = maxBytes;
+        for (ByteBuffer view : views) {
+            int viewAvailable = view.remaining();
+            if (viewAvailable > remaining) {
+                view.limit(view.position() + remaining);
+                remaining = 0;
+            } else {
+                remaining -= viewAvailable;
+            }
+        }
+        return views;
     }
 
     private void throwOverflow(int required) {

@@ -46,6 +46,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
+import java.util.Collection;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -281,6 +282,10 @@ public class NexalithicServer {
      */
     public void forEachSession(Consumer<SessionAttachment> action) {
         sessionsManager.forEachNamedSession(session -> action.accept(session.attachment()));
+    }
+
+    public Collection<String> getAllSessionsName() {
+        return sessionsManager.allSessionName();
     }
 
     /**

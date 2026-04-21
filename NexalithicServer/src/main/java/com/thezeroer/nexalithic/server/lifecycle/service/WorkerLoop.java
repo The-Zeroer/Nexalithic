@@ -14,10 +14,12 @@ import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
 import org.jctools.queues.SpmcArrayQueue;
+import org.jctools.queues.SpscArrayQueue;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -49,6 +51,9 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
         public final NexalithicOption<Long> MaxIdleTime = NexalithicOption.create(
                 600_000L, OptionValidator.positive()
         );
+        public final NexalithicOption<Integer> RateUpdateQueue_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
+        );
         private Options(Class<?> holder) {
             super(holder);
         }
@@ -58,6 +63,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     }
     private final ServerBusinessPacketDispatcher dispatcher;
     private final GenericTimeWheel timeWheel;
+    private final SpscArrayQueue<ServerSessionChannel<?, ?>> rateUpdateQueue;
 
     public WorkerLoop(NexalithicBuilderContext context) throws IOException {
         super(context, OPTIONS);
@@ -78,6 +84,12 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
             timeWheel.start();
             return timeWheel;
         });
+        rateUpdateQueue = new SpscArrayQueue<>(context.getOption(OPTIONS.RateUpdateQueue_Capacity));
+    }
+
+    void postRateUpdate(ServerSessionChannel<?, ?> channel) {
+        rateUpdateQueue.offer(channel);
+        wakeupIfNeeded();
     }
 
     @Override
@@ -96,7 +108,8 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 channel.recycle();
             }
         }, CONSTANT.DrainLimit());
-        return dispatchQueue.isEmpty();
+        rateUpdateQueue.drain(SessionChannel::applyRate, CONSTANT.DrainLimit());
+        return dispatchQueue.isEmpty() && rateUpdateQueue.isEmpty();
     }
 
     @Override

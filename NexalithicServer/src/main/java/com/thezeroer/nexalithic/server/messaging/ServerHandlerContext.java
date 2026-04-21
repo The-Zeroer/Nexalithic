@@ -53,6 +53,16 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
         return dispatcher.egress(session, response.setTaskId(request.getTaskId()));
     }
 
+    public void broadcastToOthers(BusinessPacket packet) {
+        packet.seal();
+        String currentSessionName = session.getSessionName();
+        sessionsManager.forEachNamedSession(s -> {
+            if (!s.getSessionName().equals(currentSessionName)) {
+                dispatcher.egress(s, packet.duplicate());
+            }
+        });
+    }
+
     public static class Recyclable extends HandlerContext.Recyclable<
             ServerSession,
             ServerHandlerContext,

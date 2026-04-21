@@ -48,7 +48,7 @@ public class BusinessPacket extends AbstractPacket {
     private final int packetId = counter.getAndIncrement();
     private volatile boolean sealed = false;
 
-    private long taskId;
+    private long taskId = Long.MIN_VALUE;
     private long packetSize;
     private short way;
     private byte pathDepth;

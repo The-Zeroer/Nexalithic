@@ -4,6 +4,7 @@ import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
 import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
@@ -138,6 +139,11 @@ public abstract class NexalithicSession <
     }
     public final long getLastActiveTime() {
         return lastActiveTime;
+    }
+
+    public final boolean setRemoteBusinessChannelWriteRate(long rate) {
+        businessChannel.updateReadRate((long) (rate * 1.2));
+        return pushSignalingPacketWrapper((SW) ScalarSignal.ofLong(SignalingPacket.Signal.BusinessChannelRate, rate));
     }
 
     public void close() {

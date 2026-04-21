@@ -32,7 +32,7 @@ public abstract class SecurityChannel {
         while (srcBuffer.readableBytes() > 0) {
             int payloadLength = Math.min(srcBuffer.readableBytes(), MAX_PAYLOAD_SIZE);
             int cipherLength = payloadLength + SecretKeyContext.TAG_LENGTH;
-            if (dstBuffer.writableBytes() < cipherLength) {
+            if (dstBuffer.writableBytes() < FRAME_HEADER_LENGTH + cipherLength) {
                 break;
             }
             dstBuffer.put((short) payloadLength);

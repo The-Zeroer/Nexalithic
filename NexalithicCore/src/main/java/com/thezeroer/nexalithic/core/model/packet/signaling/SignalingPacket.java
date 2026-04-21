@@ -20,6 +20,7 @@ public abstract class SignalingPacket extends AbstractPacket implements Fragment
         public static final byte BusinessChannelToken_Response = 0x1;
         public static final byte BusinessChannelPort_Request = -0x2;
         public static final byte BusinessChannelPort_Response = 0x2;
+        public static final byte BusinessChannelRate = -0x3;
     }
     public static final int HEADER_LENGTH = Byte.BYTES + Short.BYTES;
     public static final int MAX_PACKET_LENGTH = 1024 * 4;
@@ -61,7 +62,7 @@ public abstract class SignalingPacket extends AbstractPacket implements Fragment
             return null;
         }
         return switch (signal) {
-            case Signal.BusinessChannelPort_Response -> new ScalarSignal(signal, buffer.unsafeGetLong());
+            case Signal.BusinessChannelPort_Response, Signal.BusinessChannelRate -> new ScalarSignal(signal, buffer.unsafeGetLong());
             case Signal.BusinessChannelToken_Response -> new TokenSignal(buffer);
             default -> {
                 if (length == 0) {

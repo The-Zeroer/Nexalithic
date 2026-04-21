@@ -21,7 +21,7 @@ public class TransferTracer {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, TransferTracer.class);
     public static final class Options extends AbstractLoop.Options {
         public final NexalithicOption<Boolean> Enable_ExecutorService = NexalithicOption.create(true, OptionValidator.nonNull());
-        public final NexalithicOption<Long> ProgressPoller_Delay = NexalithicOption.create(10L, OptionValidator.positive());
+        public final NexalithicOption<Long> ProgressPoller_Delay = NexalithicOption.create(500L, OptionValidator.positive());
         private Options(Class<?> holder) {
             super(holder);
         }

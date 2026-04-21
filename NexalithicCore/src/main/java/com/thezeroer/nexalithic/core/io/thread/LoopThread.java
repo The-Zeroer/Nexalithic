@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.io.thread;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
+import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.infra.recyclable.*;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
@@ -45,24 +47,21 @@ public class LoopThread extends Thread {
             super(holder);
         }
     }
-    private static volatile WrapperPool<LoopBuffer> globalLoopBufferPool;
+    public static final class Modules implements ModulesDefinition {
+        public static final NexalithicModule<WrapperPool<LoopBuffer>> GlobalLoopBufferPool = NexalithicModule.create("LoopThread_GlobalLoopBufferPool", WrapperPool.class);
+    }
+    private final WrapperPool<LoopBuffer> globalLoopBufferPool;
     private final WrapperPool<LoopBuffer> localLoopBufferPool;
     private ProxyRecycler<?> proxyRecycler;
 
     public LoopThread(NexalithicBuilderContext context, AbstractLoop loop) {
         super(loop);
         int bufferCapacity = context.getOption(OPTIONS.LoopBuffer_Capacity);
-        if (globalLoopBufferPool == null) {
-            synchronized (LoopThread.class) {
-                if (globalLoopBufferPool == null) {
-                    globalLoopBufferPool = new SelfStaticWrapperPool<>(
-                            PoolStorage.of(MpmcArrayQueue::new, context.getOption(OPTIONS.GlobalLoopBufferPool_Capacity)),
-                            PoolStrategy.failFast(context.getOption(OPTIONS.GlobalLoopBufferPool_Limit)),
-                            () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
-                    ).warmUp(context.getOption(OPTIONS.GlobalLoopBufferPool_PrefillRatio));
-                }
-            }
-        }
+        globalLoopBufferPool = context.getModule(Modules.GlobalLoopBufferPool, () -> new SelfStaticWrapperPool<>(
+                PoolStorage.of(MpmcArrayQueue::new, context.getOption(OPTIONS.GlobalLoopBufferPool_Capacity)),
+                PoolStrategy.failFast(context.getOption(OPTIONS.GlobalLoopBufferPool_Limit)),
+                () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
+        ).warmUp(context.getOption(OPTIONS.GlobalLoopBufferPool_PrefillRatio)));
         localLoopBufferPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(SpscArrayQueue::new, context.getOption(OPTIONS.LocalLoopBufferPool_Capacity)),
                 PoolStrategy.skip(),

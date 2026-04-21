@@ -52,6 +52,7 @@ public abstract class SessionChannel<
     protected volatile InetSocketAddress remoteAddress;
     protected final AtomicInteger targetInterest = new AtomicInteger(0);
     protected final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
+    protected final RateLimiter rateLimiter = new RateLimiter(1024 * 1024, 1024 * 1024 * 64, 1024 * 1024 * 48);
     protected LoopBuffer readPlainBuffer, writeCipheBuffer;
     protected LoopBuffer readCipheBuffer, writePlainBuffer;
     protected volatile long lastActiveTime = -1;
@@ -94,6 +95,7 @@ public abstract class SessionChannel<
         this.loop = loop;
         return updateChannel(selectionKey);
     }
+
     public final boolean updateChannelInterest(int interest, boolean enable) {
         while (true) {
             int oldInterest = targetInterest.get();
@@ -132,6 +134,16 @@ public abstract class SessionChannel<
         }
     }
 
+    public void updateReadRate(long rate) {
+        rateLimiter.updateReadRate(rate);
+    }
+    public void updateWriteRate(long rate) {
+        rateLimiter.updateWriteRate(rate);
+    }
+    public final void applyRate() {
+        rateLimiter.applyRate();
+    }
+
     public final boolean put(W wrapper) {
         return fragmenter.feed(wrapper);
     }
@@ -158,6 +170,11 @@ public abstract class SessionChannel<
                                 session.getSessionKey(), Thread.currentThread().getName()));
             }
         }
+        rateLimiter.refillWriteCredit();
+        long writeCredit = rateLimiter.getWriteCredit();
+        if (writeCredit <= 0) {
+            return 0;
+        }
         boolean progressed;
         do {
             progressed = fragmenter.drain(readPlainBuffer);
@@ -165,7 +182,7 @@ public abstract class SessionChannel<
                 progressed = true;
             }
         } while (progressed);
-        long written = writeCipheBuffer.writeToChannel(socketChannel);
+        long written = writeCipheBuffer.writeToChannel(socketChannel, writeCredit > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) writeCredit);
         if (written == 0 && writeCipheBuffer.isEmpty() && fragmenter.isEmpty()) {
             readPlainBuffer.recycle();
             readPlainBuffer = null;
@@ -173,6 +190,7 @@ public abstract class SessionChannel<
             writeCipheBuffer = null;
             return -1;
         } else {
+            rateLimiter.consumeWrite(written);
             return written;
         }
     }
@@ -187,9 +205,14 @@ public abstract class SessionChannel<
                                 session.getSessionKey(), Thread.currentThread().getName()));
             }
         }
-        long read = readCipheBuffer.readFromChannel(socketChannel);
+        rateLimiter.refillReadCredit();
+        long readCredit = rateLimiter.getReadCredit();
+        if (readCredit <= 0) {
+            return 0;
+        }
+        long read = readCipheBuffer.readFromChannel(socketChannel, readCredit > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) readCredit);
         if (read < 0) {
-            return read;
+            return -1;
         }
         boolean progressed;
         do {
@@ -204,6 +227,7 @@ public abstract class SessionChannel<
             writePlainBuffer.recycle();
             writePlainBuffer = null;
         }
+        rateLimiter.consumeRead(read);
         return read;
     }
 

@@ -247,6 +247,12 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                             token);
                 }
             }
+            case SignalingPacket.Signal.BusinessChannelRate -> {
+                long rate = ((ScalarSignal) packet).asLong();
+                ClientSessionChannel<?, ?> businessChannel = session.getBusinessChannel();
+                businessChannel.updateWriteRate(rate);
+                businessChannel.applyRate();
+            }
         }
     }
 
