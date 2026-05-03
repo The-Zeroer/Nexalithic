@@ -69,6 +69,9 @@ public class BusinessPacket extends AbstractPacket {
     public static BusinessPacket create(Way way, short... path) {
         return new BusinessPacket(way, path);
     }
+    public static BusinessPacket create(short... path) {
+        return new BusinessPacket(Way.DEFAULT, path);
+    }
 
     public final BusinessPacket attach(AbstractPayload<?> payload) {
         if (sealed) {

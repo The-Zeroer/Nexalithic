@@ -67,7 +67,7 @@ public class TextConverter {
         return toCollection(text, LinkedHashSet::new);
     }
 
-    public static String fromArray(String[] array) {
+    public static String fromArray(String... array) {
         if (array == null || array.length == 0) {
             return "[]";
         }

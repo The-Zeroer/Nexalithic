@@ -141,9 +141,9 @@ public abstract class NexalithicSession <
         return lastActiveTime;
     }
 
-    public final boolean setRemoteBusinessChannelWriteRate(long rate) {
+    public final void setRemoteBusinessChannelWriteRate(long rate) {
         businessChannel.updateReadRate((long) (rate * 1.2));
-        return pushSignalingPacketWrapper((SW) ScalarSignal.ofLong(SignalingPacket.Signal.BusinessChannelRate, rate));
+        pushSignalingPacketWrapper((SW) ScalarSignal.ofLong(SignalingPacket.Signal.BusinessChannelRate, rate));
     }
 
     public void close() {

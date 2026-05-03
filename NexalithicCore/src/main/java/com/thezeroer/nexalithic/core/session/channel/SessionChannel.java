@@ -1,6 +1,8 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.rate.DynamicRateController;
+import com.thezeroer.nexalithic.core.infra.rate.RateLimiter;
 import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
@@ -25,6 +27,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * 会话通道
@@ -52,7 +55,10 @@ public abstract class SessionChannel<
     protected volatile InetSocketAddress remoteAddress;
     protected final AtomicInteger targetInterest = new AtomicInteger(0);
     protected final AtomicReference<State> state = new AtomicReference<>(State.Unconnected);
-    protected final RateLimiter rateLimiter = new RateLimiter(1024 * 1024, 1024 * 1024 * 64, 1024 * 1024 * 48);
+    protected final RateLimiter rateLimiter = new RateLimiter(1024 * 1024);
+    protected final DynamicRateController.RateState rateState = new DynamicRateController.RateState();
+    protected final LongAdder readBytesWindow = new LongAdder();
+    protected final LongAdder writeBytesWindow = new LongAdder();
     protected LoopBuffer readPlainBuffer, writeCipheBuffer;
     protected LoopBuffer readCipheBuffer, writePlainBuffer;
     protected volatile long lastActiveTime = -1;
@@ -136,12 +142,23 @@ public abstract class SessionChannel<
 
     public void updateReadRate(long rate) {
         rateLimiter.updateReadRate(rate);
+        loop.postRateUpdate(this);
     }
     public void updateWriteRate(long rate) {
         rateLimiter.updateWriteRate(rate);
+        loop.postRateUpdate(this);
     }
     public final void applyRate() {
         rateLimiter.applyRate();
+    }
+
+    public final long evaluateDynamicRate(long intervalMs, long nowMs, DynamicRateController controller) {
+        return controller.evaluateAndGetRate(readBytesWindow.sumThenReset(), intervalMs, nowMs, rateState);
+    }
+    public final void resetDynamicRateState() {
+        rateState.reset();
+        readBytesWindow.sumThenReset();
+        writeBytesWindow.sumThenReset();
     }
 
     public final boolean put(W wrapper) {
@@ -191,6 +208,9 @@ public abstract class SessionChannel<
             return -1;
         } else {
             rateLimiter.consumeWrite(written);
+            if (written > 0) {
+                writeBytesWindow.add(written);
+            }
             return written;
         }
     }
@@ -228,6 +248,9 @@ public abstract class SessionChannel<
             writePlainBuffer = null;
         }
         rateLimiter.consumeRead(read);
+        if (read > 0) {
+            readBytesWindow.add(read);
+        }
         return read;
     }
 
@@ -298,6 +321,7 @@ public abstract class SessionChannel<
             remoteAddress = null;
             loop = null;
             lastActiveTime = -1;
+            rateState.reset();
             return true;
         }
         if (session.getLastActiveTime() < 0) {

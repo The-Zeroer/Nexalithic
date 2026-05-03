@@ -14,6 +14,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.infra.rate.DynamicRateController;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
@@ -48,6 +49,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 );
             }
         };
+        public final DynamicRateController.Options DynamicRateController = new DynamicRateController.Options(holder) {};
         public final NexalithicOption<Long> MaxIdleTime = NexalithicOption.create(
                 600_000L, OptionValidator.positive()
         );
@@ -64,6 +66,10 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     private final ServerBusinessPacketDispatcher dispatcher;
     private final GenericTimeWheel timeWheel;
     private final SpscArrayQueue<ServerSessionChannel<?, ?>> rateUpdateQueue;
+    private final DynamicRateController dynamicRateController;
+    private final boolean dynamicRateEnable;
+    private final long dynamicRateTickMs;
+    private long lastDynamicRateTickMs;
 
     public WorkerLoop(NexalithicBuilderContext context) throws IOException {
         super(context, OPTIONS);
@@ -85,10 +91,24 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
             return timeWheel;
         });
         rateUpdateQueue = new SpscArrayQueue<>(context.getOption(OPTIONS.RateUpdateQueue_Capacity));
+        dynamicRateController = new DynamicRateController(
+                context.getOption(OPTIONS.DynamicRateController.MinBps),
+                context.getOption(OPTIONS.DynamicRateController.MaxBps),
+                context.getOption(OPTIONS.DynamicRateController.InitialBps),
+                context.getOption(OPTIONS.DynamicRateController.EwmaAlpha),
+                context.getOption(OPTIONS.DynamicRateController.Headroom),
+                context.getOption(OPTIONS.DynamicRateController.ChangeThreshold),
+                context.getOption(OPTIONS.DynamicRateController.MinPublishIntervalMs),
+                context.getOption(OPTIONS.DynamicRateController.IncreaseStableTicks)
+        );
+        dynamicRateEnable = context.getOption(OPTIONS.DynamicRateController.Enable);
+        dynamicRateTickMs = context.getOption(OPTIONS.DynamicRateController.TickMs);
+        lastDynamicRateTickMs = System.currentTimeMillis();
     }
 
-    void postRateUpdate(ServerSessionChannel<?, ?> channel) {
-        rateUpdateQueue.offer(channel);
+    @Override
+    public void postRateUpdate(SessionChannel<?, ?, ?> channel) {
+        rateUpdateQueue.offer((ServerSessionChannel<?, ?>) channel);
         wakeupIfNeeded();
     }
 
@@ -109,6 +129,22 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
             }
         }, CONSTANT.DrainLimit());
         rateUpdateQueue.drain(SessionChannel::applyRate, CONSTANT.DrainLimit());
+        if (dynamicRateEnable) {
+            long now = System.currentTimeMillis();
+            if (now - lastDynamicRateTickMs >= dynamicRateTickMs) {
+                long interval = now - lastDynamicRateTickMs;
+                lastDynamicRateTickMs = now;
+                for (SelectionKey key : selector.keys()) {
+                    if (!key.isValid() || !(key.attachment() instanceof ServerSessionChannel<?, ?> businessChannel)) {
+                        continue;
+                    }
+                    long targetRate = businessChannel.evaluateDynamicRate(interval, now, dynamicRateController);
+                    if (targetRate > 0) {
+                        businessChannel.session().setRemoteBusinessChannelWriteRate(targetRate);
+                    }
+                }
+            }
+        }
         return dispatchQueue.isEmpty() && rateUpdateQueue.isEmpty();
     }
 

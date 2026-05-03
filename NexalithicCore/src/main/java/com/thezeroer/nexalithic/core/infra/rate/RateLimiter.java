@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.session.channel;
+package com.thezeroer.nexalithic.core.infra.rate;
 
 import java.util.concurrent.atomic.AtomicLong;
 

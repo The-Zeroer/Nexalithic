@@ -11,6 +11,7 @@ import com.thezeroer.nexalithic.core.util.BinaryStorageUtils;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
+import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
 import com.thezeroer.nexalithic.server.security.DefaultServerSecurityPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ public class ServerTest {
         NexalithicServer nexalithicServer = NexalithicServer.builder()
                 .apply(LifecycleManager.OPTIONS.ServiceUnit_Count, 2)
                 .apply(ServiceUnit.OPTIONS.WorkerLoop_Count, 2)
+                .apply(WorkerLoop.OPTIONS.DynamicRateController.MaxBps, 1024 * 1024 * 1024L)
 //                .apply(StewardLoop.OPTIONS.HeartBeat_MaxInterval, 1000000L)
 //                .apply(WorkerLoop.OPTIONS.MaxIdleTime,  1000000L)
                 .addRoute(AbstractPacket.PacketType.BUSINESS, "0.0.0.0/0", 7710)

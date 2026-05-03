@@ -50,6 +50,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -104,11 +105,11 @@ public class NexalithicClient {
     }
 
     public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
-        SocketChannel socketChannel = SocketChannel.open(remote);
-        logger.info("Linking to [{}]", socketChannel.getRemoteAddress());
         if (linkStatusManager.getCurrentStatus() != LinkStatusListener.Status.UNLINKED) {
             throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getCurrentStatus() + ", must be " + LinkStatusListener.Status.UNLINKED);
         }
+        SocketChannel socketChannel = SocketChannel.open(remote);
+        logger.info("Linking to [{}]", remote);
         linkStatusManager.trigger(LinkStatusListener.Status.LINKING);
         generalLoop.getNetworkRouter().setServerAddress(remote);
         try {
@@ -125,6 +126,22 @@ public class NexalithicClient {
         }
         linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.REMOTE_ACTIVE);
         return false;
+    }
+    public void linkAsync(String host, int port, Consumer<Boolean> resultCallback, Consumer<Exception> exceptionCallback) {
+        new Thread(() -> {
+            try {
+                if (linkStatusManager.getCurrentStatus() != LinkStatusListener.Status.UNLINKED) {
+                    throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getCurrentStatus() + ", must be " + LinkStatusListener.Status.UNLINKED);
+                }
+                InetSocketAddress remote = new InetSocketAddress(host, port);
+                SocketChannel socketChannel = SocketChannel.open(remote);
+                logger.info("Linking to [{}]", remote);
+                generalLoop.getNetworkRouter().setServerAddress(remote);
+                resultCallback.accept(generalLoop.link(AbstractPacket.PacketType.SIGNALING, socketChannel, null));
+            } catch (Exception e) {
+                exceptionCallback.accept(e);
+            }
+        }).start();
     }
     public void unlink() {
         generalLoop.unlink();

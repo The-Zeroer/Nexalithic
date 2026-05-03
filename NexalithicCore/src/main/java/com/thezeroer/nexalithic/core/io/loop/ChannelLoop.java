@@ -42,6 +42,8 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
         wakeupIfNeeded();
     }
 
+    public void postRateUpdate(SessionChannel<?, ?, ?> channel) {}
+
     @Override
     protected final boolean asyncEvent() {
         interestQueue.drain(SessionChannel::applyTargetInterest);

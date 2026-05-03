@@ -172,7 +172,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
                 long rate = ((ScalarSignal) packet).asLong();
                 ServerSessionChannel<?, ?> businessChannel = channel.session().getBusinessChannel();
                 businessChannel.updateWriteRate(rate);
-                ((WorkerLoop) businessChannel.localLoop()).postRateUpdate(businessChannel);
+                businessChannel.localLoop().postRateUpdate(businessChannel);
                 yield true;
             }
             default -> true;
