@@ -1,7 +1,6 @@
 package com.thezeroer.nexalithic.client.lifecycle;
 
 import com.thezeroer.nexalithic.client.NexalithicClient;
-import com.thezeroer.nexalithic.client.event.LinkStatusListener;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.LinkStatusManager;
@@ -153,14 +152,14 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                     channel.applyTargetInterest();
                 }
                 if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                    linkStatusManager.trigger(LinkStatusListener.Status.LINKED);
+                    linkStatusManager.trigger(LinkStatusManager.Status.LINKED);
                 } else {
                     channel.resetDynamicRateState();
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 logger.error("[{}] channel updateSelectionKey failed", packetType, e);
                 if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
-                    linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED);
+                    linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, e instanceof IOException ? LinkStatusManager.Reason.NETWORK_ERROR : LinkStatusManager.Reason.PROTOCOL_ERROR, e);
                 }
                 closeChannel(channel);
             }
@@ -171,13 +170,13 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
 
     public void unlink() {
         eventQueue.add(() -> {
-            LinkStatusListener.Status current = linkStatusManager.getCurrentStatus();
-            if (current == LinkStatusListener.Status.UNLINKED) {
+            LinkStatusManager.Status current = linkStatusManager.getStatus();
+            if (current == LinkStatusManager.Status.UNLINKED) {
                 logger.info("Server already unlinked, skipping.");
                 return;
             }
             logger.info("Initiating active unlink from state: {}", current);
-            linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.LOCAL_ACTIVE);
+            linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, LinkStatusManager.Reason.LOCAL_ACTIVE);
             if (session != null) {
                 session.close();
                 session = null;
@@ -311,7 +310,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         if (!reconnect) {
             if (type == AbstractPacket.PacketType.SIGNALING) {
                 logger.info("Signaling channel closed without reconnection request.");
-                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.REMOTE_ACTIVE);
+                linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, LinkStatusManager.Reason.REMOTE_ACTIVE);
             } else {
                 logger.debug("Business channel closed without reconnection request.");
             }
@@ -322,7 +321,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     private synchronized void performReconnect(AbstractPacket.PacketType type) {
         logger.info("Initiating reconnection sequence for channel type: {}", type);
         if (type == AbstractPacket.PacketType.SIGNALING) {
-            linkStatusManager.trigger(LinkStatusListener.Status.RECONNECTING);
+            linkStatusManager.trigger(LinkStatusManager.Status.RECONNECTING);
             boolean success = false;
             for (int i = 1; i < 6; i++) {
                 logger.debug("Signaling reconnection attempt [{}/5] to {}", i, networkRouter.getServerAddress());
@@ -346,7 +345,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             }
             if (!success) {
                 logger.error("All 5 reconnection attempts failed for Signaling channel. Switching to UNLINKED.");
-                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.NETWORK_ERROR);
+                linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, LinkStatusManager.Reason.NETWORK_ERROR);
             }
         } else {
             if (session == null) {

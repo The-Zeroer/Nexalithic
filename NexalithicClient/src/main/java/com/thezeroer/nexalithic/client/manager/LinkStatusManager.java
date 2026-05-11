@@ -1,14 +1,14 @@
 package com.thezeroer.nexalithic.client.manager;
 
-import com.thezeroer.nexalithic.client.event.LinkStatusListener;
-import com.thezeroer.nexalithic.client.event.Registration;
+import com.thezeroer.nexalithic.client.NexalithicClient;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.event.EventDefinition;
+import com.thezeroer.nexalithic.core.event.EventTopic;
+import com.thezeroer.nexalithic.core.event.NexalithicEvent;
+import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -19,141 +19,108 @@ import java.util.concurrent.atomic.AtomicReference;
  * @version 1.0.0
  */
 public class LinkStatusManager {
-    private static final Logger logger = LoggerFactory.getLogger(LinkStatusManager.class);
-    private final Map<LinkStatusListener.EventKey, Queue<LinkStatusListener>> events = new ConcurrentHashMap<>();
-    private final AtomicReference<LinkStatusListener.Status> linkStatus = new AtomicReference<>(LinkStatusListener.Status.UNLINKED);
-
     /**
-     * 注册一个状态转移监听器。
+     * 链路状态。
+     * <p>
+     * 该枚举描述了客户端与服务器之间链路的逻辑生存周期，屏蔽了底层多通道（信令/业务）的构建细节。
+     * </p>
      *
-     * @param event  状态转移定义（包含起始状态和目标状态，支持 null 作为通配符）
-     * @param listener 状态转移触发时的回调逻辑
-     * @return 用于注销该监听器的注册句柄
+     * @author tbrtz647@outlook.com
+     * @since 2026/04/15
+     * @version 1.0.0
      */
-    public Registration onStatusTransition(LinkStatusListener.EventKey event, LinkStatusListener listener) {
-        Queue<LinkStatusListener> listeners = events.computeIfAbsent(event, k -> new ConcurrentLinkedQueue<>());
-        listeners.add(listener);
-        return () -> {
-            listeners.remove(listener);
-            if (listeners.isEmpty()) {
-                events.remove(event, listeners);
-            }
-        };
+    public enum Status {
+        /**
+         * 未连接。
+         * <p>初始状态或连接已彻底断开（包括主动关闭或重连失败）。</p>
+         */
+        UNLINKED,
+
+        /**
+         * 连接中。
+         * <p>正在执行建立物理连接、安全协议握手以及内部多通道协商等过程。</p>
+         */
+        LINKING,
+
+        /**
+         * 已连接。
+         * <p>全链路已就绪，业务通道已对齐，开发者可以正常进行业务交互。</p>
+         */
+        LINKED,
+
+        /**
+         * 正在重连。
+         * <p>链路发生非预期中断，框架正在尝试自动恢复连接。
+         * 此时请求可能会被挂起或根据配置直接失败。</p>
+         */
+        RECONNECTING
     }
-
     /**
-     * 注册一个一次性状态转移监听器。
-     * <p>回调函数在第一次触发后会自动注销。</p>
+     * 原因
      *
-     * @param event  状态转移定义
-     * @param listener 触发后的回调逻辑
-     * @return 用于提前手动注销的句柄
+     * @author tbrtz647@outlook.com
+     * @since 2026/04/15
+     * @version 1.0.0
      */
-    public Registration onStatusTransitionOnce(LinkStatusListener.EventKey event, LinkStatusListener listener) {
-        final Registration[] registration = new Registration[1];
-        LinkStatusListener wrappedListener = (realEvent) -> {
-            try {
-                listener.onTrigger(realEvent);
-            } finally {
-                if (registration[0] != null) {
-                    registration[0].unregister();
-                }
-            }
-        };
-        registration[0] = onStatusTransition(event, wrappedListener);
-        return registration[0];
+    public enum Reason {
+        /** 无原因或未知原因 */
+        NONE,
+        /** 客户端主动关闭 */
+        LOCAL_ACTIVE,
+        /** 服务器主动断开 */
+        REMOTE_ACTIVE,
+        /** 网络异常（如超时、物理断网、心跳丢失） */
+        NETWORK_ERROR,
+        /** 协议错误（如密钥协商失败、非法数据包） */
+        PROTOCOL_ERROR,
     }
-
-    /**
-     * 精确匹配监听：只有当状态从特定的 {@code from} 转移到 {@code to} 时才触发。
-     *
-     * @param from 起始状态
-     * @param to   目标状态
-     * @param listener 回调逻辑
-     * @return 注册句柄
-     */
-    public Registration onStatusTransition(LinkStatusListener.Status from, LinkStatusListener.Status to, LinkStatusListener listener) {
-        return onStatusTransition(LinkStatusListener.EventKey.of(from, to), listener);
+    public static class Events extends EventDefinition {
+        public record StatusTransition(Status from, Status to, Reason reason, Object attachment) implements NexalithicEvent {}
+        private final EventTopic<StatusTransition> statusTransitionTopic;
+        public Events(EventTopic<StatusTransition> statusTransitionTopic) {
+            this.statusTransitionTopic = statusTransitionTopic;
+        }
     }
+    private final AtomicReference<Status> linkStatus = new AtomicReference<>(Status.UNLINKED);
+    private final Events events;
 
-    /**
-     * 进入状态监听：只要链路进入了目标状态 {@code to} 就会触发，不关注前驱状态。
-     *
-     * @param to     目标状态
-     * @param listener 回调逻辑
-     * @return 注册句柄
-     */
-    public Registration onEnterStatus(LinkStatusListener.Status to, LinkStatusListener listener) {
-        return onStatusTransition(LinkStatusListener.EventKey.of(null, to), listener);
-    }
-
-    /**
-     * 离开状态监听：只要链路离开了当前状态 {@code from} 就会触发，不关注后继状态。
-     *
-     * @param from   起始状态
-     * @param listener 回调逻辑
-     * @return 注册句柄
-     */
-    public Registration onLeaveStatus(LinkStatusListener.Status from, LinkStatusListener listener) {
-        return onStatusTransition(LinkStatusListener.EventKey.of(from, null), listener);
+    public LinkStatusManager(NexalithicBuilderContext context) {
+        NexalithicEventBus eventBus = context.getModule(NexalithicClient.Modules.EventBus);
+        events = new Events(
+                eventBus.registerTopic(Events.StatusTransition.class)
+        );
     }
 
     /**
      * 触发状态转移事件。
-     * <p>按照“精确匹配 -> 进入匹配 -> 离开匹配”的顺序依次调用相关监听器。</p>
      *
      * @param to   实际发生的结束状态
      * @param reason 原因
      */
-    public void trigger(LinkStatusListener.Status to, LinkStatusListener.DisconnectReason reason) {
-        LinkStatusListener.Status from = linkStatus.get();
+    public void trigger(Status to, Reason reason, Object attachment) {
+        Status from = linkStatus.get();
         if (from == to) {
             return;
         }
         if (!linkStatus.compareAndSet(from, to)) {
-            trigger(to, reason);
+            trigger(to, reason, attachment);
             return;
         }
-        LinkStatusListener.Event event = LinkStatusListener.Event.of(from, to, reason);
-        // 按照 匹配粒度 从细到粗进行分发
-        triggerSpecific(LinkStatusListener.EventKey.of(from, to), event);   // 1. 精确匹配
-        triggerSpecific(LinkStatusListener.EventKey.of(null, to), event);   // 2. 进入状态
-        triggerSpecific(LinkStatusListener.EventKey.of(from, null), event); // 3. 离开状态
-        triggerSpecific(LinkStatusListener.EventKey.of(null, null), event); // 4. 全局监听
-    }
-    public void trigger(LinkStatusListener.Status to) {
-        trigger(to, LinkStatusListener.DisconnectReason.NONE);
-    }
-
-    /**
-     * 查看当前状态
-     *
-     * @return {@code LinkStatusListener.Status} 当前与服务端的连接状态
-     */
-    public LinkStatusListener.Status getCurrentStatus() {
-        return linkStatus.get();
-    }
-
-    /**
-     * 内部私有方法：执行指定转移定义下的所有监听器
-     */
-    private void triggerSpecific(LinkStatusListener.EventKey eventKey, LinkStatusListener.Event event) {
-        Queue<LinkStatusListener> listeners = events.get(eventKey);
-        if (listeners != null) {
-            listeners.forEach(listener -> {
-                long start = System.currentTimeMillis();
-                try {
-                    listener.onTrigger(event);
-                } catch (Exception e) {
-                    logger.warn("LinkStatusManager: Exception in listener {} during {}", listener.getClass().getSimpleName(), eventKey, e);
-                } finally {
-                    long duration = System.currentTimeMillis() - start;
-                    if (duration > 100) {
-                        logger.warn("LinkStatusManager: Heavy listener detected! {} took {}ms. Please move blocking logic to business threads.",
-                                eventKey, duration);
-                    }
-                }
-            });
+        if (events.statusTransitionTopic.isSubscribed()) {
+            events.statusTransitionTopic.publish(new Events.StatusTransition(from, to, reason, attachment));
         }
+    }
+    public void trigger(Status to, Reason reason) {
+        trigger(to, reason, null);
+    }
+    public void trigger(Status to, Object attachment) {
+        trigger(to, Reason.NONE, attachment);
+    }
+    public void trigger(Status to) {
+        trigger(to, Reason.NONE, null);
+    }
+
+    public Status getStatus() {
+        return linkStatus.get();
     }
 }

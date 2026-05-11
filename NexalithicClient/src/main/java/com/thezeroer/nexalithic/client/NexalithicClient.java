@@ -1,7 +1,5 @@
 package com.thezeroer.nexalithic.client;
 
-import com.thezeroer.nexalithic.client.event.LinkStatusListener;
-import com.thezeroer.nexalithic.client.event.Registration;
 import com.thezeroer.nexalithic.client.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.manager.LinkStatusManager;
@@ -105,43 +103,24 @@ public class NexalithicClient {
     }
 
     public boolean link(InetSocketAddress remote) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException, NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
-        if (linkStatusManager.getCurrentStatus() != LinkStatusListener.Status.UNLINKED) {
-            throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getCurrentStatus() + ", must be " + LinkStatusListener.Status.UNLINKED);
+        if (linkStatusManager.getStatus() != LinkStatusManager.Status.UNLINKED) {
+            throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getStatus() + ", must be " + LinkStatusManager.Status.UNLINKED);
         }
         SocketChannel socketChannel = SocketChannel.open(remote);
         logger.info("Linking to [{}]", remote);
-        linkStatusManager.trigger(LinkStatusListener.Status.LINKING);
+        linkStatusManager.trigger(LinkStatusManager.Status.LINKING, remote);
         generalLoop.getNetworkRouter().setServerAddress(remote);
         try {
             if (generalLoop.link(AbstractPacket.PacketType.SIGNALING, socketChannel, null)) {
                 return true;
+            } else {
+                linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, LinkStatusManager.Reason.REMOTE_ACTIVE);
             }
         } catch (Exception e) {
-            if (e instanceof IOException) {
-                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.NETWORK_ERROR);
-            } else {
-                linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.PROTOCOL_ERROR);
-            }
+            linkStatusManager.trigger(LinkStatusManager.Status.UNLINKED, e instanceof IOException ? LinkStatusManager.Reason.NETWORK_ERROR : LinkStatusManager.Reason.PROTOCOL_ERROR, e);
             throw e;
         }
-        linkStatusManager.trigger(LinkStatusListener.Status.UNLINKED, LinkStatusListener.DisconnectReason.REMOTE_ACTIVE);
         return false;
-    }
-    public void linkAsync(String host, int port, Consumer<Boolean> resultCallback, Consumer<Exception> exceptionCallback) {
-        new Thread(() -> {
-            try {
-                if (linkStatusManager.getCurrentStatus() != LinkStatusListener.Status.UNLINKED) {
-                    throw new IllegalStateException("Cannot link while in State " + linkStatusManager.getCurrentStatus() + ", must be " + LinkStatusListener.Status.UNLINKED);
-                }
-                InetSocketAddress remote = new InetSocketAddress(host, port);
-                SocketChannel socketChannel = SocketChannel.open(remote);
-                logger.info("Linking to [{}]", remote);
-                generalLoop.getNetworkRouter().setServerAddress(remote);
-                resultCallback.accept(generalLoop.link(AbstractPacket.PacketType.SIGNALING, socketChannel, null));
-            } catch (Exception e) {
-                exceptionCallback.accept(e);
-            }
-        }).start();
     }
     public void unlink() {
         generalLoop.unlink();
@@ -157,49 +136,16 @@ public class NexalithicClient {
         return businessPacketDispatcher.egress(getSession(), packet);
     }
 
-    /**
-     * @see LinkStatusManager#onStatusTransition(LinkStatusListener.EventKey event, LinkStatusListener listener)
-     */
-    public Registration onStatusTransition(LinkStatusListener.EventKey event, LinkStatusListener listener) {
-        return linkStatusManager.onStatusTransition(event, listener);
-    }
-    /**
-     * @see LinkStatusManager#onStatusTransitionOnce(LinkStatusListener.EventKey event, LinkStatusListener listener)
-     */
-    public Registration onStatusTransitionOnce(LinkStatusListener.EventKey event, LinkStatusListener listener) {
-        return linkStatusManager.onStatusTransitionOnce(event, listener);
-    }
-    /**
-     * @see LinkStatusManager#onStatusTransition(LinkStatusListener.Status from, LinkStatusListener.Status to, LinkStatusListener listener)
-     */
-    public Registration onStatusTransition(LinkStatusListener.Status from, LinkStatusListener.Status to, LinkStatusListener listener) {
-        return linkStatusManager.onStatusTransition(from, to, listener);
-    }
-    /**
-     * @see LinkStatusManager#onEnterStatus(LinkStatusListener.Status to, LinkStatusListener listener)
-     */
-    public Registration onEnterStatus(LinkStatusListener.Status to, LinkStatusListener listener) {
-        return linkStatusManager.onEnterStatus(to, listener);
-    }
-    /**
-     * @see LinkStatusManager#onLeaveStatus(LinkStatusListener.Status from, LinkStatusListener listener)
-     */
-    public Registration onLeaveStatus(LinkStatusListener.Status from, LinkStatusListener listener) {
-        return linkStatusManager.onLeaveStatus(from, listener);
-    }
-    /**
-     * @see LinkStatusManager#getCurrentStatus()
-     */
-    public LinkStatusListener.Status getLinkStatus() {
-        return linkStatusManager.getCurrentStatus();
+    public NexalithicEventBus getEventBus() {
+        return eventBus;
     }
 
     public LifecycleManager.State getState() {
         return lifecycleManager.getState();
     }
 
-    public NexalithicEventBus getEventBus() {
-        return eventBus;
+    public LinkStatusManager.Status getLinkStatus() {
+        return linkStatusManager.getStatus();
     }
 
     private ClientSession getSession() {
@@ -277,7 +223,7 @@ public class NexalithicClient {
             context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
-            context.setModule(Modules.LinkStatusManager, new LinkStatusManager());
+            context.setModule(Modules.LinkStatusManager, new LinkStatusManager(context));
             context.setModule(LifecycleManager.Modules.GeneralLoop, new GeneralLoop(context));
             context.setModule(Modules.LifecycleManager, new LifecycleManager(context));
 

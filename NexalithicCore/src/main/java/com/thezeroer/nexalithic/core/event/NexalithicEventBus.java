@@ -34,7 +34,7 @@ public class NexalithicEventBus {
     }
 
     /**
-     * 持久订阅事件。
+     * 订阅事件。
      * <p>注意：处理器将在发布者线程中同步执行。</p>
      *
      * @param eventClass 订阅的事件类
@@ -42,7 +42,7 @@ public class NexalithicEventBus {
      * @return 用于注销的句柄
      * @throws IllegalArgumentException 如果指定的事件主题未注册
      */
-    public <T extends NexalithicEvent> EventSubscription subscribe(Class<T> eventClass, Consumer<T> handler) {
+    public <T extends NexalithicEvent> EventSubscription subscribe(Class<T> eventClass, EventHandler<T> handler) {
         EventTopic<T> topic = getTopic(eventClass);
         if (topic == null) {
             throw new IllegalArgumentException("No such topic for event " + eventClass.getName());
@@ -51,28 +51,12 @@ public class NexalithicEventBus {
     }
 
     /**
-     * 一次性订阅事件。
-     * <p>处理器在第一次触发并执行完毕后，将自动取消订阅。</p>
-     *
-     * @param eventClass 订阅的事件类
-     * @param handler    事件处理器
-     * @return 用于在触发前手动注销的句柄
-     */
-    public <T extends NexalithicEvent> EventSubscription subscribeOnce(Class<T> eventClass, Consumer<T> handler) {
-        EventTopic<T> topic = getTopic(eventClass);
-        if (topic == null) {
-            throw new IllegalArgumentException("No such topic for event " + eventClass.getName());
-        }
-        return topic.subscribeOnce(handler);
-    }
-
-    /**
      * 取消订阅指定的处理器。
      *
      * @param eventClass 事件类
      * @param handler    原处理器引用
      */
-    public <T extends NexalithicEvent> void unsubscribe(Class<T> eventClass, Consumer<T> handler) {
+    public <T extends NexalithicEvent> void unsubscribe(Class<T> eventClass, EventHandler<T> handler) {
         EventTopic<T> topic = getTopic(eventClass);
         if (topic == null) {
             throw new IllegalArgumentException("No such topic for event " + eventClass.getName());

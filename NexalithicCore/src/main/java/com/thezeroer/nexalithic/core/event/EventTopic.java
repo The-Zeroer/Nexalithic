@@ -12,40 +12,49 @@ import java.util.function.Consumer;
  * @version 1.0.0
  */
 public class EventTopic<T extends NexalithicEvent> {
-    private final Queue<Consumer<T>> subscribers = new ConcurrentLinkedQueue<>();
+    private final Queue<EventHandler<T>> subscribers = new ConcurrentLinkedQueue<>();
     private volatile boolean subscribed = false;
 
     public boolean isSubscribed() {
         return subscribed;
     }
 
-    public EventSubscription subscribe(Consumer<T> handler) {
-        subscribers.add(handler);
+    public EventSubscription subscribe(EventHandler<T> handler) {
         subscribed = true;
-        return () -> this.unsubscribe(handler);
-    }
-    public EventSubscription subscribeOnce(Consumer<T> handler) {
-        Consumer<T> wrapper = new Consumer<>() {
-            @Override
-            public void accept(T event) {
-                try {
-                    handler.accept(event);
-                } finally {
-                    unsubscribe(this);
+        if (handler.isPersistent() && !handler.isDynamic()) {
+            subscribers.add(handler);
+            return () -> this.unsubscribe(handler);
+        } else {
+            EventHandler<T> autoUnsubscribeWrapper = new EventHandler<>() {
+                @Override
+                public void handle(T event) {
+                    try {
+                        handler.handle(event);
+                    } finally {
+                        if (!handler.isPersistent()) {
+                            unsubscribe(this);
+                        }
+                    }
                 }
-            }
-        };
-        subscribers.add(wrapper);
-        subscribed = true;
-        return () -> this.unsubscribe(wrapper);
+
+                @Override
+                public boolean isPersistent() {
+                    return true;
+                }
+            };
+            subscribers.add(autoUnsubscribeWrapper);
+            return () -> this.unsubscribe(autoUnsubscribeWrapper);
+        }
     }
-    public void unsubscribe(Consumer<T> handler) {
+
+    public void unsubscribe(EventHandler<T> handler) {
         subscribers.remove(handler);
         subscribed = !subscribers.isEmpty();
     }
+
     public void publish(T event) {
-        for (Consumer<T> subscriber : subscribers) {
-            subscriber.accept(event);
+        for (EventHandler<T> subscriber : subscribers) {
+            subscriber.handle(event);
         }
     }
 }
