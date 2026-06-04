@@ -24,7 +24,7 @@ public class SerializablePayload extends AbstractPayload<Serializable>{
             bytes = bos.toByteArray();
             totalSize = bytes.length;
             if (totalSize > Integer.MAX_VALUE) {
-                throw new IOException("Payload too large, maximum size is " + Integer.MAX_VALUE);
+                throw new IllegalArgumentException("Payload too large, maximum size is " + Integer.MAX_VALUE);
             }
         }
     }

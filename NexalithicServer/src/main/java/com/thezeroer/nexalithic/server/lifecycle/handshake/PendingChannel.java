@@ -53,6 +53,7 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
         this.packetType = packetType;
         this.socketChannel = socketChannel;
         state = State.STEP_1;
+        lastActiveTime = System.currentTimeMillis();
         return this;
     }
 

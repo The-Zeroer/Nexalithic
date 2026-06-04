@@ -32,8 +32,8 @@ public class BusinessPacket extends AbstractPacket {
 
         RESPONSE_Ok,
         RESPONSE_Error,
-        RESPONSE_Succeed,
-        RESPONSE_Failed,
+        RESPONSE_Success,
+        RESPONSE_Failure,
         RESPONSE_NotHandler,
         RESPONSE_NotResource,
         RESPONSE_MethodNotAllowed,
@@ -260,6 +260,12 @@ public class BusinessPacket extends AbstractPacket {
             case TextPayload tp -> tp.value();
             case Object other -> other.toString();
         };
+    }
+    public boolean is(Way way) {
+        return getWay() == way;
+    }
+    public boolean isSuccess() {
+        return getWay() == Way.RESPONSE_Success;
     }
 
     @Override
