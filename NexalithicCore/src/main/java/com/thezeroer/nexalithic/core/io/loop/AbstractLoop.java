@@ -1,7 +1,13 @@
 package com.thezeroer.nexalithic.core.io.loop;
 
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalanceable;
-import com.thezeroer.nexalithic.core.session.SessionChannel;
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.io.thread.LoopThread;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalanceable;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
+import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,55 +15,85 @@ import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Iterator;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * 抽象选择器
+ * 抽象循环
  *
  * @author tbrtz647@outlook.com
  * @since 2026/02/06
  * @version 1.0.0
  */
-public abstract class AbstractLoop<T> implements LoadBalanceable, Runnable {
+public abstract class AbstractLoop implements LoadBalanceable, Runnable {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, AbstractLoop.class);
+    public static class Options extends OptionsDefinition {
+        public final NexalithicOption<Long> Shutdown_MaxWaitTime = NexalithicOption.create(
+                300000L, OptionValidator.positive()
+        );
+        public final NexalithicOption<Long> Selector_Timeout = NexalithicOption.create(
+                3000L, OptionValidator.nonNegative()
+        );
+        protected Options(Class<?> holder) {
+            super(holder);
+        }
+    }
+    public record Constant(long Shutdown_MaxWaitTime, long Selector_Timeout) {}
+    private final Constant CONSTANT;
+    protected enum State {
+        NEW,
+        STARTING,
+        WORKING,
+        WAITING,
+        STOPPING,
+        SHUTTING_DOWN,
+        TERMINATED
+    }
     protected static final Logger logger = LoggerFactory.getLogger(AbstractLoop.class);
-    protected static final int TIMEOUT = 3000;
     protected static final int MAX_EPOLL = 512;
-    protected static final int STATE_NEW = 0;
-    protected static final int STATE_WORKING = 1;
-    protected static final int STATE_WAITING = 2;
-    protected static final int STATE_SHUTDOWN = -1;
-    protected static final int STATE_TERMINATED = -2;
-    protected final AtomicInteger state = new AtomicInteger(STATE_NEW);
+    protected final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     protected final LongAdder loadScore = new LongAdder();
     protected volatile Selector selector;
 
-    protected String name = getClass().getSimpleName();
-    protected final Thread thread = new Thread(this);
+    protected final LoopThread thread;
+    protected volatile String name = getClass().getSimpleName();
 
-    public AbstractLoop() throws IOException {
+    public AbstractLoop(NexalithicBuilderContext context, Options options) throws IOException {
+        CONSTANT = context.getConstant(this.getClass(), Constant.class, () -> new Constant(
+                context.getOption(options.Shutdown_MaxWaitTime),
+                context.getOption(options.Selector_Timeout)
+        ));
         selector = Selector.open();
+        thread = new LoopThread(context, this);
         thread.setDaemon(false);
     }
 
-    public void start() throws Exception {
-        if (state.get() != STATE_NEW) {
-            throw new IllegalStateException("Selector already started");
+    public final void start() {
+        synchronized (this) {
+            if (!state.compareAndSet(State.NEW, State.STARTING)) {
+                throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
+            }
+            thread.setName(name);
+            thread.start();
         }
-        thread.setName(name);
-        thread.start();
     }
 
-    public void stop() throws Exception {
-        if (state.get() != STATE_TERMINATED) {
-            state.set(STATE_SHUTDOWN);
+    public final void stop() {
+        synchronized (this) {
+            if (state.get() == State.STOPPING || state.get() == State.TERMINATED) {
+                throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
+            }
+            state.set(State.STOPPING);
             selector.wakeup();
         }
     }
 
-    public void shutdown() throws Exception {
-        if (state.get() != STATE_TERMINATED) {
-            state.set(STATE_SHUTDOWN);
+    public final void shutdown() {
+        synchronized (this) {
+            if (state.get() == State.SHUTTING_DOWN || state.get() == State.STOPPING || state.get() == State.TERMINATED) {
+                throw new IllegalStateException("Loop already [%s]".formatted(state.get()));
+            }
+            state.set(State.SHUTTING_DOWN);
             selector.wakeup();
         }
     }
@@ -66,108 +102,147 @@ public abstract class AbstractLoop<T> implements LoadBalanceable, Runnable {
      * 需要时叫醒，只有当 Selector 真的在睡觉（WAITING）时，才将其叫醒并设为 WORKING
      *
      */
-    public void wakeupIfNeeded() {
-        if (state.compareAndSet(STATE_WAITING, STATE_WORKING)) {
+    public final void wakeupIfNeeded() {
+        if (state.compareAndSet(State.WAITING, State.WORKING)) {
             selector.wakeup();
         }
     }
 
     @Override
-    public long getLoadScore() {
+    public final long getLoadScore() {
         return loadScore.sum();
     }
 
-    public String getName() {
+    public final String getName() {
         return name;
     }
-    public AbstractLoop<?> addIdToName(String id) {
+    public final AbstractLoop addIdToName(String id) {
         name = name + "-" + id;
         return this;
     }
 
-    public abstract void dispatch(T t) throws Exception;
-    protected abstract void onAsyncEvent();
+    protected abstract boolean onAsyncEvent();
     protected abstract void onReadyEvent(SelectionKey selectionKey) throws IOException;
-    protected abstract void onShutdown();
+    protected void onShuttingDown() {}
+    protected void onTerminated() {}
     protected void onSelectorError(IOException error) {}
 
     @Override
-    public void run() {
+    public final void run() {
         Selector localSelector = this.selector;
-        int selectCount = 0;
-        try {
-            logger.debug("[{}] Selector started", name);
-            if (!state.compareAndSet(STATE_NEW, STATE_WORKING)) {
-                return;
-            }
-            while (state.get() != STATE_SHUTDOWN) {
-                try {
-                    onAsyncEvent();
-                    int readyCount;
-                    long start = System.currentTimeMillis();
-                    if (state.compareAndSet(STATE_WORKING, STATE_WAITING)) {
-                        readyCount = localSelector.select(TIMEOUT);
-                        state.compareAndSet(STATE_WAITING, STATE_WORKING);
-                    } else {
-                        readyCount = localSelector.selectNow();
-                    }
-                    long end = System.currentTimeMillis();
-                    if (readyCount > 0) {
-                        selectCount = 0;
-                        Iterator<SelectionKey> iterator = localSelector.selectedKeys().iterator();
-                        while (iterator.hasNext()) {
-                            SelectionKey key = iterator.next();
-                            iterator.remove();
-                            try {
-                                onReadyEvent(key);
-                            } catch (IOException e) {
-                                try {
-                                    key.cancel();
-                                    key.channel().close();
-                                } catch (IOException ignored) {}
-                            }
-                        }
-                    } else if (end - start < TIMEOUT / 2) {
-                        selectCount++;
-                    } else {
-                        selectCount = 0;
-                    }
-                    if (selectCount > MAX_EPOLL) {
-                        logger.warn("[{}] Epoll bug detected, rebuilding selector...", name);
-                        localSelector = rebuildSelector();
-                        selectCount = 0;
-                    }
-                } catch (IOException e) {
-                    logger.error(e.getMessage(), e);
-                    onSelectorError(e);
-                }
-            }
-            logger.debug("[{}] Selector stopped", name);
-        } finally {
-            state.set(STATE_TERMINATED);
-            onShutdown();
-            try {
-                for (SelectionKey key : localSelector.keys()) {
+        int emptyCount = 0, readyCount;
+        long start = 0, end = 0;
+        boolean running = true;
+        state.compareAndSet(State.STARTING, State.WORKING);
+        logger.debug("[{}] started", name);
+        while (running) {
+            switch (state.get()) {
+                case WORKING -> {
                     try {
-                        key.channel().close();
+                        if (asyncEvent()) {
+                            if (state.compareAndSet(State.WORKING, State.WAITING)) {
+                                start = System.currentTimeMillis();
+                                // 再次检查 asyncEvent，防止在 CAS 之后、select 之前有新任务进来
+                                if (!onAsyncEvent()) {
+                                    state.set(State.WORKING);
+                                    readyCount = localSelector.selectNow();
+                                } else {
+                                    readyCount = localSelector.select(CONSTANT.Selector_Timeout);
+                                }
+                                state.compareAndSet(State.WAITING, State.WORKING);
+                                end = System.currentTimeMillis();
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            readyCount = localSelector.selectNow();
+                        }
+                        if (readyCount > 0) {
+                            emptyCount = 0;
+                            readyEvent(localSelector);
+                        } else if (start != 0) {
+                            if (end - start < CONSTANT.Selector_Timeout / 2) {
+                                if (++emptyCount > MAX_EPOLL) {
+                                    logger.warn("[{}] Epoll bug detected, rebuilding selector...", name);
+                                    localSelector = rebuildSelector();
+                                    emptyCount = 0;
+                                }
+                            } else {
+                                emptyCount = 0;
+                            }
+                            start = 0;
+                            end = 0;
+                        }
                     } catch (IOException e) {
-                        logger.error("[{}] Error closing channel", name, e);
+                        logger.error(e.getMessage(), e);
+                        onSelectorError(e);
                     }
                 }
-                localSelector.close();
-            } catch (IOException e) {
-                logger.error("[{}] Error closing selector", name, e);
+                case SHUTTING_DOWN -> {
+                    if (start == 0) {
+                        onShuttingDown();
+                        start = System.currentTimeMillis();
+                    }
+                    try {
+                        if (localSelector.selectNow() > 0) {
+                            readyEvent(localSelector);
+                        }
+                    } catch (IOException ignored) {}
+                    if (localSelector.keys().isEmpty()) {
+                        try {
+                            localSelector.close();
+                        } catch (IOException e) {
+                            logger.error("[{}] Error closing loop", name, e);
+                        }
+                        logger.debug("[{}] shutdown", name);
+                    } else if (System.currentTimeMillis() - start > CONSTANT.Shutdown_MaxWaitTime) {
+                        logger.warn("[{}] max shutdown time exceeded, forcing stop.", name);
+                        state.set(State.STOPPING);
+                    }
+                }
+                case STOPPING -> {
+                    for (SelectionKey key : localSelector.keys()) {
+                        try {
+                            key.channel().close();
+                        } catch (IOException ignored) {}
+                    }
+                    try {
+                        localSelector.close();
+                    } catch (IOException e) {
+                        logger.error("[{}] Error closing loop", name, e);
+                    }
+                    logger.debug("[{}] stopped", name);
+                    running = false;
+                }
+                default -> running = false;
+            }
+        }
+        onTerminated();
+        state.set(State.TERMINATED);
+    }
+    protected boolean asyncEvent() {
+        return onAsyncEvent();
+    }
+    protected void readyEvent(Selector selector) throws IOException {
+        Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+        while (iterator.hasNext()) {
+            SelectionKey key = iterator.next();
+            iterator.remove();
+            try {
+                onReadyEvent(key);
+            } catch (Exception e) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[{}] failed to ready event: ", name, e);
+                }
+                if (key.attachment() instanceof NexalithicChannel channel) {
+                    if (channel.closeChannel()) {
+                        loadScore.decrement();
+                    }
+                }
             }
         }
     }
-
-    protected void closeSelectionKey(SelectionKey key) {
-        try {
-            key.cancel();
-            key.channel().close();
-        } catch (IOException ignored) {}
-    }
-    private Selector rebuildSelector() throws IOException {
+    protected final Selector rebuildSelector() throws IOException {
         try {
             Selector newSelector = Selector.open();
             Selector oldSelector = this.selector;
@@ -176,10 +251,9 @@ public abstract class AbstractLoop<T> implements LoadBalanceable, Runnable {
                 Object attachment = oldKey.attachment();
                 try {
                     SelectionKey newKey = oldKey.channel().register(newSelector, oldKey.interestOps(), attachment);
-                    if (attachment instanceof SessionChannel<?> sessionChannel) {
-                        sessionChannel.updateSelectionKey(newKey);
+                    if (attachment instanceof SessionChannel<?, ?, ?> sessionChannel) {
+                        sessionChannel.updateChannel(newKey);
                     }
-                    oldKey.cancel();
                 } catch (Exception e) {
                     logger.error("[{}] Failed to migrate key for channel", name, e);
                 }

@@ -1,0 +1,230 @@
+package com.thezeroer.nexalithic.core.io.codec.assembler;
+
+import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
+import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.timer.Expirable;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 业务包组装封装器
+ *
+ * @author tbrtz647@outlook.com
+ * @since 2026/03/15
+ * @version 1.0.0
+ */
+public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> implements AssemblyWrapper<BusinessPacket>, Expirable {
+    public record Constant(long MaxIdleTime) {}
+    private final Constant CONSTANT;
+    private final PacketBuilder packetBuilder = new PacketBuilder();
+    private final PayloadRegistry payloadRegistry;
+    private final TransferTracer transferTracer;
+    private TransferListener listener;
+    private TransferSnapshot snapshot;
+    private BusinessPacket packet;
+    private long remaining;
+    private int packetId;
+    private int payloadIndex;
+    private boolean headerRead;
+    private long lastActiveTime;
+
+    public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry, TransferTracer transferTracer) {
+        CONSTANT = constant;
+        this.payloadRegistry = payloadRegistry;
+        this.transferTracer = transferTracer;
+    }
+
+    public boolean hasFrame() {
+        if (remaining > 0) {
+            return true;
+        } else {
+            packet = packetBuilder.build();
+            if (listener != null) {
+                transferTracer.onFinish(listener);
+            }
+            return false;
+        }
+    }
+
+    public int onFrame(LoopBuffer input, int quota, boolean isStartFrame) throws IOException {
+        lastActiveTime = System.currentTimeMillis();
+        int total = 0;
+        if (!headerRead) {
+            if (!isStartFrame) {
+                input.advanceHead(quota);
+                return quota;
+            }
+            total += readPacketHeader(input);
+            headerRead = true;
+            TransferListenerGroup visualizer = transferTracer.removeVisualizer(packetBuilder.taskId);
+            if (visualizer != null) {
+                listener = visualizer.responseTransferListener();
+                if (listener != null) {
+                    snapshot = new TransferSnapshot(remaining);
+                    transferTracer.onStart(listener, snapshot);
+                }
+            }
+        }
+        List<AbstractPayload<?>> payloads = packetBuilder.payloads;
+        int read;
+        while (total < quota && payloadIndex < packetBuilder.payloadCount) {
+            AbstractPayload<?> payload = payloads.get(payloadIndex);
+            long totalSize = packetBuilder.payloadsMeta[payloadIndex * 2 + 1];
+            long processedSize = payload.getProcessedSize();
+            LoopBuffer.LimitedReadableView readableView = input.unsafeLimitedReadableView(
+                    Math.toIntExact(Math.min(totalSize - processedSize, quota - total))
+            );
+            try {
+                if (processedSize == 0) {
+                    payload.prepareDecode(totalSize);
+                }
+                read = payload.decode(readableView);
+                if (payload.getProcessedSize() >= totalSize) {
+                    payload.finishDecode();
+                    payload.release();
+                    payloadIndex++;
+                }
+                total += read;
+            } catch (IOException e) {
+                payload.release();
+                throw e;
+            }
+        }
+        remaining -= total;
+        if (snapshot != null) {
+            snapshot.updateRemaining(remaining);
+        }
+        return total;
+    }
+    private int readPacketHeader(LoopBuffer input) throws IOException {
+        long taskId = input.unsafeGetLong();
+        long packetSize = input.unsafeGetLong();
+        short way = input.unsafeGetShort();
+        byte depth = input.unsafeGetByte();
+        short[] path = null;
+        int read = BusinessPacket.BASE_HEADER_SIZE;
+        if (depth > 0) {
+            path = new short[depth];
+            for (int i = 0; i < depth; i++) {
+                path[i] = input.unsafeGetShort();
+            }
+            read += depth * Short.BYTES;
+        }
+        byte count = input.unsafeGetByte();
+        List<AbstractPayload<?>> payloads = null;
+        long[] payloadsMeta = null;
+        if (count > 0) {
+            payloads = new ArrayList<>(count);
+            payloadsMeta = new long[count * 2];
+            for (int i = 0; i < count; i++) {
+                long uid = input.unsafeGetLong();
+                long size = input.unsafeGetLong();
+                AbstractPayload<?> payload = payloadRegistry.get(uid);
+                if (payload == null) {
+                    throw new IOException("Unknown Payload UID: " + uid);
+                }
+                payloads.add(payload);
+                payloadsMeta[i * 2] = uid;
+                payloadsMeta[i * 2 + 1] = size;
+            }
+            read += count * Long.BYTES * 2;
+        }
+        this.remaining = packetSize;
+        packetBuilder.taskId = taskId;
+        packetBuilder.packetSize = packetSize;
+        packetBuilder.way = way;
+        packetBuilder.pathDepth = depth;
+        packetBuilder.path = path;
+        packetBuilder.payloadCount = count;
+        packetBuilder.payloads = payloads;
+        packetBuilder.payloadsMeta = payloadsMeta;
+        return read;
+    }
+
+    public BusinessPacketAssemblyWrapper setPacketId(int packetId) {
+        this.packetId = packetId;
+        return this;
+    }
+    public int getPacketId() {
+        return packetId;
+    }
+
+    public BusinessPacket getPacket() {
+        return packet;
+    }
+
+    @Override
+    protected void onRecycle() {
+        packetBuilder.clear();
+        packet = null;
+        packetId = 0;
+        headerRead = false;
+        payloadIndex = 0;
+        lastActiveTime = -1;
+        listener = null;
+        snapshot = null;
+    }
+
+    @Override
+    public long getExpiryTime() {
+        return lastActiveTime + CONSTANT.MaxIdleTime;
+    }
+
+    @Override
+    public boolean onExpiryTriggered() {
+        return System.currentTimeMillis() > lastActiveTime + CONSTANT.MaxIdleTime;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return isRecycled();
+    }
+
+    private static class PacketBuilder {
+        private static final BusinessPacket.Way[] WAYS = BusinessPacket.Way.values();
+        public long taskId;
+        public long packetSize;
+        public short way;
+        public byte pathDepth;
+        public short[] path;
+        public byte payloadCount;
+        public long[] payloadsMeta;
+        public List<AbstractPayload<?>> payloads;
+
+        public BusinessPacket build() {
+            BusinessPacket packet = BusinessPacket.create(WAYS[way], path).attach(payloads).setTaskId(taskId).seal();
+            if (packetSize != packet.getPacketSize()) {
+                throw new IllegalStateException("Packet Size Mismatch, %d or %d".formatted(packetSize, packet.getPacketSize()));
+            }
+            if (payloadsMeta != null) {
+                for (int i = 0; i < payloadsMeta.length; i++) {
+                    long[] payloadsMeta = packet.getPayloadsMeta();
+                    if (this.payloadsMeta[i] != payloadsMeta[i]) {
+                        throw new IllegalStateException("Payloads Meta Mismatch");
+                    }
+                }
+            }
+            return packet;
+        }
+
+        public void clear() {
+            taskId = 0;
+            packetSize = 0;
+            way = 0;
+            pathDepth = 0;
+            path = null;
+            payloadCount = 0;
+            payloadsMeta = null;
+            payloads = null;
+        }
+    }
+}

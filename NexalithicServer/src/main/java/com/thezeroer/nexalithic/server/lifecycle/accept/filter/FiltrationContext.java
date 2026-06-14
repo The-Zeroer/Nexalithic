@@ -1,9 +1,9 @@
 package com.thezeroer.nexalithic.server.lifecycle.accept.filter;
 
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.pool.GeneralRecyclableWrapper;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
@@ -32,12 +32,22 @@ import java.nio.channels.SocketChannel;
  * @version 1.0.0
  * @see FiltrationStrategy
  */
-public class FiltrationContext {
-    private AbstractPacket.TYPE type;
+public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
+    private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
+    private final WrapperPool<PendingChannel> pendingChannelPool;
+    private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
-    private LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
-    private PendingChannel.Recyclable cachedPendingChannel;
-    private Recyclable recyclable;
+
+    public FiltrationContext(LoadBalancer<Void, HandshakeLoop> balancer, WrapperPool<PendingChannel> pendingChannelPool)  {
+        this.handshakeLoopBalancer = balancer;
+        this.pendingChannelPool = pendingChannelPool;
+    }
+
+    public FiltrationContext init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
+        this.packetType = packetType;
+        this.socketChannel = socketChannel;
+        return this;
+    }
 
     /**
      * 准入操作：将当前连接判定为合法，并移交给后续的握手处理器。
@@ -50,15 +60,14 @@ public class FiltrationContext {
      * </ol>
      * </p>
      */
+    @Override
     public void approve() {
         if (this.socketChannel == null) return;
         try {
-            handshakeLoopBalancer.select(null).dispatch(cachedPendingChannel.initTarget(type, socketChannel).unwrap());
-            cachedPendingChannel = null;
-        } catch (Exception e) {
-            reject();
+            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().init(packetType, socketChannel).unwrap());
+        } catch (Exception ignored) {
         } finally {
-            recyclable.recycle();
+            recycle();
         }
     }
 
@@ -72,45 +81,20 @@ public class FiltrationContext {
      * </p>
      * * <p><b>幂等性：</b>多次调用此方法是安全的，仅第一次调用会执行实际的关闭逻辑。</p>
      */
+    @Override
     public void reject() {
         if (this.socketChannel == null) return;
         try {
             socketChannel.close();
         } catch (IOException ignored) {
         } finally {
-            recyclable.recycle();
+            recycle();
         }
     }
 
-    public static class Recyclable extends GeneralRecyclableWrapper<FiltrationContext, Recyclable> {
-
-        public Recyclable(FiltrationContext target, WrapperPool<? super Recyclable> pool, LoadBalancer<Void, HandshakeLoop> balancer) {
-            super(target, pool);
-            target.recyclable = this;
-            target.handshakeLoopBalancer = balancer;
-        }
-
-        public Recyclable initTarget(AbstractPacket.TYPE type, SocketChannel socketChannel,
-                                     WrapperPool<PendingChannel.Recyclable> pendingChannelPool) {
-            target.type = type;
-            target.socketChannel = socketChannel;
-            if (target.cachedPendingChannel == null) {
-                target.cachedPendingChannel = pendingChannelPool.acquire();
-            }
-            return this;
-        }
-
-        @Override
-        protected void onRecycle(FiltrationContext target) {
-            target.type = null;
-            target.socketChannel = null;
-        }
-
-        @Override
-        protected void onOverflow(FiltrationContext target) {
-            target.recyclable = null;
-            target.handshakeLoopBalancer = null;
-            target.cachedPendingChannel.recycle();
-        }
+    @Override
+    protected void onRecycle() {
+        packetType = null;
+        socketChannel = null;
     }
 }

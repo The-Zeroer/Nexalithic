@@ -1,52 +1,188 @@
 package com.thezeroer.nexalithic.core.session;
 
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
+import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.security.SecuritySession;
-import com.thezeroer.nexalithic.core.security.SessionSecretKey;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
+import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
+import com.thezeroer.nexalithic.core.util.TimeUtils;
 
 import java.nio.channels.SelectionKey;
-import java.util.EnumMap;
+import java.util.concurrent.locks.LockSupport;
 
 /**
- * Nexalithic会话
+ * Nexalithic 会话
  *
  * @author tbrtz647@outlook.com
  * @since 2026/02/02
  * @version 1.0.0
  */
-public class NexalithicSession extends SecuritySession {
-    public static final int SESSION_ID_LENGTH = 32;
-    private final EnumMap<AbstractPacket.TYPE, SessionChannel<?>> channels;
-    private final long creationTime;
-    private String sessionId;
-    private String sessionName;
+@SuppressWarnings("unchecked")
+public abstract class NexalithicSession <
+        S extends NexalithicSession<S, SC, BC, SW, BW>,
+        SC extends SessionChannel<SignalingPacket, SW, S>,
+        BC extends SessionChannel<BusinessPacket, BW, S>,
+        SW extends FragmentWrapper<SignalingPacket>,
+        BW extends FragmentWrapper<BusinessPacket>
+    > {
+    public static final int SESSION_KEY_LENGTH = SessionKey.LENGTH;
+    protected final long creationTime;
+    protected final SessionKey sessionKey;
+    protected final SC signalingChannel;
+    protected final BC businessChannel;
+    protected volatile String sessionName;
+    protected volatile long lastActiveTime = -1;
 
-    public NexalithicSession(String sessionId, SessionSecretKey sessionSecretKey) {
-        super(sessionSecretKey);
-        this.sessionId = sessionId;
-        this.channels = new EnumMap<>(AbstractPacket.TYPE.class);
-        for (AbstractPacket.TYPE type : AbstractPacket.TYPE.values()) {
-            channels.put(type, new SessionChannel<>(this, type));
-        }
+    public NexalithicSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ChannelFactory<S, SC, BC, SW, BW> factory) {
+        this.sessionKey = sessionKey;
+        this.signalingChannel = factory.createSignalingChannel((S) this, signalingSecretKey);
+        this.businessChannel = factory.createBusinessChannel((S) this, businessSecretKey);
         this.creationTime = System.currentTimeMillis();
     }
 
-    public NexalithicSession updateSelectionKey(AbstractPacket.TYPE type, SelectionKey selectionKey) {
-        channels.get(type).updateSelectionKey(selectionKey);
-        return this;
+    public final boolean pushSignalingPacketWrapper(SW wrapper) {
+        if (!signalingChannel.put(wrapper)) {
+            return false;
+        }
+        if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+            return updateChannelInterest(signalingChannel);
+        }
+        return true;
+    }
+    public final int pushSignalingPacketWrappers(SW... wrappers) {
+        int count = signalingChannel.fill(wrappers);
+        if (count != wrappers.length) {
+            if (signalingChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                if (!updateChannelInterest(signalingChannel)) {
+                    return -1;
+                }
+            }
+        }
+        return count;
+    }
+    public final boolean pushBusinessPacketWrapper(BW wrapper) {
+        if (!businessChannel.put(wrapper)) {
+            return false;
+        }
+        switch (businessChannel.getState()) {
+            case Unconnected -> {
+                return connectBusinessChannel();
+            }
+            case Connected -> {
+                if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                    return updateChannelInterest(businessChannel);
+                }
+            }
+        }
+        return true;
+    }
+    public final int pushBusinessPacketWrappers(BW... wrappers) {
+        int count = businessChannel.fill(wrappers);
+        switch (businessChannel.getState()) {
+            case Unconnected -> {
+                if (!connectBusinessChannel()) {
+                    return -1;
+                }
+            }
+            case Connected -> {
+                if (count != wrappers.length) {
+                    if (businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
+                        if (!updateChannelInterest(businessChannel)) {
+                            return -1;
+                        }
+                    }
+                }
+            }
+        }
+        return count;
     }
 
-    public void setSessionName(String sessionName) {
+    public final SC getSignalingChannel() {
+        return signalingChannel;
+    }
+    public final BC getBusinessChannel() {
+        return businessChannel;
+    }
+    public final SessionChannel<?, ?, S> getChannel(AbstractPacket.PacketType packetType) {
+        return switch (packetType) {
+            case SIGNALING -> signalingChannel;
+            case BUSINESS -> businessChannel;
+        };
+    }
+    public final <C extends SessionChannel<?, ?, S>> C asChannel(AbstractPacket.PacketType packetType) {
+        return (C) switch (packetType) {
+            case SIGNALING -> signalingChannel;
+            case BUSINESS -> businessChannel;
+        };
+    }
+
+    public final void updateLastActiveTime(long lastActiveTime) {
+        this.lastActiveTime = lastActiveTime;
+    }
+
+    public final void setSessionName(String sessionName) {
         this.sessionName = sessionName;
     }
-    public String getSessionName() {
+    public final String getSessionName() {
         return sessionName;
     }
 
-    public String getSessionId() {
-        return sessionId;
+    public final SessionKey getSessionKey() {
+        return sessionKey;
     }
-    public long getCreationTime() {
+    public final long getCreationTime() {
         return creationTime;
+    }
+    public final long getLastActiveTime() {
+        return lastActiveTime;
+    }
+
+    public final void setRemoteBusinessChannelWriteRate(long rate) {
+        businessChannel.updateReadRate((long) (rate * 1.2));
+        pushSignalingPacketWrapper((SW) ScalarSignal.ofLong(SignalingPacket.Signal.BusinessChannelRate, rate));
+    }
+
+    public void close() {
+        lastActiveTime = -1;
+        if (signalingChannel != null) {
+            signalingChannel.closeChannel();
+        }
+        if (businessChannel != null) {
+            businessChannel.closeChannel();
+        }
+    }
+
+    protected abstract boolean connectBusinessChannel();
+
+    private boolean updateChannelInterest(SessionChannel<?, ?, ?> channel) {
+        ChannelLoop<?> loop = channel.localLoop();
+        if (loop != null) {
+            loop.updateChannelInterest(channel);
+            return true;
+        } else {
+            for (int i = 0; i < 100; i++) {
+                if (loop != null) {
+                    loop.updateChannelInterest(channel);
+                    return true;
+                } else {
+                    if (i < 50) {
+                        Thread.onSpinWait();
+                    } else {
+                        LockSupport.parkNanos(i * 1_000_000L);
+                    }
+                }
+                loop = channel.localLoop();
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public String toString() {
+        return "SessionName: " + sessionName + ", CreationTime: " + TimeUtils.format(creationTime) + ", SignalingChannel[" + signalingChannel + "], BusinessChannel[" + businessChannel + "]";
     }
 }

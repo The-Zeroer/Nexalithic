@@ -1,15 +1,25 @@
 package com.thezeroer.nexalithic.server.lifecycle.accept;
 
+import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
-import com.thezeroer.nexalithic.core.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.option.NexalithicOption;
-import com.thezeroer.nexalithic.core.option.OptionMap;
-import com.thezeroer.nexalithic.core.pool.WrapperPool;
+import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
+import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.security.SecretKeyContext;
+import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
+import com.thezeroer.nexalithic.server.NexalithicServer;
+import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
-import com.thezeroer.nexalithic.server.pool.BlockedMpscWrapperPool;
+import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
+import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
+import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,62 +38,83 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
-    public static final NexalithicOption<Integer> FiltrationContextPool_Capacity = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Capacity", 1024);
-    public static final NexalithicOption<Integer> FiltrationContextPool_Limit = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_Limit", (int) (FiltrationContextPool_Capacity.defaultValue() * 1.5));
-    public static final NexalithicOption<Double> FiltrationContextPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_FiltrationContextPool_PrefillRatio", 0.5);
-    public static final NexalithicOption<Integer> PendingChannelPool_Capacity = NexalithicOption.create("AcceptorLoop_PendingChannelPool_Capacity", 4096);
-    public static final NexalithicOption<Integer> PendingChannelPool_Limit = NexalithicOption.create("AcceptorLoop_PendingChannelPool_Limit", (int) (PendingChannelPool_Capacity.defaultValue() * 1.5));
-    public static final NexalithicOption<Double> PendingChannelPool_PrefillRatio = NexalithicOption.create("AcceptorLoop_PendingChannelPool_PrefillRatio", 0.5);
+public class AcceptorLoop extends AbstractLoop {
+    public static final Options OPTIONS = Options.initOptions(Options.class, AcceptorLoop.class);
+    public static final class Options extends AbstractLoop.Options {
+        public final NexalithicOption<Integer> FiltrationContextPool_Capacity = NexalithicOption.create(
+                1024, OptionValidator.positive()
+        );
+        public final NexalithicOption<Integer> FiltrationContextPool_Limit = NexalithicOption.create(
+                FiltrationContextPool_Capacity.defaultValue() * 2, OptionValidator.positive()
+        );
+        public final NexalithicOption<Double> FiltrationContextPool_PrefillRatio = NexalithicOption.create(
+                0.5, OptionValidator.unitInterval()
+        );
+        public final NexalithicOption<Integer> PendingChannelPool_Capacity = NexalithicOption.create(
+                4096, OptionValidator.positive()
+        );
+        public final NexalithicOption<Integer> PendingChannelPool_Limit = NexalithicOption.create(
+                PendingChannelPool_Capacity.defaultValue() * 2, OptionValidator.positive()
+        );
+        public final NexalithicOption<Double> PendingChannelPool_PrefillRatio = NexalithicOption.create(
+                0.5, OptionValidator.unitInterval()
+        );
+
+        public Options(Class<?> holder) {
+            super(holder);
+        }
+    }
     private static final Logger logger = LoggerFactory.getLogger(AcceptorLoop.class);
     private final Queue<Runnable> eventQueue = new ConcurrentLinkedQueue<>();
-    private final WrapperPool<FiltrationContext.Recyclable> filtrationContextPool;
-    private final WrapperPool<PendingChannel.Recyclable> pendingChannelPool;
+    private final WrapperPool<FiltrationContext> filtrationContextPool;
+    private final WrapperPool<PendingChannel> pendingChannelPool;
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
 
-    public AcceptorLoop(OptionMap options, LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer) throws IOException {
-        this.handshakeLoopBalancer = handshakeLoopBalancer;
-        filtrationContextPool = new BlockedMpscWrapperPool<>(
-                options.value(FiltrationContextPool_Capacity),
-                options.value(FiltrationContextPool_Limit),
-                FiltrationContext::new,
-                (FiltrationContext target, WrapperPool<FiltrationContext.Recyclable> pool) ->
-                        new FiltrationContext.Recyclable(target, pool, handshakeLoopBalancer)
-        ).warmUp(options.value(FiltrationContextPool_PrefillRatio));
-        pendingChannelPool = new BlockedMpscWrapperPool<>(
-                options.value(PendingChannelPool_Capacity),
-                options.value(PendingChannelPool_Limit),
-                PendingChannel::new,
-                PendingChannel.Recyclable::new
-        ).warmUp(options.value(PendingChannelPool_PrefillRatio));
+    public AcceptorLoop(NexalithicBuilderContext context) throws IOException {
+        super(context, OPTIONS);
+        ServerSecurityPolicy securityPolicy = context.getModule(NexalithicServer.Modules.SecurityPolicy);
+        PendingChannel.Constant pendingChannelConstant = new PendingChannel.Constant(
+                context.getOption(HandshakeLoop.OPTIONS.MaxWaitTime),
+                SecretKeyUtils.ECDH_LENGTH + SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH,
+                Math.max(securityPolicy.certificatesLength() + SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength(),
+                        SecretKeyUtils.FINISHED_LENGTH + ServerSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH * 2)
+        );
+        handshakeLoopBalancer = context.getModule(LifecycleManager.Modules.HandshakeLoopLoadBalancer);
+        pendingChannelPool = new SelfStaticWrapperPool<>(
+                PoolStorage.of(MpscArrayQueue::new, context.getOption(OPTIONS.PendingChannelPool_Capacity)),
+                PoolStrategy.blocking(context.getOption(OPTIONS.PendingChannelPool_Limit)),
+                () -> new PendingChannel(pendingChannelConstant)
+        ).warmUp(context.getOption(OPTIONS.PendingChannelPool_PrefillRatio));
+        filtrationContextPool = new SelfStaticWrapperPool<>(
+                PoolStorage.of(MpscArrayQueue::new, context.getOption(OPTIONS.FiltrationContextPool_Capacity)),
+                PoolStrategy.blocking(context.getOption(OPTIONS.FiltrationContextPool_Limit)),
+                () -> new FiltrationContext(handshakeLoopBalancer, pendingChannelPool)
+        ).warmUp(context.getOption(OPTIONS.FiltrationContextPool_PrefillRatio));
     }
 
-    @Override
-    public void dispatch(DispatchWrapper wrapper) {
+    public void dispatch(AbstractPacket.PacketType packetType, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {
         eventQueue.add(() -> {
             SocketAddress address = null;
             try {
-                address = wrapper.serverSocketChannel.getLocalAddress();
-                wrapper.serverSocketChannel
-                        .configureBlocking(false)
-                        .register(selector, SelectionKey.OP_ACCEPT, wrapper.type)
-                        .attach(wrapper.strategy.setType(wrapper.type));
+                address = serverSocketChannel.getLocalAddress();
+                serverSocketChannel.configureBlocking(false).register(selector, SelectionKey.OP_ACCEPT, packetType).attach(strategy.setType(packetType));
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", wrapper.type, address, wrapper.strategy.getClass().getSimpleName());
+                    logger.debug("Registered [{}] channel [{}] successfully. Strategy [{}]", packetType, address, strategy.getName());
                 }
                 loadScore.increment();
             } catch (Exception e) {
-                logger.error("Failed to register [{}] channel [{}]", wrapper.type, address, e);
+                logger.error("Failed to register [{}] channel [{}]", packetType, address, e);
             }
         });
         wakeupIfNeeded();
     }
 
     @Override
-    protected void onAsyncEvent() {
+    protected boolean onAsyncEvent() {
         while (!eventQueue.isEmpty()) {
             eventQueue.poll().run();
         }
+        return true;
     }
 
     @Override
@@ -96,15 +127,22 @@ public class AcceptorLoop extends AbstractLoop<AcceptorLoop.DispatchWrapper> {
             return;
         }
         FiltrationStrategy filtrationStrategy = (FiltrationStrategy) selectionKey.attachment();
-        if (filtrationStrategy == FiltrationStrategy.BYPASS) {
-            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel).unwrap());
+        if (logger.isTraceEnabled()) {
+            logger.trace("socket accepted [{}] [{}]", filtrationStrategy.getType(), socketChannel.getRemoteAddress());
+        }
+        if (filtrationStrategy.enable()) {
+            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());
         } else {
-            filtrationStrategy.handle(socketChannel, filtrationContextPool.acquire().initTarget(filtrationStrategy.getType(), socketChannel, pendingChannelPool).unwrap());
+            handshakeLoopBalancer.select(null).dispatch(pendingChannelPool.acquire().init(filtrationStrategy.getType(), socketChannel).unwrap());
         }
     }
 
     @Override
-    protected void onShutdown() {}
-
-    public record DispatchWrapper(AbstractPacket.TYPE type, ServerSocketChannel serverSocketChannel, FiltrationStrategy strategy) {}
+    protected void onShuttingDown() {
+        for (SelectionKey key : selector.keys()) {
+            try {
+                key.channel().close();
+            } catch (IOException ignored) {}
+        }
+    }
 }

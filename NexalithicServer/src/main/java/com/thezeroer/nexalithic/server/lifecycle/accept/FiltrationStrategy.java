@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.server.lifecycle.accept;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.AcceptorFilter;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
+import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContextView;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
@@ -18,7 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <li><b>快速判定：</b>支持通过挂载多个 {@link AcceptorFilter} 实现对非法连接（如恶意攻击、并发超载）的拦截。</li>
  * <li><b>资源生命周期：</b>深度集成了 JCTools 池化技术。通过强制要求实现 {@link #handle} 逻辑，
  * 确保每一个 {@link FiltrationContext} 都能被正确归还，避免在高并发下因对象泄露导致的 OOM。</li>
- * <li><b>旁路支持：</b>内置 {@link #BYPASS} 单例，用于高性能场景下跳过所有检查流程。</li>
+ * <li><b>旁路支持：</b>内置 {@link FiltrationStrategy.Bypass} ，用于高性能场景下跳过所有检查流程。</li>
  * <li><b>无锁设计：</b>内部使用 {@link CopyOnWriteArrayList} 存储过滤器，支持动态热更新而无需外部同步。</li>
  * <li><b>所有权转移：</b>当连接被通过（Approve）后，其生命周期管理权从 Acceptor 转移 Handshake 阶段。</li>
  * <li><b>实现要求：</b>具体子类应至少实现对 {@code filters} 列表的遍历逻辑。</li>
@@ -28,17 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * @version 1.1.0
  */
 public abstract class FiltrationStrategy {
-    /** * 旁路策略单例。
-     * <p>提供极速路径（Fast-path），直接通过所有连接。建议在无需任何安全性校验的内网环境使用。</p>
-     */
-    public static final FiltrationStrategy BYPASS = new FiltrationStrategy() {
-        @Override
-        public void handle(SocketChannel socketChannel, FiltrationContext context) {
-            context.approve();
-        }
-    };
     protected List<AcceptorFilter> filters = new CopyOnWriteArrayList<>();
-    private AbstractPacket.TYPE type;
+    private AbstractPacket.PacketType packetType;
 
     /**
      * 向策略链末尾追加过滤器。
@@ -88,13 +80,35 @@ public abstract class FiltrationStrategy {
      * @param context       从对象池中分配的上下文对象，用于承载过滤状态及后续分发所需的元数据。
      * @throws IOException  当底层网络操作失败时抛出。注意：抛出异常前建议先执行 {@code context.reject()}。
      */
-    public abstract void handle(SocketChannel socketChannel, FiltrationContext context) throws IOException;
+    public abstract void handle(SocketChannel socketChannel, FiltrationContextView context) throws IOException;
+    public abstract boolean enable();
+    public abstract String getName();
 
-    FiltrationStrategy setType(AbstractPacket.TYPE type) {
-        this.type = type;
+    FiltrationStrategy setType(AbstractPacket.PacketType packetType) {
+        this.packetType = packetType;
         return this;
     }
-    AbstractPacket.TYPE getType() {
-        return type;
+    AbstractPacket.PacketType getType() {
+        return packetType;
+    }
+
+    /** * 旁路策略
+     * <p>提供极速路径（Fast-path），直接通过所有连接。建议在无需任何安全性校验的内网环境使用。</p>
+     */
+    public static class Bypass extends FiltrationStrategy {
+        @Override
+        public void handle(SocketChannel socketChannel, FiltrationContextView context) {
+            context.approve();
+        }
+
+        @Override
+        public boolean enable() {
+            return false;
+        }
+
+        @Override
+        public String getName() {
+            return getClass().getName();
+        }
     }
 }
