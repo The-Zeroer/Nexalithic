@@ -170,9 +170,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
             }
             case SignalingPacket.Signal.BusinessChannelRate -> {
                 long rate = ((ScalarSignal) packet).asLong();
-                ServerSessionChannel<?, ?> businessChannel = channel.session().getBusinessChannel();
-                businessChannel.updateWriteRate(rate);
-                businessChannel.localLoop().postRateUpdate(businessChannel);
+                channel.session().getBusinessChannel().updateWriteRate(rate);
                 yield true;
             }
             default -> true;

@@ -24,6 +24,19 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
         this.sessionsManager = sessionsManager;
     }
 
+    @Override
+    public boolean pushResponse(BusinessPacket response) {
+        return dispatcher.egress(session, response.setTaskId(request.getTaskId()));
+    }
+
+    public boolean push(String sessionName, BusinessPacket packet) {
+        ServerSession session = sessionsManager.getSession(sessionName);
+        if (session == null) {
+            return false;
+        }
+        return dispatcher.egress(session, packet);
+    }
+
     public void forceSetSessionName(String sessionName) {
         ServerSession existing = sessionsManager.forceSetSessionName(sessionName, session);
         if (existing != null) {
@@ -46,11 +59,6 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
 
     public InetAddress getRemoteAddress() {
         return session.getSignalingChannel().getRemoteAddress().getAddress();
-    }
-
-    @Override
-    public boolean pushResponse(BusinessPacket response) {
-        return dispatcher.egress(session, response.setTaskId(request.getTaskId()));
     }
 
     public void broadcastToOthers(BusinessPacket packet) {

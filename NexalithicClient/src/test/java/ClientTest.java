@@ -17,8 +17,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class ClientTest {
@@ -32,41 +34,41 @@ public class ClientTest {
                 .build();
         nexalithicClient.start();
         nexalithicClient.link(new InetSocketAddress("127.0.0.1", 7709));
-        nexalithicClient.submit(
-                NexalithicTask.builder()
-                        .onRequest(() -> {
-                                    try {
-                                        return BusinessPacket.create(BusinessPacket.Way.DEFAULT)
-                                                .attach(new TextPayload("Hello Server!"))
-                                                .attach(new FilePayload(new File("D:\\TBRTZ\\OtherData\\ISO\\Win11_24H2_Chinese_Simplified_x64.iso")));
-                                    } catch (FileNotFoundException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                        })
-                        .onResponse(response -> {
-                            if (response.firstPayload() instanceof TextPayload textPayload) {
-                                logger.debug(textPayload.value());
-                            }
-                        })
-                        .onTimeout(() -> logger.debug("Timeout!"))
-                        .onFinish(() -> logger.debug("Finish!"))
-                        .setWaitTime(10),
-                TransferListenerGroup.builder()
-                        .onRequest(TransferListener.builder()
-                                .onStarted((snapshot -> {
-                                    logger.debug("onRequestStarted[Total: {}]", TransferSnapshot.formatSize(snapshot.getTotal()));
-                                }))
-                                .onUpdated((snapshot) -> {
-                                    System.out.print("\r" + snapshot.toString());
-                                }).onFinished(() -> logger.debug("onRequestFinished")))
-                        .onResponse(TransferListener.builder()
-                                .onStarted((snapshot -> {
-                                    logger.debug("onResponseStarted[Total: {}]", TransferSnapshot.formatSize(snapshot.getTotal()));
-                                }))
-                                .onUpdated((snapshot) -> {
-                                    System.out.print("\r" + snapshot.toString());
-                                }).onFinished(() -> logger.debug("onRequestFinished")))
-        );
+//        nexalithicClient.submit(
+//                NexalithicTask.builder()
+//                        .onRequest(() -> {
+//                                    try {
+//                                        return BusinessPacket.create(BusinessPacket.Way.DEFAULT)
+//                                                .attach(new TextPayload("Hello Server!"))
+//                                                .attach(new FilePayload(new File("D:\\TBRTZ\\OtherData\\ISO\\Win11_24H2_Chinese_Simplified_x64.iso")));
+//                                    } catch (FileNotFoundException e) {
+//                                        throw new RuntimeException(e);
+//                                    }
+//                        })
+//                        .onResponse(response -> {
+//                            if (response.firstPayload() instanceof TextPayload textPayload) {
+//                                logger.debug(textPayload.value());
+//                            }
+//                        })
+//                        .onTimeout(() -> logger.debug("Timeout!"))
+//                        .onFinish(() -> logger.debug("Finish!"))
+//                        .setWaitTime(10),
+//                TransferListenerGroup.builder()
+//                        .onRequest(TransferListener.builder()
+//                                .onStarted((snapshot -> {
+//                                    logger.debug("onRequestStarted[Total: {}]", TransferSnapshot.formatSize(snapshot.getTotal()));
+//                                }))
+//                                .onUpdated((snapshot) -> {
+//                                    System.out.print("\r" + snapshot.toString());
+//                                }).onFinished(() -> logger.debug("onRequestFinished")))
+//                        .onResponse(TransferListener.builder()
+//                                .onStarted((snapshot -> {
+//                                    logger.debug("onResponseStarted[Total: {}]", TransferSnapshot.formatSize(snapshot.getTotal()));
+//                                }))
+//                                .onUpdated((snapshot) -> {
+//                                    System.out.print("\r" + snapshot.toString());
+//                                }).onFinished(() -> logger.debug("onRequestFinished")))
+//        );
         nexalithicClient.submit(
                 NexalithicTask.builder()
                         .onRequest(() -> BusinessPacket.create(BusinessPacket.Way.DEFAULT, (short) 1, (short) 2).attach(new TextPayload("Hello Server!")))
@@ -79,6 +81,24 @@ public class ClientTest {
                         .onFinish(() -> logger.debug("Finish!"))
                         .setWaitTime(10)
         );
+//        nexalithicClient.submit(
+//                NexalithicTask.builder()
+//                        .onRequest(() -> {
+//                            try {
+//                                return BusinessPacket.create(BusinessPacket.Way.DEFAULT, (short) 1, (short) 2).attach(new TextPayload(Files.readString(new File("D:\\TBRTZ\\Code\\Java\\Project\\Nexalithic\\TestData\\1.txt").toPath())));
+//                            } catch (IOException e) {
+//                                throw new RuntimeException(e);
+//                            }
+//                        })
+//                        .onResponse(response -> {
+//                            if (response.firstPayload() instanceof TextPayload textPayload) {
+//                                logger.debug(textPayload.value());
+//                            }
+//                        })
+//                        .onTimeout(() -> logger.debug("Timeout!"))
+//                        .onFinish(() -> logger.debug("Finish!"))
+//                        .setWaitTime(10)
+//        );
     }
 
     public static class TestSecurityPolicy extends DefaultClientSecurityPolicy {

@@ -42,7 +42,7 @@ public class ServerTest {
                 .securityPolicy(new TestSecurityPolicy())
                 .registerHandler(new HandlerRegistry.PathMatcher(), new NexalithicHandler<>((context -> {
                     if (context.getRequest().firstPayload() instanceof TextPayload textPayload) {
-                        logger.debug(textPayload.value());
+                        logger.debug(String.valueOf(textPayload.getTotalSize()));
                     }
                     try {
                         context.pushResponse(BusinessPacket.create(BusinessPacket.Way.DEFAULT)

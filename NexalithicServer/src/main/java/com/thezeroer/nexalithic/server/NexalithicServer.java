@@ -373,7 +373,10 @@ public class NexalithicServer {
         }
 
         public NexalithicServer build() throws IOException {
-            if (logger.isTraceEnabled()) {
+            return build(false);
+        }
+        public NexalithicServer build(boolean showOptions) throws IOException {
+            if (showOptions) {
                 logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 

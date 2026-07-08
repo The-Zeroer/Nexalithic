@@ -142,11 +142,15 @@ public abstract class SessionChannel<
 
     public void updateReadRate(long rate) {
         rateLimiter.updateReadRate(rate);
-        loop.postRateUpdate(this);
+        if (loop != null) {
+            loop.postRateUpdate(this);
+        }
     }
     public void updateWriteRate(long rate) {
         rateLimiter.updateWriteRate(rate);
-        loop.postRateUpdate(this);
+        if (loop != null) {
+            loop.postRateUpdate(this);
+        }
     }
     public final void applyRate() {
         rateLimiter.applyRate();
