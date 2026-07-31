@@ -6,13 +6,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 路径匹配器。
+ * Handler 路径匹配器描述对象。
  *
  * <p>每个short数组表示一个路径层级：</p>
  * <ul>
  *     <li>非空数组表示当前层级允许匹配的候选值；</li>
  *     <li>空数组表示当前层级为通配符。</li>
  * </ul>
+ *
+ * <p>该类型只描述匹配规则本身，不执行匹配。实际匹配由
+ * {@link HandlerRegistry} 在冻结后的 Trie 树上完成。</p>
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
@@ -94,6 +97,8 @@ public final class HandlerPathMatcher {
 
     /**
      * 返回路径深度。
+     *
+     * @return 路径层级数量
      */
     public int depth() {
         return levels.size();
@@ -101,6 +106,8 @@ public final class HandlerPathMatcher {
 
     /**
      * 判断是否为根路径。
+     *
+     * @return 没有任何路径层级时返回 {@code true}
      */
     public boolean isEmpty() {
         return levels.isEmpty();
@@ -108,6 +115,8 @@ public final class HandlerPathMatcher {
 
     /**
      * 格式化路径。
+     *
+     * @return 用于日志和调试的路径字符串
      */
     public String formatPath() {
         StringBuilder builder = new StringBuilder("[");
@@ -136,9 +145,6 @@ public final class HandlerPathMatcher {
         return level.length == 0;
     }
 
-    /**
-     * 去除重复候选值，同时保留原始顺序。
-     */
     private static short[] distinct(short[] values) {
         short[] result = new short[values.length];
         int size = 0;

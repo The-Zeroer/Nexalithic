@@ -7,8 +7,12 @@ import java.util.Collection;
 import java.util.Objects;
 
 /**
- * 数组 trie 节点子存储</br>
- * 适用于 ID 范围固定且连续的情况（如 0-255）
+ * 基于数组的 Trie 精确子节点存储。
+ *
+ * <p>适用于路径值范围固定且连续的场景，例如协议 ID 固定在 {@code 0-255}。
+ * 读取和写入都是数组下标访问；超出数组范围的 key 会被视为不存在。</p>
+ *
+ * @param <HC> Handler 上下文类型
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
@@ -17,6 +21,11 @@ import java.util.Objects;
 public class ArrayTrieNodeChildrenStorage<HC extends HandlerContext<?>> implements TrieNodeChildrenStorage<HC> {
     private final HandlerRegistry.TrieNode<HC>[] array;
 
+    /**
+     * 创建指定容量的数组子节点存储。
+     *
+     * @param size 可直接索引的 key 数量
+     */
     @SuppressWarnings("unchecked")
     public ArrayTrieNodeChildrenStorage(int size) {
         this.array = (HandlerRegistry.TrieNode<HC>[]) new HandlerRegistry.TrieNode[size];

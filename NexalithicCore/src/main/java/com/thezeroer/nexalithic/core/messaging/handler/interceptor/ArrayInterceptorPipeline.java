@@ -6,7 +6,12 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerMetadata;
 import java.util.List;
 
 /**
- * 基于数组的 Handler 拦截器管线
+ * 基于数组快照的 Handler 拦截器管线。
+ *
+ * <p>构造时会把拦截器列表复制为数组，避免执行过程中受外部列表修改影响。
+ * 前置回调按数组正序执行，后置和完成回调按数组逆序执行。</p>
+ *
+ * @param <HC> Handler 上下文类型
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
@@ -16,6 +21,12 @@ class ArrayInterceptorPipeline<HC extends HandlerContext<?>> implements Intercep
     private final HandlerMetadata metadata;
     private final HandlerInterceptor<HC>[] interceptors;
 
+    /**
+     * 创建数组拦截器管线。
+     *
+     * @param metadata Handler 元数据
+     * @param interceptors 拦截器列表
+     */
     @SuppressWarnings("unchecked")
     public ArrayInterceptorPipeline(HandlerMetadata metadata, List<HandlerInterceptor<HC>> interceptors) {
         this.metadata = metadata;

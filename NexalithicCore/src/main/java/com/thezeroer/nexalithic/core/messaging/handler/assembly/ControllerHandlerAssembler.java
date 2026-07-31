@@ -24,7 +24,26 @@ import java.lang.reflect.Modifier;
 import java.util.*;
 
 /**
- * 控制器处理程序汇编器
+ * 基于注解的 Controller Handler 装配器。
+ *
+ * <p>装配器负责扫描已经注册的 Controller 实例，把标记了
+ * {@link NexalithicHandlerMethod} 的实例方法转换为 {@link NexalithicHandler}，
+ * 并注册到 {@link HandlerRegistry.Builder} 中。</p>
+ *
+ * <p>Controller 方法必须满足以下约束：</p>
+ * <ul>
+ *     <li>声明类必须为 {@code public}；</li>
+ *     <li>方法必须为 {@code public} 实例方法；</li>
+ *     <li>方法不能是 {@code static}、{@code abstract}、{@code native}、bridge 或 synthetic；</li>
+ *     <li>方法必须返回 {@code void}；</li>
+ *     <li>方法必须声明且只声明一个可接收当前装配器上下文类型的 {@link HandlerContext} 参数。</li>
+ * </ul>
+ *
+ * <p>当 Controller 或方法上存在被 {@link InterceptorBinding} 标记的业务注解时，
+ * 装配器会先通过 {@link InterceptorAnnotationResolver} 解析配置，再通过
+ * {@link InterceptorFactory} 取得实际拦截器实例。</p>
+ *
+ * @param <HC> 当前装配器支持的 Handler 上下文类型
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
@@ -61,18 +80,42 @@ public class ControllerHandlerAssembler<HC extends HandlerContext<?>> implements
         }
     }
 
+    /**
+     * 设置拦截器实例工厂。
+     *
+     * <p>当任一 Controller 或 Handler 方法声明了拦截器绑定时必须设置该组件。</p>
+     *
+     * @param factory 拦截器实例工厂
+     * @return 当前装配器
+     */
     @Override
     public ControllerHandlerAssembly<HC> interceptorFactory(InterceptorFactory<HC> factory) {
         interceptorFactory = factory;
         return this;
     }
 
+    /**
+     * 设置拦截器注解解析器。
+     *
+     * <p>当任一 Controller 或 Handler 方法声明了拦截器绑定时必须设置该组件。</p>
+     *
+     * @param resolver 拦截器注解解析器
+     * @return 当前装配器
+     */
     @Override
     public ControllerHandlerAssembly<HC> annotationResolver(InterceptorAnnotationResolver resolver) {
         annotationResolver = resolver;
         return this;
     }
 
+    /**
+     * 注册一个 Controller 实例。
+     *
+     * @param controller 标记了 {@link NexalithicHandlerController} 的 Controller 实例
+     * @return 当前装配器
+     * @throws IllegalArgumentException 目标实例不是 Handler Controller 时抛出
+     * @throws NexalithicDuplicateKeyException 重复注册同一实例时抛出
+     */
     @Override
     public ControllerHandlerAssembly<HC> controller(Object controller) {
         if (!controller.getClass().isAnnotationPresent(NexalithicHandlerController.class)) {
@@ -84,6 +127,13 @@ public class ControllerHandlerAssembler<HC extends HandlerContext<?>> implements
         return this;
     }
 
+    /**
+     * 扫描指定包下的 Controller 类型并从 Bean 工厂取得实例。
+     *
+     * @param packageName 待扫描的 Java 包名
+     * @param factory 用于取得 Controller 实例的 Bean 工厂
+     * @return 当前装配器
+     */
     @Override
     public ControllerHandlerAssembly<HC> scanControllers(String packageName, BeanFactory factory) {
         List<Class<?>> classes = ClassScanner.scan(packageName);
@@ -398,7 +448,6 @@ public class ControllerHandlerAssembler<HC extends HandlerContext<?>> implements
         appendInterceptors(interceptors, handlerInterceptorBinding);
         return interceptors;
     }
-
     private void appendInterceptors(List<HandlerInterceptor<HC>> interceptors, List<InterceptorAnnotationBinding> bindings) {
         if (bindings.isEmpty()) {
             return;

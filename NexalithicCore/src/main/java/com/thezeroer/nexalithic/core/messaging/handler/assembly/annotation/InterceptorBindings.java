@@ -7,10 +7,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * {@link InterceptorBinding}的可重复注解容器。
+ * {@link InterceptorBinding} 的容器注解。
  *
- * <p>通常不需要直接使用该注解，应当重复声明
- * {@link InterceptorBinding}。</p>
+ * <p>用于在同一个业务注解类型上声明多条拦截器绑定，使一个业务注解可以同时触发
+ * 多个 {@code HandlerInterceptor}。装配器通过
+ * {@link Class#getDeclaredAnnotationsByType(Class)} 读取这些绑定。</p>
  *
  * @author tbrtz647@outlook.com
  * @version 1.0.0
