@@ -229,7 +229,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
-                        dispatcher.ingest(packet, session);
+                        dispatcher.ingest(session, packet);
                     }
                 }
             } else if (selectionKey.isWritable()) {

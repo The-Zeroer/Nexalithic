@@ -8,6 +8,6 @@ package com.thezeroer.nexalithic.core.messaging.handler;
  * @version 1.0.0
  */
 @FunctionalInterface
-public interface HandlerFunction<HC extends HandlerContext<?>> {
-    void handle(HC context);
+public interface HandlerInvoker<HC extends HandlerContext<?>> {
+    void invoke(HC context);
 }

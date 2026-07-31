@@ -12,7 +12,7 @@ import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.*;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
@@ -135,7 +135,6 @@ public abstract class BusinessPacketDispatcher<
                             try {
                                 handler.handle(recyclable.unwrap());
                             } catch (Exception e) {
-                                logger.warn("BusinessPacketDispatcher: Uncaught exception in [{}]NexalithicHandler.handle(HandlerContext) ", handler.getName(), e);
                                 recyclable.unwrap().pushResponse(BusinessPacket.create(BusinessPacket.Way.RESPONSE_Error));
                             } finally {
                                 recyclable.recycle();
@@ -160,12 +159,11 @@ public abstract class BusinessPacketDispatcher<
     }
     protected abstract HC createHandlerContext();
     protected abstract HR createRecyclableWrapper(HC hc);
-    protected abstract boolean onIngest(BusinessPacket packet, S session, NexalithicHandler<HC> handler);
 
     /**
      * 摄入业务包（收后工作）
      */
-    public final void ingest(BusinessPacket packet, S session) {
+    public final void ingest(S session, BusinessPacket packet) {
         NexalithicTask task = taskTracer.pick(packet.getTaskId());
         if (task != null) {
             task.setResponsePacket(packet);
@@ -174,11 +172,14 @@ public abstract class BusinessPacketDispatcher<
             return;
         }
         NexalithicHandler<HC> handler = handlerRegistry.match(packet.getPath());
-        if (!onIngest(packet, session, handler)) {
+        if (handler == null) {
+            logger.warn("No handler registered for path {}", packet.getPath());
+            egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_NotHandler).setTaskId(packet.getTaskId()));
             return;
         }
         HR recyclable = handlerContextPool.acquire();
         if (recyclable == null) {
+            logger.warn("No recyclable handler registered for path {}", packet.getPath());
             egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_Busy).setTaskId(packet.getTaskId()));
             return;
         }

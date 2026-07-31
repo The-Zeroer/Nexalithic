@@ -1,7 +1,17 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
+import com.thezeroer.nexalithic.core.messaging.handler.interceptor.HandlerInterceptor;
+import com.thezeroer.nexalithic.core.messaging.handler.interceptor.InterceptorPipeline;
+import com.thezeroer.nexalithic.core.messaging.handler.interceptor.InterceptorPipelineFactory;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerPathMatcher;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * <h1>Nexalithic 消息处理器 (Handler)</h1>
@@ -18,36 +28,116 @@ import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
  * @see NexalithicTask
  */
 public class NexalithicHandler<HC extends HandlerContext<?>> {
-    private final HandlerFunction<HC> delegate;
-    private final boolean defaultRequireAuth;
-    private String name;
+    private static final Logger logger = LoggerFactory.getLogger(NexalithicHandler.class);
+    private final HandlerInvoker<HC> invoker;
+    private final InterceptorPipeline<HC> pipeline;
+    private final HandlerMetadata metadata;
 
-    public NexalithicHandler(HandlerFunction<HC> delegate) {
-        this.delegate = delegate;
-        AccessControl ac = getClass().getAnnotation(AccessControl.class);
-        this.defaultRequireAuth = (ac == null || ac.requireAuth());
-    }
-    public NexalithicHandler(HandlerFunction<HC> delegate, boolean requireAuth) {
-        this.delegate = delegate;
-        this.defaultRequireAuth = requireAuth;
-    }
-    public NexalithicHandler(HandlerFunction<HC> delegate, boolean requireAuth, String name) {
-        this.delegate = delegate;
-        this.defaultRequireAuth = requireAuth;
-        this.name = name;
+    private NexalithicHandler(HandlerInvoker<HC> invoker, InterceptorPipeline<HC> pipeline, HandlerMetadata metadata) {
+        this.invoker = invoker;
+        this.pipeline = pipeline;
+        this.metadata = metadata;
     }
 
-    public void handle(HC context) {
-        delegate.handle(context);
+    public static <HC extends HandlerContext<?>> Builder<HC> builder() {
+        return new Builder<>();
+    }
+    public static <HC extends HandlerContext<?>> Builder<HC> builder(HandlerPathMatcher pathMatcher, HandlerInvoker<HC> invoker) {
+        return new Builder<>(pathMatcher, invoker);
     }
 
-    public boolean requireAuth() {
-        return defaultRequireAuth;
+    public void handle(HC context) throws Exception {
+        try {
+            if (!pipeline.applyBefore(context)) {
+                return;
+            }
+        } catch (Exception e) {
+            logger.warn("HandlerInterceptor.onBefore failed, {}", metadata, e);
+            throw e;
+        }
+        try {
+            invoker.invoke(context);
+        } catch (Exception e) {
+            pipeline.complete(context, e);
+            logger.warn("HandlerInvoker.handle failed, {}", metadata, e);
+            throw e;
+        }
+        try {
+            pipeline.applyAfter(context);
+            pipeline.complete(context, null);
+        } catch (Exception e) {
+            logger.warn("HandlerInterceptor.onAfter failed, {}", metadata, e);
+            pipeline.complete(context, e);
+        }
     }
-    public String getName() {
-        return name;
+
+    public HandlerMetadata getMetadata() {
+        return metadata;
     }
-    public void setName(String name) {
-        this.name = name;
+
+    public static class Builder<HC extends HandlerContext<?>> {
+        private HandlerPathMatcher pathMatcher;
+        private HandlerInvoker<HC> invoker;
+        private List<HandlerInterceptor<HC>> interceptors = new ArrayList<>();
+        private String name, description;
+
+        public Builder() {}
+        public Builder(HandlerPathMatcher pathMatcher, HandlerInvoker<HC> invoker) {
+            this.pathMatcher = pathMatcher;
+            this.invoker = invoker;
+        }
+
+        public Builder<HC> pathMatcher(HandlerPathMatcher pathMatcher) {
+            this.pathMatcher = pathMatcher;
+            return this;
+        }
+
+        public Builder<HC> invoker(HandlerInvoker<HC> invoker) {
+            this.invoker = invoker;
+            return this;
+        }
+
+        public Builder<HC> interceptor(HandlerInterceptor<HC> interceptor) {
+            this.interceptors.add(interceptor);
+            return this;
+        }
+
+        @SafeVarargs
+        public final Builder<HC> interceptors(HandlerInterceptor<HC>... interceptors) {
+            Collections.addAll(this.interceptors, interceptors);
+            return this;
+        }
+
+        public Builder<HC> interceptors(List<? extends HandlerInterceptor<HC>> interceptors) {
+            this.interceptors.addAll(interceptors);
+            return this;
+        }
+
+        public Builder<HC> name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        public Builder<HC> description(String description) {
+            this.description = description;
+            return this;
+        }
+
+        public NexalithicHandler<HC> build() {
+            if (pathMatcher == null) {
+                throw new IllegalArgumentException("pathMatcher is required");
+            }
+            if (invoker == null) {
+                throw new IllegalArgumentException("invoker is required");
+            }
+            if (name == null || name.isEmpty()) {
+                name = "Unnamed" + pathMatcher.formatPath();
+            }
+            if (description == null) {
+                description = "";
+            }
+            HandlerMetadata metadata = new HandlerMetadata(name, description, pathMatcher);
+            return new NexalithicHandler<>(invoker, InterceptorPipelineFactory.create(metadata, interceptors), metadata);
+        }
     }
 }

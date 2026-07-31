@@ -157,7 +157,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 }
                 BusinessPacket packet;
                 while ((packet = channel.get()) != null) {
-                    dispatcher.ingest(packet, channel.session());
+                    dispatcher.ingest(channel.session(), packet);
                 }
             } else if (key.isWritable()) {
                 if (channel.write() == -1) {

@@ -8,9 +8,11 @@ import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssembler;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblyConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
-import com.thezeroer.nexalithic.core.messaging.handler.TrieNodeChildrenStorage;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.TrieNodeChildrenStorage;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadConstructorStorage;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
@@ -23,8 +25,6 @@ import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
-import com.thezeroer.nexalithic.core.util.BeanFactory;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
@@ -49,7 +49,6 @@ import java.nio.channels.ServerSocketChannel;
 import java.util.Collection;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -325,6 +324,7 @@ public class NexalithicServer {
         private final NexalithicBuilderContext context = new NexalithicBuilderContext();
         private final HandlerRegistry.Builder<ServerHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
+        private final ControllerHandlerAssembler<ServerHandlerContext> controllerHandlerAssembler;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
@@ -332,6 +332,7 @@ public class NexalithicServer {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
+            controllerHandlerAssembler = new ControllerHandlerAssembler<>(ServerHandlerContext.class);
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -354,12 +355,13 @@ public class NexalithicServer {
             handlerRegistryBuilder.factory(factory);
             return this;
         }
-        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ServerHandlerContext> handler) {
-            handlerRegistryBuilder.register(matcher, handler);
+        public Builder registerHandler(NexalithicHandler.Builder<ServerHandlerContext> handlerBuilder) {
+            NexalithicHandler<ServerHandlerContext> handler = handlerBuilder.build();
+            handlerRegistryBuilder.register(handler.getMetadata().pathMatcher(), handler);
             return this;
         }
-        public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder, ServerHandlerContext.class);
+        public Builder controllerHandlerAssembler(ControllerHandlerAssemblyConfigurer<ServerHandlerContext> configurer) {
+            configurer.configure(controllerHandlerAssembler);
             return this;
         }
 
@@ -372,14 +374,15 @@ public class NexalithicServer {
             return this;
         }
 
-        public NexalithicServer build() throws IOException {
+        public NexalithicServer build() throws Throwable {
             return build(false);
         }
-        public NexalithicServer build(boolean showOptions) throws IOException {
+        public NexalithicServer build(boolean showOptions) throws Throwable {
             if (showOptions) {
                 logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
+            controllerHandlerAssembler.assembleInto(handlerRegistryBuilder);
             context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
@@ -416,7 +419,7 @@ public class NexalithicServer {
                           | |\\  |  __/>  < (_| | | | |_| | | | | (__\s
                           |_| \\_|\\___/_/\\_\\__,_|_|_|\\__|_| |_|_|\\___|\s
                 
-                         :: Nexalithic Server ::              (v0.1.0)\s
+                         :: Nexalithic Server ::              (v0.2.0)\s
                 """;
     }
 }

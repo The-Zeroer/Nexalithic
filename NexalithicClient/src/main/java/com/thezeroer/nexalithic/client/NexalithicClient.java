@@ -12,10 +12,11 @@ import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerRegistry;
-import com.thezeroer.nexalithic.core.messaging.handler.HandlerScanner;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssembler;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblyConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
-import com.thezeroer.nexalithic.core.messaging.handler.TrieNodeChildrenStorage;
+import com.thezeroer.nexalithic.core.messaging.handler.mapping.TrieNodeChildrenStorage;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadConstructorStorage;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
@@ -32,7 +33,6 @@ import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
 import com.thezeroer.nexalithic.client.security.ClientSecurityPolicy;
-import com.thezeroer.nexalithic.core.util.BeanFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +48,6 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -171,6 +170,7 @@ public class NexalithicClient {
         private final NexalithicBuilderContext context = new NexalithicBuilderContext();
         private final HandlerRegistry.Builder<ClientHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
+        private final ControllerHandlerAssembler<ClientHandlerContext> controllerHandlerAssembler;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
@@ -178,6 +178,7 @@ public class NexalithicClient {
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
+            controllerHandlerAssembler = new ControllerHandlerAssembler<>(ClientHandlerContext.class);
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -194,12 +195,13 @@ public class NexalithicClient {
             handlerRegistryBuilder.factory(factory);
             return this;
         }
-        public Builder registerHandler(HandlerRegistry.PathMatcher matcher, NexalithicHandler<ClientHandlerContext> handler) {
-            handlerRegistryBuilder.register(matcher, handler);
+        public Builder registerHandler(NexalithicHandler.Builder<ClientHandlerContext> handlerBuilder) {
+            NexalithicHandler<ClientHandlerContext> handler = handlerBuilder.build();
+            handlerRegistryBuilder.register(handler.getMetadata().pathMatcher(), handler);
             return this;
         }
-        public Builder scanControllers(String packageName, BeanFactory factory) throws Throwable {
-            HandlerScanner.scanAndRegister(packageName, factory, handlerRegistryBuilder, ClientHandlerContext.class);
+        public Builder controllerHandlerAssembler(ControllerHandlerAssemblyConfigurer<ClientHandlerContext> configurer) {
+            configurer.configure(controllerHandlerAssembler);
             return this;
         }
 
@@ -212,14 +214,15 @@ public class NexalithicClient {
             return this;
         }
 
-        public NexalithicClient build() throws IOException {
+        public NexalithicClient build() throws Throwable {
             return build(false);
         }
-        public NexalithicClient build(boolean showOptions) throws IOException {
+        public NexalithicClient build(boolean showOptions) throws Throwable {
             if (showOptions) {
                 logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
+            controllerHandlerAssembler.assembleInto(handlerRegistryBuilder);
             context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
@@ -244,7 +247,7 @@ public class NexalithicClient {
                           | |\\  |  __/>  < (_| | | | |_| | | | | (__\s
                           |_| \\_|\\___/_/\\_\\__,_|_|_|\\__|_| |_|_|\\___|\s
                 
-                         :: Nexalithic Client ::              (v0.1.0)\s
+                         :: Nexalithic Client ::              (v0.2.0)\s
                 """;
     }
 }

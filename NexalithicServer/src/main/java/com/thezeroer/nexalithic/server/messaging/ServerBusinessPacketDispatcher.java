@@ -46,17 +46,4 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
     protected ServerHandlerContext.Recyclable createRecyclableWrapper(ServerHandlerContext context) {
         return new ServerHandlerContext.Recyclable(context);
     }
-
-    @Override
-    protected boolean onIngest(BusinessPacket packet, ServerSession session, NexalithicHandler<ServerHandlerContext> handler) {
-        if (handler == null) {
-            egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_NotHandler).setTaskId(packet.getTaskId()));
-            return false;
-        }
-        if (handler.requireAuth() && session.getSessionName() == null) {
-            egress(session, BusinessPacket.create(BusinessPacket.Way.RESPONSE_Unauthorized).setTaskId(packet.getTaskId()));
-            return false;
-        }
-        return true;
-    }
 }

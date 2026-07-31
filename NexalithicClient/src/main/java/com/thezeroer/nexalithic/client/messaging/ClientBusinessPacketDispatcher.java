@@ -49,13 +49,4 @@ public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
     protected ClientHandlerContext.Recyclable createRecyclableWrapper(ClientHandlerContext context) {
         return new ClientHandlerContext.Recyclable(context);
     }
-
-    @Override
-    protected boolean onIngest(BusinessPacket packet, ClientSession session, NexalithicHandler<ClientHandlerContext> handler) {
-        if (handler == null) {
-            logger.warn("No handler registered for path {}", packet.getPath());
-            return false;
-        }
-        return true;
-    }
 }
