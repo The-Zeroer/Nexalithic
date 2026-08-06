@@ -13,7 +13,8 @@ import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssembler;
-import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblyConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerHelper;
 import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.handler.mapping.TrieNodeChildrenStorage;
@@ -168,17 +169,17 @@ public class NexalithicClient {
 
     public static class Builder {
         private final NexalithicBuilderContext context = new NexalithicBuilderContext();
-        private final HandlerRegistry.Builder<ClientHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
-        private final ControllerHandlerAssembler<ClientHandlerContext> controllerHandlerAssembler;
+        private final HandlerRegistry.Builder<ClientHandlerContext> handlerRegistryBuilder;
+        private final ControllerHandlerAssembler.Builder<ClientHandlerContext> controllerHandlerAssemblyBuilder;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
             payloadRegistryBuilder = PayloadRegistry.builder();
+            controllerHandlerAssemblyBuilder = ControllerHandlerAssembler.builder(ClientHandlerContext.class);
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            controllerHandlerAssembler = new ControllerHandlerAssembler<>(ClientHandlerContext.class);
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -200,8 +201,27 @@ public class NexalithicClient {
             handlerRegistryBuilder.register(handler.getMetadata().pathMatcher(), handler);
             return this;
         }
-        public Builder controllerHandlerAssembler(ControllerHandlerAssemblyConfigurer<ClientHandlerContext> configurer) {
-            configurer.configure(controllerHandlerAssembler);
+
+        /**
+         * 配置客户端注解式 Controller Handler 装配器。
+         *
+         * <p>这是客户端注册 {@code @NexalithicHandlerController} Controller 的入口。
+         * 回调中的 {@code builder} 用于注册 Controller、参数转换器、返回值转换器和拦截器组件；
+         * {@code helper} 用于创建与 {@link ClientHandlerContext} 匹配的默认组件。</p>
+         *
+         * <pre>{@code
+         * NexalithicClient.builder()
+         *         .controllerHandlerAssemblerConfigurer((builder, helper) -> {
+         *             helper.defaultHandlerMethodConverterSelector(builder)
+         *                     .controller(new ClientEventController());
+         *         });
+         * }</pre>
+         *
+         * @param configurer Controller Handler 装配器配置器
+         * @return 当前客户端构建器
+         */
+        public Builder controllerHandlerAssemblerConfigurer(ControllerHandlerAssemblerConfigurer<ClientHandlerContext> configurer) {
+            configurer.configure(controllerHandlerAssemblyBuilder, new ControllerHandlerAssemblerHelper<>(ClientHandlerContext.class));
             return this;
         }
 
@@ -222,7 +242,7 @@ public class NexalithicClient {
                 logger.trace("NexalithicClient-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
-            controllerHandlerAssembler.assembleInto(handlerRegistryBuilder);
+            controllerHandlerAssemblyBuilder.build().assembleInto(handlerRegistryBuilder);
             context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());

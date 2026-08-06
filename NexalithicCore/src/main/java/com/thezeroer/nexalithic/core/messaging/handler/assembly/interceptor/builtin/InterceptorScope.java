@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.messaging.handler.assembly.builtin;
+package com.thezeroer.nexalithic.core.messaging.handler.assembly.interceptor.builtin;
 
 /**
  * 拦截器实例作用域。

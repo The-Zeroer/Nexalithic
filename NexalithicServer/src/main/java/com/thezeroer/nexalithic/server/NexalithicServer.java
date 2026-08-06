@@ -9,7 +9,8 @@ import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler
 import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssembler;
-import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblyConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerConfigurer;
+import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerHelper;
 import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
 import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
 import com.thezeroer.nexalithic.core.messaging.handler.mapping.TrieNodeChildrenStorage;
@@ -47,6 +48,7 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -322,17 +324,17 @@ public class NexalithicServer {
 
     public static final class Builder {
         private final NexalithicBuilderContext context = new NexalithicBuilderContext();
-        private final HandlerRegistry.Builder<ServerHandlerContext> handlerRegistryBuilder;
         private final PayloadRegistry.Builder payloadRegistryBuilder;
-        private final ControllerHandlerAssembler<ServerHandlerContext> controllerHandlerAssembler;
+        private final HandlerRegistry.Builder<ServerHandlerContext> handlerRegistryBuilder;
+        private final ControllerHandlerAssembler.Builder<ServerHandlerContext> controllerHandlerAssemblyBuilder;
 
         public Builder() {
             handlerRegistryBuilder = HandlerRegistry.builder();
             payloadRegistryBuilder = PayloadRegistry.builder();
+            controllerHandlerAssemblyBuilder = ControllerHandlerAssembler.builder(ServerHandlerContext.class);
             payloadRegistryBuilder.register(TextPayload::new);
             payloadRegistryBuilder.register(FilePayload::new);
             payloadRegistryBuilder.register(SerializablePayload::new);
-            controllerHandlerAssembler = new ControllerHandlerAssembler<>(ServerHandlerContext.class);
         }
 
         public <T> Builder apply(NexalithicOption<T> option, T value) {
@@ -360,8 +362,27 @@ public class NexalithicServer {
             handlerRegistryBuilder.register(handler.getMetadata().pathMatcher(), handler);
             return this;
         }
-        public Builder controllerHandlerAssembler(ControllerHandlerAssemblyConfigurer<ServerHandlerContext> configurer) {
-            configurer.configure(controllerHandlerAssembler);
+
+        /**
+         * 配置服务端注解式 Controller Handler 装配器。
+         *
+         * <p>这是服务端注册 {@code @NexalithicHandlerController} Controller 的入口。
+         * 回调中的 {@code builder} 用于注册 Controller、参数转换器、返回值转换器和拦截器组件；
+         * {@code helper} 用于创建与 {@link ServerHandlerContext} 匹配的默认组件。</p>
+         *
+         * <pre>{@code
+         * NexalithicServer.builder()
+         *         .controllerHandlerAssemblerConfigurer((builder, helper) -> {
+         *             helper.defaultHandlerMethodConverterSelector(builder)
+         *                     .controller(new UserController());
+         *         });
+         * }</pre>
+         *
+         * @param configurer Controller Handler 装配器配置器
+         * @return 当前服务端构建器
+         */
+        public Builder controllerHandlerAssemblerConfigurer(ControllerHandlerAssemblerConfigurer<ServerHandlerContext> configurer) {
+            configurer.configure(controllerHandlerAssemblyBuilder, new ControllerHandlerAssemblerHelper<>(ServerHandlerContext.class));
             return this;
         }
 
@@ -382,7 +403,7 @@ public class NexalithicServer {
                 logger.trace("NexalithicServer-Options\n{}", OptionsDefinition.toString("com.thezeroer.nexalithic", context));
             }
 
-            controllerHandlerAssembler.assembleInto(handlerRegistryBuilder);
+            controllerHandlerAssemblyBuilder.build().assembleInto(handlerRegistryBuilder);
             context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());

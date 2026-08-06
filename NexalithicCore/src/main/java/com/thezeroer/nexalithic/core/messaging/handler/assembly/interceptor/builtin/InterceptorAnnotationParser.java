@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.messaging.handler.assembly.builtin;
+package com.thezeroer.nexalithic.core.messaging.handler.assembly.interceptor.builtin;
 
 import com.thezeroer.nexalithic.core.messaging.handler.assembly.interceptor.InterceptorConfiguration;
 import com.thezeroer.nexalithic.core.messaging.handler.interceptor.HandlerInterceptor;

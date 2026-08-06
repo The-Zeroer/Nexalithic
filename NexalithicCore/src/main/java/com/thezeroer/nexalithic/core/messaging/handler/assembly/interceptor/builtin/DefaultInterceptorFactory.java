@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.messaging.handler.assembly.builtin;
+package com.thezeroer.nexalithic.core.messaging.handler.assembly.interceptor.builtin;
 
 import com.thezeroer.nexalithic.core.exception.NexalithicDuplicateKeyException;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
