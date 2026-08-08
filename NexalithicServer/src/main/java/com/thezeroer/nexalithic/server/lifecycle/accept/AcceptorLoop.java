@@ -13,7 +13,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.server.NexalithicServer;
-import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
@@ -79,7 +79,7 @@ public class AcceptorLoop extends AbstractLoop {
                 Math.max(securityPolicy.certificatesLength() + SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength(),
                         SecretKeyUtils.FINISHED_LENGTH + ServerSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH * 2)
         );
-        handshakeLoopBalancer = context.getModule(LifecycleManager.Modules.HandshakeLoopLoadBalancer);
+        handshakeLoopBalancer = context.getModule(ServerLifecycleManager.Modules.HandshakeLoopLoadBalancer);
         pendingChannelPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(MpscArrayQueue::new, context.getOption(OPTIONS.PendingChannelPool_Capacity)),
                 PoolStrategy.blocking(context.getOption(OPTIONS.PendingChannelPool_Limit)),

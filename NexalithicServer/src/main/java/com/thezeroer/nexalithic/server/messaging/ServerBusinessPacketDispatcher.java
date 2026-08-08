@@ -3,10 +3,8 @@ package com.thezeroer.nexalithic.server.messaging;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
-import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.server.NexalithicServer;
-import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
@@ -32,7 +30,7 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
     private final SessionsManager sessionsManager;
 
     public ServerBusinessPacketDispatcher(NexalithicBuilderContext context) {
-        super(context, OPTIONS, context.getOption(LifecycleManager.OPTIONS.ServiceUnit_Count) != 1 || context.getOption(ServiceUnit.OPTIONS.WorkerLoop_Count) != 1);
+        super(context, OPTIONS, context.getOption(ServerLifecycleManager.OPTIONS.ServiceUnit_Count) != 1 || context.getOption(ServiceUnit.OPTIONS.WorkerLoop_Count) != 1);
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         init(context, OPTIONS);
     }

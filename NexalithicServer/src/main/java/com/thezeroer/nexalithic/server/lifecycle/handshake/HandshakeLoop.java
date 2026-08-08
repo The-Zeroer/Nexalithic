@@ -23,7 +23,7 @@ import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
-import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
@@ -105,7 +105,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         );
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         securityPolicy = context.getModule(NexalithicServer.Modules.SecurityPolicy);
-        serviceUnitLoadBalancer = context.getModule(LifecycleManager.Modules.ServiceUnitLoadBalancer);
+        serviceUnitLoadBalancer = context.getModule(ServerLifecycleManager.Modules.ServiceUnitLoadBalancer);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
             GenericTimeWheel timeWheel = new GenericTimeWheel(
                     context.getOption(OPTIONS.TimeWheel.Tick),

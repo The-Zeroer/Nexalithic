@@ -6,8 +6,6 @@ import com.thezeroer.nexalithic.core.event.EventDefinition;
 import com.thezeroer.nexalithic.core.event.EventTopic;
 import com.thezeroer.nexalithic.core.event.NexalithicEvent;
 import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicReference;
 

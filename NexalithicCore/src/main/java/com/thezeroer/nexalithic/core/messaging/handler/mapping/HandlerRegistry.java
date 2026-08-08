@@ -114,21 +114,42 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
          * <p>一个匹配器可能包含多候选值层级，因此一次注册可能会在 Trie 中绑定多条实际路径。
          * 如果目标路径已经绑定了 Handler，则抛出重复键异常。</p>
          *
-         * @param matcher 路径匹配器（包含多级深度、广度及通配符逻辑）
          * @param handler 业务逻辑处理器
          * @throws NexalithicDuplicateKeyException 目标路径已存在 Handler 时抛出
          */
-        public void register(HandlerPathMatcher matcher, NexalithicHandler<HC> handler) {
+        public Builder<HC> handler(NexalithicHandler<HC> handler) {
+            HandlerPathMatcher matcher = handler.getMetadata().pathMatcher();
             if (matcher == null || handler == null) {
-                return;
+                return this;
             }
             List<short[]> levels = matcher.getLevels();
             if (levels.isEmpty()) {
                 bindHandler(root, handler);
-                return;
+                return this;
             }
             doRegister(root, levels, 0, handler);
+            return this;
         }
+
+        public Builder<HC> handlers(Collection<NexalithicHandler<HC>> handlers) {
+            for (NexalithicHandler<HC> handler : handlers) {
+                handler(handler);
+            }
+            return this;
+        }
+
+        /**
+         * 设置冻结 Trie 时使用的精确子节点存储工厂。
+         *
+         * <p>函数入参是当前节点精确子节点数量，返回值决定该节点使用数组存储还是映射存储。</p>
+         *
+         * @param factory 子节点存储工厂
+         */
+        public Builder<HC> trieNodeChildrenStorageFactory(Function<Integer, TrieNodeChildrenStorage<HC>> factory) {
+            this.factory = factory;
+            return this;
+        }
+
         /**
          * 递归注册指定深度的路径层级。
          */
@@ -162,17 +183,6 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
             }
             node.handler = handler;
             logger.debug("Registered handler mappings, {}", handler.getMetadata());
-        }
-
-        /**
-         * 设置冻结 Trie 时使用的精确子节点存储工厂。
-         *
-         * <p>函数入参是当前节点精确子节点数量，返回值决定该节点使用数组存储还是映射存储。</p>
-         *
-         * @param factory 子节点存储工厂
-         */
-        public void factory(Function<Integer, TrieNodeChildrenStorage<HC>> factory) {
-            this.factory = factory;
         }
 
         /**

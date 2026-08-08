@@ -274,7 +274,7 @@ public class ControllerHandlerAssembler<HC extends HandlerContext<?>> {
                 }
                 HandlerPathMatcher pathMatcher = HandlerPathMatcherParser.parse(handlerController, handlerMethod);
                 List<InterceptorAnnotationBinding> handlerInterceptorBinding = findInterceptorBindings(method);
-                registryBuilder.register(pathMatcher, NexalithicHandler.<HC>builder()
+                registryBuilder.handler(NexalithicHandler.<HC>builder()
                         .pathMatcher(pathMatcher)
                         .invoker(createInvoker(controller, method))
                         .interceptors(createInterceptors(controllerInterceptorBinding, handlerInterceptorBinding))

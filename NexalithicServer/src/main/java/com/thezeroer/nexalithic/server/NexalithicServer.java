@@ -1,5 +1,7 @@
 package com.thezeroer.nexalithic.server;
 
+import com.thezeroer.nexalithic.core.NexalithicEndpoint;
+import com.thezeroer.nexalithic.core.builder.NexalithicEndpointBuilder;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
@@ -8,28 +10,15 @@ import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
 import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
-import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssembler;
-import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerConfigurer;
-import com.thezeroer.nexalithic.core.messaging.handler.assembly.ControllerHandlerAssemblerHelper;
-import com.thezeroer.nexalithic.core.messaging.handler.mapping.HandlerRegistry;
-import com.thezeroer.nexalithic.core.messaging.handler.NexalithicHandler;
-import com.thezeroer.nexalithic.core.messaging.handler.mapping.TrieNodeChildrenStorage;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadConstructorStorage;
-import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
 import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
 import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
-import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
-import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
-import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
-import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
-import com.thezeroer.nexalithic.server.lifecycle.LifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
@@ -48,10 +37,7 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.ServerSocketChannel;
 import java.util.Collection;
-import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * Nexalithic 服务器
@@ -61,9 +47,9 @@ import java.util.function.Supplier;
  * @version 1.0.0
  */
 @SuppressWarnings("UnusedReturnValue")
-public class NexalithicServer {
+public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager> {
     public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<LifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicServer_LifecycleManager", LifecycleManager.class);
+        public static final NexalithicModule<ServerLifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicServer_LifecycleManager", ServerLifecycleManager.class);
         public static final NexalithicModule<SessionsManager> SessionsManager = NexalithicModule.create("NexalithicServer_SessionsManager", SessionsManager.class);
         public static final NexalithicModule<NetworkRouter> NetworkRouter = NexalithicModule.create("NexalithicServer_NetworkRouter", NetworkRouter.class);
         public static final NexalithicModule<ServerBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicServer_BusinessPacketDispatcher", ServerBusinessPacketDispatcher.class);
@@ -71,107 +57,24 @@ public class NexalithicServer {
         public static final NexalithicModule<NexalithicEventBus> EventBus = NexalithicModule.create("NexalithicServer_EventBus", NexalithicEventBus.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
-    private final LifecycleManager lifecycleManager;
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
     private final ServerBusinessPacketDispatcher businessPacketDispatcher;
-    private final NexalithicEventBus eventBus;
 
     private NexalithicServer(NexalithicBuilderContext context) {
-        this.lifecycleManager = context.getModule(Modules.LifecycleManager);
+        super(context.getModule(Modules.LifecycleManager), context.getModule(Modules.EventBus));
         this.sessionsManager = context.getModule(Modules.SessionsManager);
         this.networkRouter = context.getModule(Modules.NetworkRouter);
         this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
-        this.eventBus = context.getModule(Modules.EventBus);
         System.gc();
     }
 
     public static Builder builder() {
-        logger.info(Banner.BANNER);
+        logger.info(Banner.BANNER.formatted("Server"));
         return new Builder();
     }
     public static NexalithicServer unsafeCreate(NexalithicBuilderContext context) {
         return new NexalithicServer(context);
-    }
-
-    /**
-     * 启动Nexalithic服务器的核心方法。
-     * <p><b>核心流程：</b>
-     * <ol>
-     * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#NEW}状态时允许启动，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#STARTING}。</li>
-     * <li>组件启动：按特定顺序启动各个核心组件</li>
-     * <li>启动成功：将服务器状态更新为{@link LifecycleManager.State#RUNNING}。</li>
-     * </ol>
-     * </p>
-     *
-     * <p><b>异常处理：</b><br>
-     * 若启动过程中任一组件抛出异常，将执行以下操作：
-     * <ul>
-     * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
-     * <li>将原始异常重新抛出给调用者</li>
-     * </ul>
-     * </p>
-     *
-     */
-    public void start() {
-        lifecycleManager.start();
-    }
-    /**
-     * 停止Nexalithic服务器的核心方法。
-     * <p><b>核心流程：</b>
-     * <ol>
-     * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#RUNNING}状态时允许停止，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#STOPPING}。</li>
-     * <li>组件停止：按特定顺序停止各个核心组件（与启动顺序相反）</li>
-     * <li>停止成功：将服务器状态更新为{@link LifecycleManager.State#TERMINATED}。</li>
-     * </ol>
-     * </p>
-     *
-     * <p><b>异常处理：</b><br>
-     * 若停止过程中任一组件抛出异常，将执行以下操作：
-     * <ul>
-     * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
-     * <li>将原始异常重新抛出给调用者</li>
-     * </ul>
-     * </p>
-     *
-     */
-    public void stop() {
-        lifecycleManager.stop();
-    }
-    /**
-     * 优雅关闭Nexalithic服务器的方法，与{@link #stop()}方法相比提供更安全的资源释放。
-     * <p><b>核心流程：</b>
-     * <ol>
-     * <li>线程安全检查：确保同一时刻只有一个线程调用此方法。</li>
-     * <li>状态校验：仅当服务器处于{@link LifecycleManager.State#RUNNING}状态时允许关闭，否则抛出异常。</li>
-     * <li>状态转换：将服务器状态更新为{@link LifecycleManager.State#SHUTTING_DOWN}。</li>
-     * <li>组件优雅关闭：按特定顺序关闭各个核心组件（与启动顺序相反）</li>
-     * <li>关闭成功：将服务器状态更新为{@link LifecycleManager.State#TERMINATED}。</li>
-     * </ol>
-     * </p>
-     *
-     * <p><b>与{@link #stop()}方法的区别：</b><br>
-     * shutdown()方法通常会等待正在处理的请求完成后再关闭组件，而stop()方法可能会立即中断正在处理的请求。
-     * 适用于需要确保数据完整性和优雅退出的场景。</p>
-     *
-     * <p><b>异常处理：</b><br>
-     * 若关闭过程中任一组件抛出异常，将执行以下操作：
-     * <ul>
-     * <li>记录详细错误日志</li>
-     * <li>将服务器状态更新为{@link LifecycleManager.State#ERROR}</li>
-     * <li>将原始异常重新抛出给调用者</li>
-     * </ul>
-     * </p>
-     *
-     */
-    public void shutdown() {
-        lifecycleManager.shutdown();
     }
 
     /**
@@ -290,19 +193,6 @@ public class NexalithicServer {
     }
 
     /**
-     * 获取Nexalithic服务器当前的运行状态。
-     * <p>此方法提供了线程安全的状态查询机制，允许外部调用者监控服务器的生命周期状态。</p>
-     *
-     * @return 服务器当前的运行状态，可能为以下值之一：
-     *         {@link LifecycleManager.State#NEW}、{@link LifecycleManager.State#STARTING}、{@link LifecycleManager.State#RUNNING}、
-     *         {@link LifecycleManager.State#STOPPING}、{@link LifecycleManager.State#SHUTTING_DOWN}、{@link LifecycleManager.State#TERMINATED}、
-     *         {@link LifecycleManager.State#ERROR}
-     */
-    public LifecycleManager.State getState() {
-        return lifecycleManager.getState();
-    }
-
-    /**
      * <p>获取当前服务器的路由管理器。</p>
      * <ul>
      * <li><b>前置性：</b> 开发者必须在调用 {@link #open(AbstractPacket.PacketType, InetSocketAddress, FiltrationStrategy)} 开启端口监听<b>之前</b>，
@@ -318,27 +208,13 @@ public class NexalithicServer {
         return networkRouter;
     }
 
-    public NexalithicEventBus getEventBus() {
-        return eventBus;
-    }
-
-    public static final class Builder {
-        private final NexalithicBuilderContext context = new NexalithicBuilderContext();
-        private final PayloadRegistry.Builder payloadRegistryBuilder;
-        private final HandlerRegistry.Builder<ServerHandlerContext> handlerRegistryBuilder;
-        private final ControllerHandlerAssembler.Builder<ServerHandlerContext> controllerHandlerAssemblyBuilder;
-
+    public static class Builder extends NexalithicEndpointBuilder<Builder, ServerHandlerContext> {
         public Builder() {
-            handlerRegistryBuilder = HandlerRegistry.builder();
-            payloadRegistryBuilder = PayloadRegistry.builder();
-            controllerHandlerAssemblyBuilder = ControllerHandlerAssembler.builder(ServerHandlerContext.class);
-            payloadRegistryBuilder.register(TextPayload::new);
-            payloadRegistryBuilder.register(FilePayload::new);
-            payloadRegistryBuilder.register(SerializablePayload::new);
+            super(ServerHandlerContext.class);
         }
 
-        public <T> Builder apply(NexalithicOption<T> option, T value) {
-            context.setOption(option, value);
+        @Override
+        protected Builder self() {
             return this;
         }
 
@@ -350,48 +226,6 @@ public class NexalithicServer {
 
         public Builder securityPolicy(ServerSecurityPolicy securityPolicy) {
             context.setModule(Modules.SecurityPolicy, securityPolicy);
-            return this;
-        }
-
-        public Builder handlerRegistryTrieNodeChildrenStorageFactory(Function<Integer, TrieNodeChildrenStorage<ServerHandlerContext>> factory) {
-            handlerRegistryBuilder.factory(factory);
-            return this;
-        }
-        public Builder registerHandler(NexalithicHandler.Builder<ServerHandlerContext> handlerBuilder) {
-            NexalithicHandler<ServerHandlerContext> handler = handlerBuilder.build();
-            handlerRegistryBuilder.register(handler.getMetadata().pathMatcher(), handler);
-            return this;
-        }
-
-        /**
-         * 配置服务端注解式 Controller Handler 装配器。
-         *
-         * <p>这是服务端注册 {@code @NexalithicHandlerController} Controller 的入口。
-         * 回调中的 {@code builder} 用于注册 Controller、参数转换器、返回值转换器和拦截器组件；
-         * {@code helper} 用于创建与 {@link ServerHandlerContext} 匹配的默认组件。</p>
-         *
-         * <pre>{@code
-         * NexalithicServer.builder()
-         *         .controllerHandlerAssemblerConfigurer((builder, helper) -> {
-         *             helper.defaultHandlerMethodConverterSelector(builder)
-         *                     .controller(new UserController());
-         *         });
-         * }</pre>
-         *
-         * @param configurer Controller Handler 装配器配置器
-         * @return 当前服务端构建器
-         */
-        public Builder controllerHandlerAssemblerConfigurer(ControllerHandlerAssemblerConfigurer<ServerHandlerContext> configurer) {
-            configurer.configure(controllerHandlerAssemblyBuilder, new ControllerHandlerAssemblerHelper<>(ServerHandlerContext.class));
-            return this;
-        }
-
-        public Builder payloadRegistryPayloadConstructorStorageFactory(Supplier<PayloadConstructorStorage> factory) {
-            payloadRegistryBuilder.withStorage(factory.get());
-            return this;
-        }
-        public Builder registerPayload(Supplier<? extends AbstractPayload<?>> constructor) {
-            payloadRegistryBuilder.register(constructor);
             return this;
         }
 
@@ -412,35 +246,21 @@ public class NexalithicServer {
             context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
             context.setModule(Modules.BusinessPacketDispatcher, new ServerBusinessPacketDispatcher(context));
 
-            ServiceUnit[] serviceUnits = new ServiceUnit[context.getOption(LifecycleManager.OPTIONS.ServiceUnit_Count)];
+            ServiceUnit[] serviceUnits = new ServiceUnit[context.getOption(ServerLifecycleManager.OPTIONS.ServiceUnit_Count)];
             for (int i = 0; i < serviceUnits.length; i++) {
                 serviceUnits[i] = new ServiceUnit(context).addIdToLoopName(String.valueOf(i));
             }
-            context.setModule(LifecycleManager.Modules.ServiceUnitLoadBalancer, new P2CBalancer<>(serviceUnits));
+            context.setModule(ServerLifecycleManager.Modules.ServiceUnitLoadBalancer, new P2CBalancer<>(serviceUnits));
 
-            HandshakeLoop[] handshakeLoops = new HandshakeLoop[context.getOption(LifecycleManager.OPTIONS.HandshakeLoop_Count)];
+            HandshakeLoop[] handshakeLoops = new HandshakeLoop[context.getOption(ServerLifecycleManager.OPTIONS.HandshakeLoop_Count)];
             for (int i = 0; i < handshakeLoops.length; i++) {
                 handshakeLoops[i] = (HandshakeLoop) new HandshakeLoop(context).addIdToName(String.valueOf(i));
             }
-            context.setModule(LifecycleManager.Modules.HandshakeLoopLoadBalancer, new P2CBalancer<>(handshakeLoops));
+            context.setModule(ServerLifecycleManager.Modules.HandshakeLoopLoadBalancer, new P2CBalancer<>(handshakeLoops));
 
-            context.setModule(LifecycleManager.Modules.AcceptorLoop, (AcceptorLoop) new AcceptorLoop(context).addIdToName("0"));
-            context.setModule(Modules.LifecycleManager, new LifecycleManager(context));
+            context.setModule(ServerLifecycleManager.Modules.AcceptorLoop, (AcceptorLoop) new AcceptorLoop(context).addIdToName("0"));
+            context.setModule(Modules.LifecycleManager, new ServerLifecycleManager(context));
             return new NexalithicServer(context);
         }
-    }
-
-    public static final class Banner {
-        public static final String BANNER =
-                """
-                          \s
-                          _   _                _ _ _   _     _     \s
-                          | \\ | | _____  ____ _| (_) |_| |__ (_) ___\s
-                          |  \\| |/ _ \\ \\/ / _` | | | __| '_ \\| |/ __|\s
-                          | |\\  |  __/>  < (_| | | | |_| | | | | (__\s
-                          |_| \\_|\\___/_/\\_\\__,_|_|_|\\__|_| |_|_|\\___|\s
-                
-                         :: Nexalithic Server ::              (v0.2.0)\s
-                """;
     }
 }

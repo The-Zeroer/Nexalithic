@@ -7,14 +7,11 @@ import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
+import com.thezeroer.nexalithic.core.lifecycle.LifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.AcceptorLoop;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 生命周期管理器
@@ -23,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * @version 1.0.0
  * @since 2026/02/19
  */
-public class LifecycleManager extends com.thezeroer.nexalithic.core.lifecycle.LifecycleManager {
-    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, LifecycleManager.class);
+public class ServerLifecycleManager extends LifecycleManager {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServerLifecycleManager.class);
     public static final class Options extends OptionsDefinition {
         public final NexalithicOption<Integer> HandshakeLoop_Count = NexalithicOption.create(
                 1, OptionValidator.positive()
@@ -46,7 +43,7 @@ public class LifecycleManager extends com.thezeroer.nexalithic.core.lifecycle.Li
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopLoadBalancer;
     private final LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer;
 
-    public LifecycleManager(NexalithicBuilderContext context) {
+    public ServerLifecycleManager(NexalithicBuilderContext context) {
         super("NexalithicServer");
         this.acceptorLoop = context.getModule(Modules.AcceptorLoop);
         this.handshakeLoopLoadBalancer = context.getModule(Modules.HandshakeLoopLoadBalancer);
