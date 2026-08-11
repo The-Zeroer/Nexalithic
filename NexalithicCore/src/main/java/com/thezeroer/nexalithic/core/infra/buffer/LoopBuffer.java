@@ -419,20 +419,14 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         unsafePut(Double.doubleToLongBits(value));
     }
     public void unsafePut(byte[] value, int length) {
-        int writePos = (int) (tail & mask);
-        int firstPartLen = Math.min(length, capacity - writePos);
-        buffer.put(writePos, value, 0, firstPartLen);
-        if (length > firstPartLen) {
-            buffer.put(0, value, firstPartLen, length - firstPartLen);
-        }
-        tail += length;
+        unsafePut(value, 0, length);
     }
     public void unsafePut(byte[] value, int offset, int length) {
         int writePos = (int) (tail & mask);
         int firstPartLen = Math.min(length, capacity - writePos);
         buffer.put(writePos, value, offset, firstPartLen);
         if (length > firstPartLen) {
-            buffer.put(0, value, firstPartLen, length - firstPartLen);
+            buffer.put(0, value, offset + firstPartLen, length - firstPartLen);
         }
         tail += length;
     }
@@ -493,13 +487,7 @@ public class LoopBuffer extends SelfStaticWrapperPool.InteriorRecyclableWrapper<
         return value;
     }
     public void unsafeGetBytes(byte[] dst, int length) {
-        int readPos = (int) (head & mask);
-        int firstPartLen = Math.min(length, capacity - readPos);
-        buffer.get(readPos, dst, 0, firstPartLen);
-        if (length > firstPartLen) {
-            buffer.get(0, dst, firstPartLen, length - firstPartLen);
-        }
-        head += length;
+        unsafeGetBytes(dst, 0, length);
     }
     public void unsafeGetBytes(byte[] dst, int offset, int length) {
         int readPos = (int) (head & mask);

@@ -157,8 +157,7 @@ public class ControllerHandlerAssemblerHelper<HC extends HandlerContext<?>> {
                 new BusinessPacketResultConverter<>(),
                 new PayloadResultConverter<>(),
                 new TextResultConverter<>(),
-                new FileResultConverter<>(),
-                new SerializableResultConverter<>()
+                new FileResultConverter<>()
         ));
     }
 }

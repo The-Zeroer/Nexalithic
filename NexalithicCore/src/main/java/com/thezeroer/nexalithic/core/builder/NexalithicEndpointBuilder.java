@@ -11,7 +11,6 @@ import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistryConfigurer;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistryHelper;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.FilePayload;
-import com.thezeroer.nexalithic.core.model.packet.business.payload.SerializablePayload;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.TextPayload;
 
 import java.util.List;
@@ -101,8 +100,7 @@ public abstract class NexalithicEndpointBuilder<SELF extends NexalithicEndpointB
         controllerHandlerAssemblyBuilder = ControllerHandlerAssembler.builder(handlerContextType);
         payloadRegistryBuilder.payloadConstructors(List.of(
                 TextPayload::new,
-                FilePayload::new,
-                SerializablePayload::new
+                FilePayload::new
         ));
     }
 
@@ -142,8 +140,7 @@ public abstract class NexalithicEndpointBuilder<SELF extends NexalithicEndpointB
      * 配置 Payload 注册表。
      *
      * <p>当业务需要传输自定义 Payload 类型时，使用该入口注册对应的 Payload 构造器。
-     * Builder 已经默认注册 {@link TextPayload}、{@link FilePayload} 和
-     * {@link SerializablePayload}，用户只需要追加业务自己的 Payload。</p>
+     * Builder 已经默认注册 {@link TextPayload}、{@link FilePayload}，用户只需要追加业务自己的 Payload。</p>
      *
      * @param configurer {@link PayloadRegistryConfigurer} Payload 注册表配置器
      * @return 当前具体 Builder，用于继续链式配置
