@@ -5,7 +5,6 @@ import com.thezeroer.nexalithic.core.infra.rate.DynamicRateController;
 import com.thezeroer.nexalithic.core.infra.rate.RateLimiter;
 import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.io.thread.LoopThread;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -38,8 +37,7 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public abstract class SessionChannel<
         P extends AbstractPacket,
-        W extends FragmentWrapper<P>,
-        S extends NexalithicSession<S, ?, ?, ?, ?>
+        S extends NexalithicSession<S, ?, ?>
         > extends SecurityChannel implements NexalithicChannel {
     private static final Logger logger = LoggerFactory.getLogger(SessionChannel.class);
     // 状态掩码：Bit 31 为 Dirty 位，低位存储 SelectionKey.OP_XXX
@@ -47,7 +45,7 @@ public abstract class SessionChannel<
     private static final int INTEREST_MASK = ~DIRTY_BIT;
     protected final S session;
     protected final AbstractPacket.PacketType type;
-    protected final PacketsFragmenter<W> fragmenter;
+    protected final PacketsFragmenter<P> fragmenter;
     protected final PacketsAssembler<P> assembler;
     protected volatile ChannelLoop<?> loop;
     protected volatile SelectionKey selectionKey;
@@ -63,7 +61,7 @@ public abstract class SessionChannel<
     protected LoopBuffer readCipheBuffer, writePlainBuffer;
     protected volatile long lastActiveTime = -1;
 
-    public SessionChannel(AbstractPacket.PacketType packetType, S session, ChannelLoop<?> loop, PacketsFragmenter<W> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
+    public SessionChannel(AbstractPacket.PacketType packetType, S session, ChannelLoop<?> loop, PacketsFragmenter<P> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
         super(secretKeyContext);
         this.session = session;
         this.type = packetType;
@@ -78,7 +76,7 @@ public abstract class SessionChannel<
         }
         return state.compareAndSet(State.Unconnected, State.Connecting);
     }
-    public final SessionChannel<P, W, S> updateChannel(SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, S> updateChannel(SelectionKey selectionKey) throws IOException {
         if (this.selectionKey == selectionKey) {
             return this;
         }
@@ -97,7 +95,7 @@ public abstract class SessionChannel<
         this.state.set(State.Connected);
         return this;
     }
-    public final SessionChannel<P, W, S> updateChannel(ChannelLoop<?> loop, SelectionKey selectionKey) throws IOException {
+    public final SessionChannel<P, S> updateChannel(ChannelLoop<?> loop, SelectionKey selectionKey) throws IOException {
         this.loop = loop;
         return updateChannel(selectionKey);
     }
@@ -165,12 +163,12 @@ public abstract class SessionChannel<
         writeBytesWindow.sumThenReset();
     }
 
-    public final boolean put(W wrapper) {
-        return fragmenter.feed(wrapper);
+    public final boolean put(P packet) {
+        return fragmenter.feed(packet);
     }
     @SafeVarargs
-    public final int fill(W... wrappers) {
-        return fragmenter.fill(wrappers);
+    public final int fill(P... packets) {
+        return fragmenter.fill(packets);
     }
     public final P get() {
         return assembler.drain();

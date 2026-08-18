@@ -1,6 +1,5 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
-import com.thezeroer.nexalithic.core.messaging.Dispatchable;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.infra.recyclable.TargetStaticWrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
@@ -21,15 +20,12 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
  * @since 2026/03/16
  * @version 1.0.0
  */
-public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>> {
+public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?>> {
     /** 当前请求所属的会话。 */
     protected volatile S session;
 
     /** 当前 Handler 正在处理的业务请求包。 */
     protected volatile BusinessPacket request;
-
-    public HandlerContext() {
-    }
 
     /**
      * 返回当前正在处理的业务请求包。
@@ -46,13 +42,15 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>>
      * @param response 需要发送给对端的响应包
      * @return 响应成功进入发送流程时返回 {@code true}
      */
-    public abstract boolean pushResponse(BusinessPacket response);
+    public boolean pushResponse(BusinessPacket response) {
+        return session.pushBusinessPacket(response.setTaskId(request.getTaskId()));
+    }
 
     public static class Recyclable<
-            S extends NexalithicSession<?, ?, ?, ?, ?>,
+            S extends NexalithicSession<?, ?, ?>,
             T extends HandlerContext<S>,
             W extends Recyclable<S, T, W>
-        > extends TargetStaticWrapperPool.InteriorRecyclableWrapper<T, W> implements Dispatchable {
+        > extends TargetStaticWrapperPool.InteriorRecyclableWrapper<T, W> {
 
         private volatile NexalithicHandler<T> handler;
 
@@ -77,11 +75,6 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?, ?, ?>>
         }
         public NexalithicHandler<T> getHandler() {
             return handler;
-        }
-
-        @Override
-        public final Type type() {
-            return Type.Handler;
         }
     }
 }

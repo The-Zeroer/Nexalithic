@@ -2,7 +2,6 @@ package com.thezeroer.nexalithic.server.lifecycle.service.session;
 
 import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
@@ -16,11 +15,11 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ServerSessionChannel<P extends AbstractPacket, W extends FragmentWrapper<P>> extends SessionChannel<P, W, ServerSession> implements Expirable {
+public class ServerSessionChannel<P extends AbstractPacket> extends SessionChannel<P, ServerSession> implements Expirable {
     public record Constant(long MaxIdleTime) {}
     private final Constant CONSTANT;
 
-    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop<P, W> loop, PacketsFragmenter<W> fragmenter,
+    public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop<P> loop, PacketsFragmenter<P> fragmenter,
                                 PacketsAssembler<P> assembler, SecretKeyContext context, Constant constant) {
         super(packetType, session, loop, fragmenter, assembler, context);
         CONSTANT = constant;

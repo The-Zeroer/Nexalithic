@@ -3,6 +3,7 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
 import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
@@ -18,6 +19,7 @@ import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.model.packet.signaling.TokenSignal;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
@@ -42,7 +44,7 @@ import java.util.function.Function;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> implements TimerExecutor<ServerSession> {
+public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerExecutor<ServerSession> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, StewardLoop.class);
     public static final class Options extends ServiceLoop.Options {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
@@ -63,20 +65,14 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("StewardLoop_TimeWheel", GenericTimeWheel.class);
     }
-    private final ServerSession.Constant serverSessionConstant;
-    private final ServerSession.ServerChannelFactory factory;
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
     private final GenericTimeWheel timeWheel;
-    private final ServiceUnit serviceUnit;
     private final SecureRandom secureRandom = new SecureRandom();
+    private final Function<PendingChannel, ServerSession> sessionFactory;
 
     public StewardLoop(NexalithicBuilderContext context, ServiceUnit unit) throws IOException {
         super(context, OPTIONS);
-        serverSessionConstant = context.getConstant(ServerSession.class, ServerSession.Constant.class, () -> new ServerSession.Constant(
-                context.getOption(OPTIONS.HeartBeat_MaxInterval)
-        ));
-        factory = new ServerSession.ServerChannelFactory(context, this);
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         networkRouter = context.getModule(NexalithicServer.Modules.NetworkRouter);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
@@ -95,13 +91,26 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
             timeWheel.start();
             return timeWheel;
         });
-        serviceUnit = unit;
+        ServerSession.ServerChannelFactory channelFactory = new ServerSession.ServerChannelFactory(context, this);
+        TaskScheduler taskScheduler = context.getModule(NexalithicServer.Modules.TaskScheduler);
+        ServerSession.Constant sessionConstant = context.getConstant(ServerSession.class, ServerSession.Constant.class, () -> new ServerSession.Constant(
+                context.getOption(OPTIONS.HeartBeat_MaxInterval)
+        ));
+        sessionFactory = channel -> new ServerSession(
+                channel.getSessionKey(),
+                channel.getSignalingSecretContext(),
+                channel.getBusinessSecretContext(),
+                channelFactory,
+                taskScheduler,
+                sessionConstant,
+                unit
+        );
     }
 
     public boolean prepareChannelAccess(ServerSession session, AbstractPacket.PacketType type, InetAddress remoteAddress) {
         SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
         sessionsManager.relateChannelToken(sessionKey, session);
-        return session.pushSignalingPacketWrappers(
+        return session.pushSignalingPacket(
                 ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response, networkRouter.choosePort(type, remoteAddress)),
                 new TokenSignal(sessionKey)
         ) == 0;
@@ -112,7 +121,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSession session = new ServerSession(channel.getSessionKey(), channel.getSignalingSecretContext(), channel.getBusinessSecretContext(), factory, serverSessionConstant, serviceUnit);
+                ServerSession session = sessionFactory.apply(channel);
                 selectionKey.attach(session.getSignalingChannel().updateChannel(selectionKey));
                 if (!sessionsManager.putSession(session)) {
                     closeChannel(session.getSignalingChannel());
@@ -128,7 +137,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
     }
 
     @Override
-    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<SignalingPacket, SignalingPacket> channel) {
+    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<SignalingPacket> channel) {
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -157,16 +166,16 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         }
     }
 
-    private void handleSignalPacket(ServerSessionChannel<SignalingPacket, ?> channel, SignalingPacket packet) {
+    private void handleSignalPacket(ServerSessionChannel<SignalingPacket> channel, SignalingPacket packet) {
         if (!switch (packet.getSignal()) {
-            case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacketWrapper(
+            case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacket(
                     ScalarSignal.ofInt(SignalingPacket.Signal.BusinessChannelPort_Response,
                             networkRouter.choosePort(AbstractPacket.PacketType.BUSINESS, channel.getRemoteAddress().getAddress())));
             case SignalingPacket.Signal.BusinessChannelToken_Request -> {
                 SessionKey.Immutable sessionKey = new SessionKey.Immutable(secureRandom.nextLong(), secureRandom.nextLong());
                 ServerSession session = channel.session();
                 sessionsManager.relateChannelToken(sessionKey, session);
-                yield session.pushSignalingPacketWrapper(new TokenSignal(sessionKey));
+                yield session.pushSignalingPacket(new TokenSignal(sessionKey));
             }
             case SignalingPacket.Signal.BusinessChannelRate -> {
                 long rate = ((ScalarSignal) packet).asLong();
@@ -180,7 +189,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket, SignalingPacket> i
         }
     }
 
-    private void closeChannel(ServerSessionChannel<?, ?> channel) {
+    private void closeChannel(ServerSessionChannel<?> channel) {
         ServerSession session = channel.session();
         if (super.closeChannel(channel)) {
             sessionsManager.removeSession(session);

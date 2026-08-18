@@ -14,6 +14,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -62,16 +64,19 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", GenericTimeWheel.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsAssembler.class);
-    private final WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool;
-    private final GenericTimeWheel timeWheel;
+    private final NexalithicSession<?, ?, ?> owner;
     private final Map<Integer, BusinessPacketAssemblyWrapper> assemblingMap;
     private final MpscArrayQueue<BusinessPacket> completedPackets;
     private BusinessPacket pendingPacket;
 
-    public BusinessPacketsAssembler(WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool, GenericTimeWheel timeWheel, int PacketQueue_Capacity_) {
+    private final WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool;
+    private final GenericTimeWheel timeWheel;
+
+    public BusinessPacketsAssembler(NexalithicSession<?, ?, ?> owner, WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool, GenericTimeWheel timeWheel, int PacketQueue_Capacity_) {
+        this.owner = owner;
         this.wrapperPool = wrapperPool;
         this.timeWheel = timeWheel;
-        assemblingMap = new HashMap<>();
+        assemblingMap = new ConcurrentHashMap<>();
         completedPackets = new MpscArrayQueue<>(PacketQueue_Capacity_);
     }
 
@@ -98,6 +103,7 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
             BusinessPacketAssemblyWrapper wrapper = assemblingMap.get(packetId);
             if (wrapper == null) {
                 wrapper = wrapperPool.acquire().setPacketId(packetId);
+                wrapper.getCodecCallback().bind(owner);
                 assemblingMap.put(packetId, wrapper);
                 timeWheel.schedule(wrapper, this);
             }

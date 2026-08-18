@@ -3,18 +3,15 @@ package com.thezeroer.nexalithic.server;
 import com.thezeroer.nexalithic.core.NexalithicEndpoint;
 import com.thezeroer.nexalithic.core.builder.NexalithicEndpointBuilder;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
 import com.thezeroer.nexalithic.core.infra.loadbalance.P2CBalancer;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerCoordinator;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
-import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
-import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
+import com.thezeroer.nexalithic.core.messaging.task.TaskHandle;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
@@ -26,7 +23,7 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
-import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.server.messaging.ServerHandlerCoordinator;
 import com.thezeroer.nexalithic.server.messaging.ServerHandlerContext;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.slf4j.Logger;
@@ -48,24 +45,18 @@ import java.util.function.Consumer;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager> {
-    public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<ServerLifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicServer_LifecycleManager", ServerLifecycleManager.class);
+    public static final class Modules extends NexalithicEndpoint.Modules {
         public static final NexalithicModule<SessionsManager> SessionsManager = NexalithicModule.create("NexalithicServer_SessionsManager", SessionsManager.class);
         public static final NexalithicModule<NetworkRouter> NetworkRouter = NexalithicModule.create("NexalithicServer_NetworkRouter", NetworkRouter.class);
-        public static final NexalithicModule<ServerBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicServer_BusinessPacketDispatcher", ServerBusinessPacketDispatcher.class);
-        public static final NexalithicModule<ServerSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicServer_SecurityPolicy", ServerSecurityPolicy.class);
-        public static final NexalithicModule<NexalithicEventBus> EventBus = NexalithicModule.create("NexalithicServer_EventBus", NexalithicEventBus.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicServer.class);
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
-    private final ServerBusinessPacketDispatcher businessPacketDispatcher;
 
     private NexalithicServer(NexalithicBuilderContext context) {
         super(context.getModule(Modules.LifecycleManager), context.getModule(Modules.EventBus));
         this.sessionsManager = context.getModule(Modules.SessionsManager);
         this.networkRouter = context.getModule(Modules.NetworkRouter);
-        this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
         System.gc();
     }
 
@@ -141,19 +132,12 @@ public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager>
         return true;
     }
 
-    public TaskFuture submit(String sessionName, NexalithicTask.Builder taskBuilder) {
+    public TaskHandle submit(String sessionName, NexalithicTask.Builder taskBuilder) {
         ServerSession session = sessionsManager.getSession(sessionName);
         if (session == null) {
             return null;
         }
-        return businessPacketDispatcher.submitNexalithicTask(session, taskBuilder, null);
-    }
-    public TaskFuture submit(String sessionName, NexalithicTask.Builder taskBuilder, TransferListenerGroup.Builder transferVisualizerBuilder) {
-        ServerSession session = sessionsManager.getSession(sessionName);
-        if (session == null) {
-            return null;
-        }
-        return businessPacketDispatcher.submitNexalithicTask(session, taskBuilder, transferVisualizerBuilder);
+        return session.getTaskCoordinator().submit(taskBuilder);
     }
 
     /**
@@ -167,7 +151,7 @@ public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager>
         if (session == null) {
             return false;
         }
-        return businessPacketDispatcher.egress(session, packet);
+        return session.pushBusinessPacket(packet);
     }
 
     /**
@@ -177,7 +161,7 @@ public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager>
      */
     public void pushToAll(BusinessPacket packet) {
         packet.seal();
-        sessionsManager.forEachNamedSession(session -> businessPacketDispatcher.egress(session, packet.duplicate()));
+        sessionsManager.forEachNamedSession(session -> session.pushBusinessPacket(packet.duplicate()));
     }
 
     /**
@@ -241,10 +225,10 @@ public class NexalithicServer extends NexalithicEndpoint<ServerLifecycleManager>
             context.setModule(Modules.EventBus, new NexalithicEventBus());
             context.setModule(Modules.SessionsManager, new SessionsManager(context));
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
-            context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
-            context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
-            context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
-            context.setModule(Modules.BusinessPacketDispatcher, new ServerBusinessPacketDispatcher(context));
+            context.setModule(HandlerCoordinator.Modules.HandlerRegistry, handlerRegistryBuilder.build());
+            ServerHandlerCoordinator handlerCoordinator = new ServerHandlerCoordinator(context);
+            context.setModule(Modules.HandlerCoordinator, handlerCoordinator);
+            context.setModule(Modules.TaskScheduler, new TaskScheduler(context));
 
             ServiceUnit[] serviceUnits = new ServiceUnit[context.getOption(ServerLifecycleManager.OPTIONS.ServiceUnit_Count)];
             for (int i = 0; i < serviceUnits.length; i++) {

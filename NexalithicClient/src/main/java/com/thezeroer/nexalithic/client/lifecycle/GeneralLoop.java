@@ -5,9 +5,10 @@ import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSessionChannel;
 import com.thezeroer.nexalithic.client.manager.LinkStatusManager;
 import com.thezeroer.nexalithic.client.manager.NetworkRouter;
-import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.client.messaging.ClientHandlerCoordinator;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.BareSignal;
@@ -39,6 +40,7 @@ import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Function;
 
 /**
  * 通用选择器
@@ -47,7 +49,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
+public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, GeneralLoop.class);
     public static final class Options extends ChannelLoop.Options {
         public final DynamicRateController.Options DynamicRateController = new DynamicRateController.Options(holder) {};
@@ -59,15 +61,15 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         }
     }
     public record Constant(long HeartBeat_Interval, boolean DynamicRate_Enable, long DynamicRate_TickMs) {}
-    private final Constant CONSTANT;
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
+    private final Constant CONSTANT;
     private final Queue<Runnable> eventQueue;
     private final LinkStatusManager linkStatusManager;
     private final ClientSecurityPolicy securityPolicy;
-    private final ClientBusinessPacketDispatcher dispatcher;
-    private final ClientSession.ClientChannelFactory factory;
+    private final ClientHandlerCoordinator handlerCoordinator;
     private final NetworkRouter networkRouter;
     private final DynamicRateController dynamicRateController;
+    private final Function<Object[], ClientSession> sessionFactory;
     private long lastDynamicRateTickMs;
     private volatile ClientSession session;
 
@@ -80,8 +82,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         );
         linkStatusManager = context.getModule(NexalithicClient.Modules.LinkStatusManager);
         securityPolicy = context.getModule(NexalithicClient.Modules.SecurityPolicy);
-        dispatcher = context.getModule(NexalithicClient.Modules.BusinessPacketDispatcher);
-        factory = new ClientSession.ClientChannelFactory(context, this);
+        handlerCoordinator = context.getModule(NexalithicClient.Modules.HandlerCoordinator);
         networkRouter = new NetworkRouter();
         eventQueue = new ConcurrentLinkedQueue<>();
         dynamicRateController = new DynamicRateController(
@@ -93,6 +94,16 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                 context.getOption(OPTIONS.DynamicRateController.ChangeThreshold),
                 context.getOption(OPTIONS.DynamicRateController.MinPublishIntervalMs),
                 context.getOption(OPTIONS.DynamicRateController.IncreaseStableTicks)
+        );
+        ClientSession.ClientChannelFactory channelFactory = new ClientSession.ClientChannelFactory(context, this);
+        TaskScheduler taskScheduler = context.getModule(NexalithicClient.Modules.TaskScheduler);
+        sessionFactory = objects -> new ClientSession(
+                (SessionKey) objects[0],
+                (SecretKeyContext) objects[1],
+                (SecretKeyContext) objects[2],
+                channelFactory,
+                taskScheduler,
+                networkRouter
         );
         lastDynamicRateTickMs = System.currentTimeMillis();
     }
@@ -136,14 +147,17 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             }
             ByteBuffer tempBuffer = ByteBuffer.allocate(ClientSession.SESSION_KEY_LENGTH);
             signalingSecretKey.decrypt(readBuffer.position(readBuffer.limit()).limit(readBuffer.limit() + ClientSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH), tempBuffer);
-            session = new ClientSession(new SessionKey.Immutable(tempBuffer.flip(), 0), signalingSecretKey,
-                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS), factory, networkRouter);
+            session = sessionFactory.apply(new Object[]{
+                    new SessionKey.Immutable(tempBuffer.flip(), 0),
+                    signalingSecretKey,
+                    SecretKeyUtils.generateSessionSecretKey(secret, SecretKeyUtils.LABEL_CLIENT_BUSINESS, SecretKeyUtils.LABEL_SERVER_BUSINESS)
+            });
             logger.info("Link server succeeded");
         } else {
             socketChannel.write(ByteBuffer.wrap(token));
         }
         eventQueue.add(() -> {
-            ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) session.getChannel(packetType);
+            ClientSessionChannel<?> channel = (ClientSessionChannel<?>) session.getChannel(packetType);
             try {
                 SelectionKey selectionKey = socketChannel.configureBlocking(false).register(selector, SelectionKey.OP_READ);
                 selectionKey.attach(channel.updateChannel(selectionKey));
@@ -195,13 +209,13 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         if (session != null) {
             long now = System.currentTimeMillis();
             if (now - session.getLastActiveTime() >= CONSTANT.HeartBeat_Interval) {
-                session.pushSignalingPacketWrapper(BareSignal.HeartBeat);
+                session.pushSignalingPacket(BareSignal.HeartBeat);
                 session.updateLastActiveTime(now);
             }
             if (CONSTANT.DynamicRate_Enable && now - lastDynamicRateTickMs >= CONSTANT.DynamicRate_TickMs) {
                 long interval = now - lastDynamicRateTickMs;
                 lastDynamicRateTickMs = now;
-                ClientSessionChannel<?, ?> businessChannel = session.getBusinessChannel();
+                ClientSessionChannel<?> businessChannel = session.getBusinessChannel();
                 if (businessChannel.getState() == NexalithicChannel.State.Connected) {
                     long targetRate = businessChannel.evaluateDynamicRate(interval, now, dynamicRateController);
                     if (targetRate > 0) {
@@ -216,7 +230,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
     }
 
     @Override
-    protected void onReadyEvent(SelectionKey selectionKey, ClientSessionChannel<?, ?> channel) {
+    protected void onReadyEvent(SelectionKey selectionKey, ClientSessionChannel<?> channel) {
         try {
             if (selectionKey.isReadable()) {
                 if (channel.read() == -1) {
@@ -229,7 +243,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
                     }
                 } else {
                     while (channel.get() instanceof BusinessPacket packet) {
-                        dispatcher.ingest(session, packet);
+                        handlerCoordinator.accept(session, packet);
                     }
                 }
             } else if (selectionKey.isWritable()) {
@@ -252,7 +266,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
 
     @Override
     protected void keyNotValid(SelectionKey selectionKey) {
-        ClientSessionChannel<?, ?> channel = (ClientSessionChannel<?, ?>) selectionKey.attachment();
+        ClientSessionChannel<?> channel = (ClientSessionChannel<?>) selectionKey.attachment();
         if (channel.getType() == AbstractPacket.PacketType.SIGNALING) {
             closeChannel(channel, false);
         }
@@ -283,7 +297,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             }
             case SignalingPacket.Signal.BusinessChannelRate -> {
                 long rate = ((ScalarSignal) packet).asLong();
-                ClientSessionChannel<?, ?> businessChannel = session.getBusinessChannel();
+                ClientSessionChannel<?> businessChannel = session.getBusinessChannel();
                 businessChannel.updateWriteRate(rate);
                 businessChannel.applyRate();
             }
@@ -297,7 +311,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
         return networkRouter;
     }
 
-    private void closeChannel(ClientSessionChannel<?, ?> channel, boolean reconnect) {
+    private void closeChannel(ClientSessionChannel<?> channel, boolean reconnect) {
         String channelInfo = channel.toString();
         logger.debug("closeChannel[{}]", channelInfo);
         AbstractPacket.PacketType type = channel.getType();
@@ -355,12 +369,12 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?, ?>> {
             Integer port = networkRouter.getPort(AbstractPacket.PacketType.BUSINESS);
             if (port == null) {
                 logger.info("Business port unknown, requesting BusinessChannelPort_Request via Signaling channel.");
-                session.pushSignalingPacketWrapper(BareSignal.BusinessChannelPort_Request);
+                session.pushSignalingPacket(BareSignal.BusinessChannelPort_Request);
             } else {
                 logger.debug("Retrieved existing business port from router: {}", port);
             }
             logger.info("Requesting new BusinessChannelToken via Signaling channel.");
-            session.pushSignalingPacketWrapper(BareSignal.BusinessChannelToken_Request);
+            session.pushSignalingPacket(BareSignal.BusinessChannelToken_Request);
         }
     }
 }

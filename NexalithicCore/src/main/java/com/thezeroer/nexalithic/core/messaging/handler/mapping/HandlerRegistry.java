@@ -67,7 +67,11 @@ public class HandlerRegistry<HC extends HandlerContext<?>> {
         if (path == null) {
             return root.handler();
         }
-        return doMatch(root, path, 0);
+        NexalithicHandler<HC> handler = doMatch(root, path, 0);
+        if (handler == null) {
+            return root.handler();
+        }
+        return handler;
     }
     /**
      * 递归匹配。

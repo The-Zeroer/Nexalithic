@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.messaging.visual;
+package com.thezeroer.nexalithic.core.messaging.task.visual;
 
 /**
  * 监听函数

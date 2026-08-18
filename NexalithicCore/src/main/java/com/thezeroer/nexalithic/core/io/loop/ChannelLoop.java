@@ -30,19 +30,19 @@ public abstract class ChannelLoop<C extends NexalithicChannel> extends AbstractL
             super(holder);
         }
     }
-    protected final MpscUnboundedArrayQueue<SessionChannel<?, ?, ?>> interestQueue;
+    protected final MpscUnboundedArrayQueue<SessionChannel<?, ?>> interestQueue;
 
     public ChannelLoop(NexalithicBuilderContext context, Options options) throws IOException {
         super(context, options);
         interestQueue = new MpscUnboundedArrayQueue<>(context.getOption(options.InterestQueue_ChunkSize));
     }
 
-    public final void updateChannelInterest(SessionChannel<?, ?, ?> channel) {
+    public final void updateChannelInterest(SessionChannel<?, ?> channel) {
         interestQueue.offer(channel);
         wakeupIfNeeded();
     }
 
-    public void postRateUpdate(SessionChannel<?, ?, ?> channel) {}
+    public void postRateUpdate(SessionChannel<?, ?> channel) {}
 
     @Override
     protected final boolean asyncEvent() {

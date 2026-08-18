@@ -2,10 +2,8 @@ package com.thezeroer.nexalithic.client.messaging;
 
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerCoordinator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * 客户端业务分发器
@@ -14,33 +12,29 @@ import org.slf4j.LoggerFactory;
  * @since 2026/03/18
  * @version 1.0.0
  */
-public class ClientBusinessPacketDispatcher extends BusinessPacketDispatcher<
+public class ClientHandlerCoordinator extends HandlerCoordinator<
         ClientSession,
         ClientHandlerContext,
         ClientHandlerContext.Recyclable
         > {
-    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ClientBusinessPacketDispatcher.class);
-    public static final class Options extends BusinessPacketDispatcher.Options {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ClientHandlerCoordinator.class);
+    public static final class Options extends HandlerCoordinator.Options {
         public Options(Class<?> holder) {
             super(holder);
         }
         protected Integer HandlerContextPool_Capacity_DefaultValue() {
             return 4;
         }
-        protected Integer PacketWrapperPool_Capacity_DefaultValue() {
-            return 64;
-        }
     }
-    private static final Logger logger = LoggerFactory.getLogger(ClientBusinessPacketDispatcher.class);
 
-    public ClientBusinessPacketDispatcher(NexalithicBuilderContext context) {
+    public ClientHandlerCoordinator(NexalithicBuilderContext context) {
         super(context, OPTIONS, false);
         init(context, OPTIONS);
     }
 
     @Override
     protected ClientHandlerContext createHandlerContext() {
-        return new ClientHandlerContext(this);
+        return new ClientHandlerContext();
     }
 
     @Override

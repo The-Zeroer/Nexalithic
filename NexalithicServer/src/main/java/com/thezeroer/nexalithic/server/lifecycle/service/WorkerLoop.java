@@ -3,7 +3,6 @@ package com.thezeroer.nexalithic.server.lifecycle.service;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
@@ -18,7 +17,7 @@ import com.thezeroer.nexalithic.core.infra.rate.DynamicRateController;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
-import com.thezeroer.nexalithic.server.messaging.ServerBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.server.messaging.ServerHandlerCoordinator;
 import org.jctools.queues.SpmcArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
 
@@ -38,7 +37,7 @@ import java.util.function.Function;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragmentWrapper> implements TimerExecutor<ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>> {
+public class WorkerLoop extends ServiceLoop<BusinessPacket> implements TimerExecutor<ServerSessionChannel<BusinessPacket>> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, WorkerLoop.class);
     public static final class Options extends ServiceLoop.Options {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
@@ -63,9 +62,9 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("WorkerLoop_TimeWheel", GenericTimeWheel.class);
     }
-    private final ServerBusinessPacketDispatcher dispatcher;
+    private final ServerHandlerCoordinator handlerCoordinator;
     private final GenericTimeWheel timeWheel;
-    private final SpscArrayQueue<ServerSessionChannel<?, ?>> rateUpdateQueue;
+    private final SpscArrayQueue<ServerSessionChannel<?>> rateUpdateQueue;
     private final DynamicRateController dynamicRateController;
     private final boolean dynamicRateEnable;
     private final long dynamicRateTickMs;
@@ -73,7 +72,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
 
     public WorkerLoop(NexalithicBuilderContext context) throws IOException {
         super(context, OPTIONS);
-        dispatcher = context.getModule(NexalithicServer.Modules.BusinessPacketDispatcher);
+        handlerCoordinator = context.getModule(NexalithicServer.Modules.HandlerCoordinator);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
             GenericTimeWheel timeWheel = new GenericTimeWheel(
                     context.getOption(OPTIONS.TimeWheel.Tick),
@@ -83,7 +82,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                     new SelfStaticWrapperPool<>(
                             PoolStorage.of(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
                             PoolStrategy.alwaysCreate(),
-                            GenericTimeWheel.GenericScheduleWrapper<ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>>::new
+                            GenericTimeWheel.GenericScheduleWrapper<ServerSessionChannel<BusinessPacket>>::new
                     ),
                     WorkerLoop.class.getSimpleName()
             );
@@ -107,8 +106,8 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     }
 
     @Override
-    public void postRateUpdate(SessionChannel<?, ?, ?> channel) {
-        rateUpdateQueue.offer((ServerSessionChannel<?, ?>) channel);
+    public void postRateUpdate(SessionChannel<?, ?> channel) {
+        rateUpdateQueue.offer((ServerSessionChannel<?>) channel);
         wakeupIfNeeded();
     }
 
@@ -117,7 +116,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
         dispatchQueue.drain(channel -> {
             try {
                 SelectionKey selectionKey = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);
-                ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> businessChannel = channel.getSession().getBusinessChannel();
+                ServerSessionChannel<BusinessPacket> businessChannel = channel.getSession().getBusinessChannel();
                 selectionKey.attach(businessChannel.updateChannel(this, selectionKey));
                 if (!businessChannel.fragmenterIsEmpty() && businessChannel.updateChannelInterest(SelectionKey.OP_WRITE, true)) {
                     businessChannel.applyTargetInterest();
@@ -135,7 +134,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 long interval = now - lastDynamicRateTickMs;
                 lastDynamicRateTickMs = now;
                 for (SelectionKey key : selector.keys()) {
-                    if (!key.isValid() || !(key.attachment() instanceof ServerSessionChannel<?, ?> businessChannel)) {
+                    if (!key.isValid() || !(key.attachment() instanceof ServerSessionChannel<?> businessChannel)) {
                         continue;
                     }
                     long targetRate = businessChannel.evaluateDynamicRate(interval, now, dynamicRateController);
@@ -149,7 +148,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     }
 
     @Override
-    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> channel) {
+    protected void onReadyEvent(SelectionKey key, ServerSessionChannel<BusinessPacket> channel) {
         try {
             if (key.isReadable()) {
                 if (channel.read() == -1) {
@@ -157,7 +156,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
                 }
                 BusinessPacket packet;
                 while ((packet = channel.get()) != null) {
-                    dispatcher.ingest(channel.session(), packet);
+                    handlerCoordinator.accept(channel.session(), packet);
                 }
             } else if (key.isWritable()) {
                 if (channel.write() == -1) {
@@ -188,7 +187,7 @@ public class WorkerLoop extends ServiceLoop<BusinessPacket, BusinessPacketFragme
     }
 
     @Override
-    public void trigger(ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> channel) {
+    public void trigger(ServerSessionChannel<BusinessPacket> channel) {
         closeChannel(channel);
     }
 }

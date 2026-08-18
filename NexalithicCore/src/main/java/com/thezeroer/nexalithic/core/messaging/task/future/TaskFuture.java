@@ -1,4 +1,7 @@
-package com.thezeroer.nexalithic.core.messaging.task;
+package com.thezeroer.nexalithic.core.messaging.task.future;
+
+import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
+import com.thezeroer.nexalithic.core.messaging.task.event.TaskEvent;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -13,21 +16,16 @@ import java.util.concurrent.TimeUnit;
 public class TaskFuture {
     private final CountDownLatch latch = new CountDownLatch(1);
     private final NexalithicTask task;
-    private final TaskTracer tracer;
 
-    public TaskFuture(NexalithicTask task, TaskTracer tracer) {
+    public TaskFuture(NexalithicTask task) {
         this.task = task;
-        this.tracer = tracer;
     }
 
     public NexalithicTask.State getState() {
         return task.getState();
     }
-    public void cancel() {
-        if (!tracer.cancel(task.getTaskId())) {
-            task.cancel();
-        }
-        latch.countDown();
+    public boolean cancel() {
+        return task.getOwner().getTaskCoordinator().getScheduler().schedule(task, TaskEvent.CANCEL());
     }
 
     /**
@@ -62,10 +60,10 @@ public class TaskFuture {
     /**
      * 释放所有等待在 waitFinish 上的线程。
      */
-    void internalComplete() {
+    public void internalComplete() {
         latch.countDown();
     }
-    boolean isDone() {
+    public boolean isDone() {
         return latch.getCount() == 0;
     }
 }

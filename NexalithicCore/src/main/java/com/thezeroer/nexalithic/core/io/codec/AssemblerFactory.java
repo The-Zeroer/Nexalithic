@@ -1,19 +1,18 @@
 package com.thezeroer.nexalithic.core.io.codec;
 
+import com.thezeroer.nexalithic.core.NexalithicEndpoint;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
 import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
-import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
-import com.thezeroer.nexalithic.core.io.codec.assembler.PacketsAssembler;
-import com.thezeroer.nexalithic.core.io.codec.assembler.SignalingPacketsAssembler;
-import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketAssemblyWrapper;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.io.codec.assembler.*;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.SpmcArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
 
@@ -35,11 +34,11 @@ public class AssemblerFactory {
                 context.getOption(BusinessPacketsAssembler.OPTIONS.MaxIdleTime)
         );
         PayloadRegistry payloadRegistry = context.getModule(BusinessPacketsAssembler.Modules.PayloadRegistry);
-        TransferTracer transferTracer = context.getModule(BusinessPacketDispatcher.Modules.TransferTracer);
+        TaskScheduler taskScheduler = context.getModule(NexalithicEndpoint.Modules.TaskScheduler);
         wrapperPool = new SelfStaticWrapperPool<>(
                 PoolStorage.of(SpscArrayQueue::new, context.getOption(BusinessPacketsAssembler.OPTIONS.WrapperPool_Capacity)),
                 PoolStrategy.alwaysCreate(),
-                () -> new BusinessPacketAssemblyWrapper(businessPacketAssemblyConstant, payloadRegistry, transferTracer)
+                () -> new BusinessPacketAssemblyWrapper(businessPacketAssemblyConstant, payloadRegistry, new AssemblyCallback(taskScheduler))
         );
         timeWheel = context.getModule(BusinessPacketsAssembler.Modules.TimeWheel, () -> {
             GenericTimeWheel timeWheel = new GenericTimeWheel(
@@ -59,11 +58,11 @@ public class AssemblerFactory {
         });
     }
 
-    @SuppressWarnings("unchecked")
-    public <P extends AbstractPacket> PacketsAssembler<P> create(AbstractPacket.PacketType packetType) {
-        return (PacketsAssembler<P>) switch (packetType) {
-            case SIGNALING -> new SignalingPacketsAssembler();
-            case BUSINESS -> new BusinessPacketsAssembler(wrapperPool, timeWheel, PacketQueue_Capacity_);
-        };
+    public PacketsAssembler<SignalingPacket> createSignaling() {
+        return new SignalingPacketsAssembler();
+    }
+
+    public PacketsAssembler<BusinessPacket> createBusiness(NexalithicSession<?, ?, ?> session) {
+        return new BusinessPacketsAssembler(session, wrapperPool, timeWheel, PacketQueue_Capacity_);
     }
 }

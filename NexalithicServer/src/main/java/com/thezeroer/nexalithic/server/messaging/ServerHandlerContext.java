@@ -16,17 +16,10 @@ import java.net.InetAddress;
  * @version 1.0.0
  */
 public class ServerHandlerContext extends HandlerContext<ServerSession> {
-    private final ServerBusinessPacketDispatcher dispatcher;
     private final SessionsManager sessionsManager;
 
-    public ServerHandlerContext(ServerBusinessPacketDispatcher dispatcher, SessionsManager sessionsManager) {
-        this.dispatcher = dispatcher;
+    public ServerHandlerContext(SessionsManager sessionsManager) {
         this.sessionsManager = sessionsManager;
-    }
-
-    @Override
-    public boolean pushResponse(BusinessPacket response) {
-        return dispatcher.egress(session, response.setTaskId(request.getTaskId()));
     }
 
     public boolean push(String sessionName, BusinessPacket packet) {
@@ -34,7 +27,7 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
         if (session == null) {
             return false;
         }
-        return dispatcher.egress(session, packet);
+        return session.pushBusinessPacket(packet);
     }
 
     public void forceSetSessionName(String sessionName) {
@@ -66,7 +59,7 @@ public class ServerHandlerContext extends HandlerContext<ServerSession> {
         String currentSessionName = session.getSessionName();
         sessionsManager.forEachNamedSession(s -> {
             if (!s.getSessionName().equals(currentSessionName)) {
-                dispatcher.egress(s, packet.duplicate());
+                s.pushBusinessPacket(packet.duplicate());
             }
         });
     }

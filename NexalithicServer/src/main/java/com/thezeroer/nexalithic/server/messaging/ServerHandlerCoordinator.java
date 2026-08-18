@@ -1,7 +1,7 @@
 package com.thezeroer.nexalithic.server.messaging;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerCoordinator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
@@ -16,20 +16,20 @@ import com.thezeroer.nexalithic.server.manager.SessionsManager;
  * @since 2026/03/17
  * @version 1.0.0
  */
-public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
+public class ServerHandlerCoordinator extends HandlerCoordinator<
         ServerSession,
         ServerHandlerContext,
         ServerHandlerContext.Recyclable
         > {
-    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServerBusinessPacketDispatcher.class);
-    public static final class Options extends BusinessPacketDispatcher.Options {
+    public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServerHandlerCoordinator.class);
+    public static final class Options extends HandlerCoordinator.Options {
         public Options(Class<?> holder) {
             super(holder);
         }
     }
     private final SessionsManager sessionsManager;
 
-    public ServerBusinessPacketDispatcher(NexalithicBuilderContext context) {
+    public ServerHandlerCoordinator(NexalithicBuilderContext context) {
         super(context, OPTIONS, context.getOption(ServerLifecycleManager.OPTIONS.ServiceUnit_Count) != 1 || context.getOption(ServiceUnit.OPTIONS.WorkerLoop_Count) != 1);
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         init(context, OPTIONS);
@@ -37,7 +37,7 @@ public class ServerBusinessPacketDispatcher extends BusinessPacketDispatcher<
 
     @Override
     protected ServerHandlerContext createHandlerContext() {
-        return new ServerHandlerContext(this, sessionsManager);
+        return new ServerHandlerContext(sessionsManager);
     }
 
     @Override

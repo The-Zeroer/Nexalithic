@@ -1,6 +1,5 @@
 package com.thezeroer.nexalithic.core.session.channel;
 
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
@@ -14,11 +13,9 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
  * @since 2026/03/28
  */
 public interface ChannelFactory<
-        S extends NexalithicSession<S, SC, BC, SW, BW>,
-        SC extends SessionChannel<SignalingPacket, SW, S>,
-        BC extends SessionChannel<BusinessPacket, BW, S>,
-        SW extends FragmentWrapper<SignalingPacket>,
-        BW extends FragmentWrapper<BusinessPacket>> {
+        S extends NexalithicSession<S, SC, BC>,
+        SC extends SessionChannel<SignalingPacket, S>,
+        BC extends SessionChannel<BusinessPacket, S>> {
 
     SC createSignalingChannel(S session, SecretKeyContext secretKeyContext);
     BC createBusinessChannel(S session, SecretKeyContext secretKeyContext);

@@ -1,12 +1,8 @@
 package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.io.codec.CodecCallback;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
-import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferListener;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferSnapshot;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
 import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicWrapperPool;
@@ -21,11 +17,8 @@ import java.util.List;
  * @since 2026/03/11
  * @version 1.0.0
  */
-public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> implements FragmentWrapper<BusinessPacket> {
-    private final TaskTracer taskTracer;
-    private final TransferTracer transferTracer;
-    private TransferListener listener;
-    private TransferSnapshot snapshot;
+public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> {
+    private final CodecCallback codecCallback;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
     private long remaining;
@@ -33,17 +26,13 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     private int payloadIndex;
     private List<? extends AbstractPayload<?>> payloads;
 
-    public BusinessPacketFragmentWrapper(TaskTracer taskTracer, TransferTracer transferTracer) {
-        this.taskTracer = taskTracer;
-        this.transferTracer = transferTracer;
+    public BusinessPacketFragmentWrapper(CodecCallback codecCallback) {
+        this.codecCallback = codecCallback;
     }
 
     @Override
     public void onWrap(BusinessPacket packet) {
-        TransferListenerGroup visualizer = transferTracer.getVisualizer(packet.getTaskId());
-        if (visualizer != null) {
-            listener = visualizer.requestTransferListener();
-        }
+        codecCallback.prepare(packet.getTaskId(), packet.getWay());
         remaining = packet.getPacketSize();
         packetId = packet.getPacketId();
         payloads = packet.payloads();
@@ -54,18 +43,12 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
         if (remaining > 0) {
             return true;
         } else {
-            taskTracer.activate(target.getTaskId());
-            if (listener != null) {
-                transferTracer.onFinish(listener);
-            }
+            codecCallback.complete();
             return false;
         }
     }
     public int firstFrame(LoopBuffer output) throws IOException {
-        if (listener != null) {
-            snapshot = new TransferSnapshot(remaining);
-            transferTracer.onStart(listener, snapshot);
-        }
+        codecCallback.start(remaining);
         int writable = output.writableBytes();
         int headerSize = target.getHeaderSize();
         int offest = PacketFrame.FRAME_HEADER_LENGTH + headerSize;
@@ -86,9 +69,7 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             output.setTail(tail);
         }
         remaining -= total;
-        if (snapshot != null) {
-            snapshot.updateRemaining(remaining);
-        }
+        codecCallback.update(remaining);
         return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
 
@@ -110,9 +91,7 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
             output.setTail(tail);
         }
         remaining -= total;
-        if (snapshot != null) {
-            snapshot.updateRemaining(remaining);
-        }
+        codecCallback.update(remaining);
         return total + PacketFrame.FRAME_HEADER_LENGTH;
     }
 
@@ -221,11 +200,14 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
         return temp;
     }
 
+    public CodecCallback getCodecCallback() {
+        return codecCallback;
+    }
+
     @Override
     public void onRecycle() {
+        codecCallback.clear();
         prev = null;
         next = null;
-        listener = null;
-        snapshot = null;
     }
 }

@@ -67,24 +67,26 @@ public class FixedTaskExecutor<T, TH extends Thread> {
         this.processor = processor;
     }
 
-    public void submit(T target) {
+    public boolean submit(T target) {
         if (isShutdown || target == null) {
-            return;
+            return false;
         }
         if (workerCount.get() < coreWorkerSize) {
             if (addWorker(target, true)) {
-                return;
+                return true;
             }
         }
         if (taskQueue.offer(target)) {
             if (workerCount.get() == 0 && !isShutdown) {
                 addWorker(null, false);
             }
-            return;
+            return true;
         }
-        if (!addWorker(target, false)) {
-            handler.rejectedExecution(target, this);
+        if (addWorker(target, false)) {
+            return true;
         }
+        handler.rejectedExecution(target, this);
+        return false;
     }
 
     public void shutdown() {

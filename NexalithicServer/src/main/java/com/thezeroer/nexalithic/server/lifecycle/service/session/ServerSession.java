@@ -3,7 +3,7 @@ package com.thezeroer.nexalithic.server.lifecycle.service.session;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.io.codec.AssemblerFactory;
 import com.thezeroer.nexalithic.core.io.codec.FragmenterFactory;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketFragmentWrapper;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
@@ -26,19 +26,19 @@ import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
  */
 public class ServerSession extends NexalithicSession<
         ServerSession,
-        ServerSessionChannel<SignalingPacket, SignalingPacket>,
-        ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
-        SignalingPacket,
-        BusinessPacketFragmentWrapper
+        ServerSessionChannel<SignalingPacket>,
+        ServerSessionChannel<BusinessPacket>
     > implements Expirable {
     public record Constant(long HeartBeat_MaxInterval) {}
     private final Constant CONSTANT;
     private final ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
-    public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey, ServerChannelFactory factory, Constant constant, ServiceUnit serviceUnit) {
-        super(sessionKey, signalingSecretKey, businessSecretKey, factory);
-        CONSTANT = constant;
+    public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey,
+                         ServerChannelFactory factory, TaskScheduler scheduler,
+                         Constant constant, ServiceUnit serviceUnit) {
+        super(sessionKey, signalingSecretKey, businessSecretKey, factory, scheduler);
+        this.CONSTANT = constant;
         this.serviceUnit = serviceUnit;
     }
 
@@ -88,10 +88,8 @@ public class ServerSession extends NexalithicSession<
 
     public static class ServerChannelFactory implements ChannelFactory <
             ServerSession,
-            ServerSessionChannel<SignalingPacket, SignalingPacket>,
-            ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper>,
-            SignalingPacket,
-            BusinessPacketFragmentWrapper
+            ServerSessionChannel<SignalingPacket>,
+            ServerSessionChannel<BusinessPacket>
             > {
 
         private final StewardLoop loop;
@@ -109,18 +107,18 @@ public class ServerSession extends NexalithicSession<
         }
 
         @Override
-        public ServerSessionChannel<SignalingPacket, SignalingPacket> createSignalingChannel(ServerSession session, SecretKeyContext context) {
+        public ServerSessionChannel<SignalingPacket> createSignalingChannel(ServerSession session, SecretKeyContext context) {
             return new ServerSessionChannel<>(AbstractPacket.PacketType.SIGNALING, session, loop,
-                    fragmenterFactory.create(AbstractPacket.PacketType.SIGNALING),
-                    assemblerFactory.create(AbstractPacket.PacketType.SIGNALING),
+                    fragmenterFactory.createSignaling(),
+                    assemblerFactory.createSignaling(),
                     context, serverSessionChannelConstant);
         }
 
         @Override
-        public ServerSessionChannel<BusinessPacket, BusinessPacketFragmentWrapper> createBusinessChannel(ServerSession session, SecretKeyContext context) {
+        public ServerSessionChannel<BusinessPacket> createBusinessChannel(ServerSession session, SecretKeyContext context) {
             return new ServerSessionChannel<>(AbstractPacket.PacketType.BUSINESS, session, null,
-                    fragmenterFactory.create(AbstractPacket.PacketType.BUSINESS),
-                    assemblerFactory.create(AbstractPacket.PacketType.BUSINESS),
+                    fragmenterFactory.createBusiness(session),
+                    assemblerFactory.createBusiness(session),
                     context, serverSessionChannelConstant);
         }
     }

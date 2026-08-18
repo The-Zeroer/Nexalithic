@@ -4,7 +4,6 @@ import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
@@ -20,7 +19,7 @@ import java.io.IOException;
  * @since 2026/03/08
  * @version 1.0.0
  */
-public abstract class ServiceLoop<P extends AbstractPacket, W extends FragmentWrapper<P>> extends ChannelLoop<ServerSessionChannel<P, W>> {
+public abstract class ServiceLoop<P extends AbstractPacket> extends ChannelLoop<ServerSessionChannel<P>> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServiceLoop.class);
     public static class Options extends ChannelLoop.Options {
         public final NexalithicOption<Integer> DispatchQueue_Capacity = NexalithicOption.create(

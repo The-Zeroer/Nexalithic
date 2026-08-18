@@ -3,22 +3,19 @@ package com.thezeroer.nexalithic.client;
 import com.thezeroer.nexalithic.client.lifecycle.ClientLifecycleManager;
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
 import com.thezeroer.nexalithic.client.manager.LinkStatusManager;
-import com.thezeroer.nexalithic.client.messaging.ClientBusinessPacketDispatcher;
+import com.thezeroer.nexalithic.client.messaging.ClientHandlerCoordinator;
 import com.thezeroer.nexalithic.client.messaging.ClientHandlerContext;
 import com.thezeroer.nexalithic.core.NexalithicEndpoint;
 import com.thezeroer.nexalithic.core.builder.NexalithicEndpointBuilder;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.event.NexalithicEventBus;
 import com.thezeroer.nexalithic.core.io.codec.assembler.BusinessPacketsAssembler;
-import com.thezeroer.nexalithic.core.messaging.BusinessPacketDispatcher;
+import com.thezeroer.nexalithic.core.messaging.handler.HandlerCoordinator;
 import com.thezeroer.nexalithic.core.messaging.task.NexalithicTask;
-import com.thezeroer.nexalithic.core.messaging.task.TaskFuture;
-import com.thezeroer.nexalithic.core.messaging.task.TaskTracer;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferListenerGroup;
-import com.thezeroer.nexalithic.core.messaging.visual.TransferTracer;
+import com.thezeroer.nexalithic.core.messaging.task.TaskHandle;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.client.lifecycle.GeneralLoop;
@@ -48,22 +45,16 @@ import java.util.concurrent.locks.LockSupport;
  */
 @SuppressWarnings("UnusedReturnValue")
 public class NexalithicClient extends NexalithicEndpoint<ClientLifecycleManager> {
-    public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<ClientLifecycleManager> LifecycleManager = NexalithicModule.create("NexalithicClient_LifecycleManager", ClientLifecycleManager.class);
+    public static final class Modules extends NexalithicEndpoint.Modules {
         public static final NexalithicModule<LinkStatusManager> LinkStatusManager = NexalithicModule.create("NexalithicClient_LinkStatusManager", LinkStatusManager.class);
-        public static final NexalithicModule<ClientBusinessPacketDispatcher> BusinessPacketDispatcher = NexalithicModule.create("NexalithicClient_BusinessPacketDispatcher", ClientBusinessPacketDispatcher.class);
-        public static final NexalithicModule<ClientSecurityPolicy> SecurityPolicy = NexalithicModule.create("NexalithicClient_SecurityPolicy", ClientSecurityPolicy.class);
-        public static final NexalithicModule<NexalithicEventBus> EventBus = NexalithicModule.create("NexalithicClient_EventBus", NexalithicEventBus.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(NexalithicClient.class);
     private final LinkStatusManager linkStatusManager;
     private final GeneralLoop generalLoop;
-    private final ClientBusinessPacketDispatcher businessPacketDispatcher;
 
     private NexalithicClient(NexalithicBuilderContext context) {
         super(context.getModule(Modules.LifecycleManager), context.getModule(Modules.EventBus));
         this.linkStatusManager = context.getModule(Modules.LinkStatusManager);
-        this.businessPacketDispatcher = context.getModule(Modules.BusinessPacketDispatcher);
         this.generalLoop = context.getModule(ClientLifecycleManager.Modules.GeneralLoop);
         System.gc();
     }
@@ -100,14 +91,11 @@ public class NexalithicClient extends NexalithicEndpoint<ClientLifecycleManager>
         generalLoop.unlink();
     }
 
-    public TaskFuture submit(NexalithicTask.Builder taskBuilder) {
-        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder, null);
-    }
-    public TaskFuture submit(NexalithicTask.Builder taskBuilder, TransferListenerGroup.Builder transferVisualizerBuilder) {
-        return businessPacketDispatcher.submitNexalithicTask(getSession(), taskBuilder, transferVisualizerBuilder);
+    public TaskHandle submit(NexalithicTask.Builder taskBuilder) {
+        return getSession().getTaskCoordinator().submit(taskBuilder);
     }
     public boolean push(BusinessPacket packet) {
-        return businessPacketDispatcher.egress(getSession(), packet);
+        return getSession().pushBusinessPacket(packet);
     }
 
     public LinkStatusManager.Status getLinkStatus() {
@@ -158,11 +146,11 @@ public class NexalithicClient extends NexalithicEndpoint<ClientLifecycleManager>
 
             controllerHandlerAssemblyBuilder.build().assembleInto(handlerRegistryBuilder);
             context.setModule(Modules.EventBus, new NexalithicEventBus());
-            context.setModule(BusinessPacketDispatcher.Modules.TaskTracer, new TaskTracer(context));
-            context.setModule(BusinessPacketDispatcher.Modules.HandlerRegistry, handlerRegistryBuilder.build());
-            context.setModule(BusinessPacketDispatcher.Modules.TransferTracer, new TransferTracer(context));
+            context.setModule(HandlerCoordinator.Modules.HandlerRegistry, handlerRegistryBuilder.build());
             context.setModule(BusinessPacketsAssembler.Modules.PayloadRegistry, payloadRegistryBuilder.build());
-            context.setModule(Modules.BusinessPacketDispatcher, new ClientBusinessPacketDispatcher(context));
+            ClientHandlerCoordinator handlerCoordinator = new ClientHandlerCoordinator(context);
+            context.setModule(Modules.HandlerCoordinator, handlerCoordinator);
+            context.setModule(Modules.TaskScheduler, new TaskScheduler(context));
             context.setModule(Modules.LinkStatusManager, new LinkStatusManager(context));
             context.setModule(ClientLifecycleManager.Modules.GeneralLoop, new GeneralLoop(context));
             context.setModule(Modules.LifecycleManager, new ClientLifecycleManager(context));

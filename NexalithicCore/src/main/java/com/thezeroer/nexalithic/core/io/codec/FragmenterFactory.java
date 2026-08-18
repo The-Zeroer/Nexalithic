@@ -1,11 +1,17 @@
 package com.thezeroer.nexalithic.core.io.codec;
 
+import com.thezeroer.nexalithic.core.NexalithicEndpoint;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.BusinessPacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.SignalingPacketsFragmenter;
-import com.thezeroer.nexalithic.core.io.codec.fragmenter.FragmentWrapper;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
+import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.io.codec.fragmenter.*;
+import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
+import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
+import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
+import com.thezeroer.nexalithic.core.session.NexalithicSession;
+import org.jctools.queues.MpmcArrayQueue;
 
 /**
  * 分片器工厂
@@ -16,18 +22,26 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
  */
 public class FragmenterFactory {
     private final int SignalingPacketsFragmenter_WrapperQueue_Capacity_, BusinessPacketsFragmenter_WrapperQueue_Capacity_, WrapperLinked_Capacity_;
+    private final WrapperPool<BusinessPacketFragmentWrapper> businessPacketWrapperPool;
 
     public FragmenterFactory(NexalithicBuilderContext context) {
         SignalingPacketsFragmenter_WrapperQueue_Capacity_ = context.getOption(SignalingPacketsFragmenter.OPTIONS.WrapperQueue_Capacity);
         BusinessPacketsFragmenter_WrapperQueue_Capacity_ = context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperQueue_Capacity);
         WrapperLinked_Capacity_ = context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperLinked_Capacity);
+        TaskScheduler taskScheduler = context.getModule(NexalithicEndpoint.Modules.TaskScheduler);
+        businessPacketWrapperPool = new TargetDynamicWrapperPool<>(
+                PoolStorage.of(MpmcArrayQueue::new, context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperPool_Capacity)),
+                PoolStrategy.alwaysCreate(),
+                () -> new BusinessPacketFragmentWrapper(new FragmentCallback(taskScheduler))
+        );
     }
 
-    @SuppressWarnings("unchecked")
-    public <W extends FragmentWrapper<?>> PacketsFragmenter<W> create(AbstractPacket.PacketType packetType) {
-        return (PacketsFragmenter<W>) switch (packetType) {
-            case SIGNALING -> new SignalingPacketsFragmenter(SignalingPacketsFragmenter_WrapperQueue_Capacity_);
-            case BUSINESS -> new BusinessPacketsFragmenter(BusinessPacketsFragmenter_WrapperQueue_Capacity_, WrapperLinked_Capacity_);
-        };
+    public PacketsFragmenter<SignalingPacket> createSignaling() {
+        return new SignalingPacketsFragmenter(SignalingPacketsFragmenter_WrapperQueue_Capacity_);
+    }
+
+    public PacketsFragmenter<BusinessPacket> createBusiness(NexalithicSession<?, ?, ?> session) {
+        return new BusinessPacketsFragmenter(session, businessPacketWrapperPool,
+                BusinessPacketsFragmenter_WrapperQueue_Capacity_, WrapperLinked_Capacity_);
     }
 }
