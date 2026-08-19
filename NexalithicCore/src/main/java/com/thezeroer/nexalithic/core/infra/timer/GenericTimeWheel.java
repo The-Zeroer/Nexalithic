@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.core.infra.timer;
 
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 
 /**
@@ -11,7 +12,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
  */
 public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> {
 
-    public GenericTimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<GenericTimeWheel.GenericScheduleWrapper<? extends Expirable>> wrapperPool, String name) {
+    public GenericTimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<GenericScheduleWrapper<? extends Expirable>> wrapperPool, String name) {
         super(tick, slot, tickQuotaShift, waitQueueChunkSize, wrapperPool, name);
     }
 
@@ -39,32 +40,36 @@ public class GenericTimeWheel extends TimeWheel<GenericTimeWheel.GenericSchedule
         private volatile E expirable;
         private volatile TimerExecutor<E> executor;
 
-        public GenericScheduleWrapper<E> wrap(E expirable, TimerExecutor<E> executor) {
+        public GenericScheduleWrapper(GenericWrapperPool<GenericScheduleWrapper<? extends Expirable>, GenericScheduleWrapper<? extends Expirable>> owner) {
+            super(owner);
+        }
+
+        public final GenericScheduleWrapper<E> wrap(E expirable, TimerExecutor<E> executor) {
             this.expirable = expirable;
             this.executor = executor;
             return this;
         }
 
-        public E getExpirable() {
+        public final E getExpirable() {
             return expirable;
         }
-        public TimerExecutor<E> getExecutor() {
+        public final TimerExecutor<E> getExecutor() {
             return executor;
         }
 
         @Override
-        public long getExpiryTime() {
+        public final long getExpiryTime() {
             return expirable.getExpiryTime();
         }
 
         @Override
-        public boolean isCancelled() {
+        public final boolean isCancelled() {
             return expirable.isCancelled();
         }
 
         @Override
-        public void onRecycle() {
-            super.onRecycle();
+        protected final void onReset() {
+            super.onReset();
             expirable = null;
             executor = null;
         }

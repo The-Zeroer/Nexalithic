@@ -1,11 +1,12 @@
 package com.thezeroer.nexalithic.core.io.codec.fragmenter;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicRecyclableWrapper;
 import com.thezeroer.nexalithic.core.io.codec.CodecCallback;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicWrapperPool;
 
 import java.io.IOException;
 import java.util.List;
@@ -17,7 +18,7 @@ import java.util.List;
  * @since 2026/03/11
  * @version 1.0.0
  */
-public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.InteriorRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> {
+public class BusinessPacketFragmentWrapper extends TargetDynamicRecyclableWrapper<BusinessPacket, BusinessPacketFragmentWrapper> {
     private final CodecCallback codecCallback;
     private BusinessPacketFragmentWrapper prev;
     private BusinessPacketFragmentWrapper next;
@@ -26,7 +27,8 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     private int payloadIndex;
     private List<? extends AbstractPayload<?>> payloads;
 
-    public BusinessPacketFragmentWrapper(CodecCallback codecCallback) {
+    public BusinessPacketFragmentWrapper(GenericWrapperPool<BusinessPacket, BusinessPacketFragmentWrapper> owner, CodecCallback codecCallback) {
+        super(owner);
         this.codecCallback = codecCallback;
     }
 
@@ -205,9 +207,13 @@ public class BusinessPacketFragmentWrapper extends TargetDynamicWrapperPool.Inte
     }
 
     @Override
-    public void onRecycle() {
+    protected void onReset() {
         codecCallback.clear();
         prev = null;
         next = null;
+        remaining = 0;
+        packetId = 0;
+        payloadIndex = 0;
+        payloads.clear();
     }
 }

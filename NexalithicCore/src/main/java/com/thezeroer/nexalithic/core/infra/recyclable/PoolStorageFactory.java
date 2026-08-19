@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.recyclable.next;
+package com.thezeroer.nexalithic.core.infra.recyclable;
 
 import java.util.Objects;
 import java.util.Queue;

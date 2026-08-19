@@ -1,11 +1,12 @@
 package com.thezeroer.nexalithic.core.io.codec.assembler;
 
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticRecyclableWrapper;
 import com.thezeroer.nexalithic.core.io.codec.CodecCallback;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 
 import java.io.IOException;
@@ -19,7 +20,7 @@ import java.util.List;
  * @since 2026/03/15
  * @version 1.0.0
  */
-public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.InteriorRecyclableWrapper<BusinessPacketAssemblyWrapper> implements Expirable {
+public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<BusinessPacketAssemblyWrapper> implements Expirable {
     public record Constant(long MaxIdleTime) {}
     private final Constant CONSTANT;
     private final CodecCallback codecCallback;
@@ -32,10 +33,12 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     private boolean headerRead;
     private long lastActiveTime;
 
-    public BusinessPacketAssemblyWrapper(Constant constant, PayloadRegistry payloadRegistry, CodecCallback codecCallback) {
+    public BusinessPacketAssemblyWrapper(GenericWrapperPool<BusinessPacketAssemblyWrapper, BusinessPacketAssemblyWrapper> owner,
+                                         Constant constant, CodecCallback codecCallback, PayloadRegistry payloadRegistry) {
+        super(owner);
         CONSTANT = constant;
-        this.payloadRegistry = payloadRegistry;
         this.codecCallback = codecCallback;
+        this.payloadRegistry = payloadRegistry;
     }
 
     public boolean hasFrame() {
@@ -152,10 +155,11 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
     }
 
     @Override
-    protected void onRecycle() {
+    protected void onReset() {
         codecCallback.clear();
         packetBuilder.clear();
         packet = null;
+        remaining = 0;
         packetId = 0;
         headerRead = false;
         payloadIndex = 0;
@@ -174,7 +178,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticWrapperPool.Interio
 
     @Override
     public boolean isCancelled() {
-        return isRecycled();
+        return !isActive();
     }
 
     private static class PacketBuilder {

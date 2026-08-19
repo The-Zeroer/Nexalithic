@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.recyclable.next;
+package com.thezeroer.nexalithic.core.infra.recyclable;
 
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;

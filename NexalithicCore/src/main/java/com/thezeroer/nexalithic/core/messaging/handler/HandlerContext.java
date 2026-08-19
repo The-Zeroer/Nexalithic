@@ -1,7 +1,8 @@
 package com.thezeroer.nexalithic.core.messaging.handler;
 
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.TargetStaticRecyclableWrapper;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
-import com.thezeroer.nexalithic.core.infra.recyclable.TargetStaticWrapperPool;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 
 /**
@@ -50,12 +51,12 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?>> {
             S extends NexalithicSession<?, ?, ?>,
             T extends HandlerContext<S>,
             W extends Recyclable<S, T, W>
-        > extends TargetStaticWrapperPool.InteriorRecyclableWrapper<T, W> {
+        > extends TargetStaticRecyclableWrapper<T, W> {
 
         private volatile NexalithicHandler<T> handler;
 
-        public Recyclable(T target) {
-            super(target);
+        public Recyclable(GenericWrapperPool<T, W> owner, T target) {
+            super(owner, target);
         }
 
         public void initTarget(BusinessPacket request, S session, NexalithicHandler<T> handler) {
@@ -65,9 +66,10 @@ public abstract class HandlerContext<S extends NexalithicSession<?, ?, ?>> {
         }
 
         @Override
-        protected void onRecycle() {
+        protected void onReset() {
             target.request = null;
             target.session = null;
+            this.handler = null;
         }
 
         public S getSession() {

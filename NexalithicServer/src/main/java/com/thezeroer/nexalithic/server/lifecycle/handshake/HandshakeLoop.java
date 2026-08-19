@@ -6,15 +6,15 @@ import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.infra.executor.BlockingTaskQueue;
 import com.thezeroer.nexalithic.core.infra.executor.FixedTaskExecutor;
 import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecurityPolicy;
@@ -24,6 +24,7 @@ import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
+import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
@@ -112,9 +113,9 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     context.getOption(OPTIONS.TimeWheel.Slot),
                     context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
                     context.getOption(OPTIONS.TimeWheel.WaitQueue_ChunkSize),
-                    new SelfStaticWrapperPool<>(
-                            PoolStorage.of(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
-                            PoolStrategy.alwaysCreate(),
+                    new GenericWrapperPool<>(
+                            PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
+                            PoolStrategyFactory.alwaysCreate(),
                             GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
                     ),
                     HandshakeLoop.class.getSimpleName()
@@ -155,7 +156,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                 },
                 (channel, executor) -> closeChannel(channel),
                 (channel, thread) -> {
-                    if (channel.isRecycled()) {
+                    if (!channel.isActive()) {
                         return;
                     }
                     ByteBuffer writeBuffer = channel.getWriteBuffer();
@@ -237,7 +238,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     public boolean onAsyncEvent() {
         dispatchQueue.drain(channel -> {
             try {
-                if (channel.isRecycled()) {
+                if (!channel.isActive()) {
                     return;
                 }
                 SelectionKey key = channel.getSocketChannel().configureBlocking(false).register(selector, SelectionKey.OP_READ);

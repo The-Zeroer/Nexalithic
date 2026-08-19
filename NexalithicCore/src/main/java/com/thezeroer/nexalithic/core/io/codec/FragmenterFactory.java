@@ -2,9 +2,9 @@ package com.thezeroer.nexalithic.core.io.codec;
 
 import com.thezeroer.nexalithic.core.NexalithicEndpoint;
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.infra.recyclable.TargetDynamicWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.io.codec.fragmenter.*;
 import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
@@ -29,10 +29,11 @@ public class FragmenterFactory {
         BusinessPacketsFragmenter_WrapperQueue_Capacity_ = context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperQueue_Capacity);
         WrapperLinked_Capacity_ = context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperLinked_Capacity);
         TaskScheduler taskScheduler = context.getModule(NexalithicEndpoint.Modules.TaskScheduler);
-        businessPacketWrapperPool = new TargetDynamicWrapperPool<>(
-                PoolStorage.of(MpmcArrayQueue::new, context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperPool_Capacity)),
-                PoolStrategy.alwaysCreate(),
-                () -> new BusinessPacketFragmentWrapper(new FragmentCallback(taskScheduler))
+        //noinspection Convert2Diamond
+        businessPacketWrapperPool = new GenericWrapperPool<BusinessPacket, BusinessPacketFragmentWrapper>(
+                PoolStorageFactory.bounded(MpmcArrayQueue::new, context.getOption(BusinessPacketsFragmenter.OPTIONS.WrapperPool_Capacity)),
+                PoolStrategyFactory.alwaysCreate(),
+                owner -> new BusinessPacketFragmentWrapper(owner, new FragmentCallback(taskScheduler))
         );
     }
 

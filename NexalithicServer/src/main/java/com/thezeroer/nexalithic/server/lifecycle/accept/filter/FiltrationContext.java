@@ -1,12 +1,13 @@
 package com.thezeroer.nexalithic.server.lifecycle.accept.filter;
 
 import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
-import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticRecyclableWrapper;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
-import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
@@ -32,16 +33,19 @@ import java.nio.channels.SocketChannel;
  * @version 1.0.0
  * @see FiltrationStrategy
  */
-public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
+public class FiltrationContext extends SelfStaticRecyclableWrapper<FiltrationContext> implements FiltrationContextView {
     private final LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer;
     private final WrapperPool<PendingChannel> pendingChannelPool;
     private AbstractPacket.PacketType packetType;
     private SocketChannel socketChannel;
 
-    public FiltrationContext(LoadBalancer<Void, HandshakeLoop> balancer, WrapperPool<PendingChannel> pendingChannelPool)  {
-        this.handshakeLoopBalancer = balancer;
+    public FiltrationContext(GenericWrapperPool<FiltrationContext, FiltrationContext> owner,
+                             LoadBalancer<Void, HandshakeLoop> handshakeLoopBalancer, WrapperPool<PendingChannel> pendingChannelPool) {
+        super(owner);
+        this.handshakeLoopBalancer = handshakeLoopBalancer;
         this.pendingChannelPool = pendingChannelPool;
     }
+
 
     public FiltrationContext init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
         this.packetType = packetType;
@@ -93,7 +97,7 @@ public class FiltrationContext extends SelfStaticWrapperPool.InteriorRecyclableW
     }
 
     @Override
-    protected void onRecycle() {
+    protected void onReset() {
         packetType = null;
         socketChannel = null;
     }

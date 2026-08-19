@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.client.messaging;
 
 import com.thezeroer.nexalithic.client.lifecycle.session.ClientSession;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
 
 /**
@@ -12,16 +13,15 @@ import com.thezeroer.nexalithic.core.messaging.handler.HandlerContext;
  */
 public class ClientHandlerContext extends HandlerContext<ClientSession> {
 
-    public ClientHandlerContext() {
-    }
+    public ClientHandlerContext() {}
 
     public static class Recyclable extends HandlerContext.Recyclable<
             ClientSession,
             ClientHandlerContext,
             Recyclable
         > {
-        public Recyclable(ClientHandlerContext target) {
-            super(target);
+        public Recyclable(GenericWrapperPool<ClientHandlerContext, Recyclable> owner, ClientHandlerContext target) {
+            super(owner, target);
         }
     }
 }

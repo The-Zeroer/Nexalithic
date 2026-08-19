@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.recyclable.next;
+package com.thezeroer.nexalithic.core.infra.recyclable;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -128,7 +128,7 @@ public class GenericWrapperPool<T, W extends GenericWrapperPool.AbstractRecyclab
             }
         }
 
-        protected AbstractRecyclableWrapper(GenericWrapperPool<T, W> owner) {
+        public AbstractRecyclableWrapper(GenericWrapperPool<T, W> owner) {
             this.owner = owner;
         }
 
@@ -215,7 +215,7 @@ public class GenericWrapperPool<T, W extends GenericWrapperPool.AbstractRecyclab
 
         protected abstract void onRecycle();
         protected abstract void onReset();
-        protected abstract void onDiscard();
+        protected void onDiscard() {}
 
         private boolean transitState(State expectedState, State newState) {
             return STATE_VARHANDLE.compareAndSet(this, expectedState, newState);

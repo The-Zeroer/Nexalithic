@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.recyclable.next;
+package com.thezeroer.nexalithic.core.infra.recyclable;
 
 /**
  * 自静态可回收包装器
@@ -8,7 +8,7 @@ package com.thezeroer.nexalithic.core.infra.recyclable.next;
  * @since 2026/08/19
  */
 public abstract class SelfStaticRecyclableWrapper<W extends SelfStaticRecyclableWrapper<W>> extends GenericWrapperPool.AbstractRecyclableWrapper<W, W>{
-    protected SelfStaticRecyclableWrapper(GenericWrapperPool<W, W> owner) {
+    public SelfStaticRecyclableWrapper(GenericWrapperPool<W, W> owner) {
         super(owner);
     }
 

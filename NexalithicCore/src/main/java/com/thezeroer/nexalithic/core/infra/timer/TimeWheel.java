@@ -3,7 +3,8 @@ package com.thezeroer.nexalithic.core.infra.timer;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticRecyclableWrapper;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import org.jctools.queues.MpscUnboundedArrayQueue;
 import org.slf4j.Logger;
@@ -191,9 +192,13 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
         logger.error("TimeWheel task execution failed. Task: {}", current.toString(), e);
     }
 
-    public static abstract class ScheduleWrapper<W extends ScheduleWrapper<W>> extends SelfStaticWrapperPool.InteriorRecyclableWrapper<W> {
+    public static abstract class ScheduleWrapper<W extends ScheduleWrapper<W>> extends SelfStaticRecyclableWrapper<W> {
         private volatile ScheduleWrapper<W> prev, next;
         private volatile int remainingRounds;
+
+        public ScheduleWrapper(GenericWrapperPool<W, W> owner) {
+            super(owner);
+        }
 
         void setRemainingRounds(int remainingRounds) {
             this.remainingRounds = remainingRounds;
@@ -219,7 +224,7 @@ public abstract class TimeWheel<W extends TimeWheel.ScheduleWrapper<W>> {
         }
 
         @Override
-        public void onRecycle() {
+        protected void onReset() {
             prev = null;
             next = null;
             remainingRounds = 0;

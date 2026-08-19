@@ -52,20 +52,19 @@ public class LoopThread extends Thread {
     }
     private final WrapperPool<LoopBuffer> globalLoopBufferPool;
     private final WrapperPool<LoopBuffer> localLoopBufferPool;
-    private ProxyRecycler<?> proxyRecycler;
 
     public LoopThread(NexalithicBuilderContext context, AbstractLoop loop) {
         super(loop);
         int bufferCapacity = context.getOption(OPTIONS.LoopBuffer_Capacity);
-        globalLoopBufferPool = context.getModule(Modules.GlobalLoopBufferPool, () -> new SelfStaticWrapperPool<>(
-                PoolStorage.of(MpmcArrayQueue::new, context.getOption(OPTIONS.GlobalLoopBufferPool_Capacity)),
-                PoolStrategy.failFast(context.getOption(OPTIONS.GlobalLoopBufferPool_Limit)),
-                () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
+        globalLoopBufferPool = context.getModule(Modules.GlobalLoopBufferPool, () -> new GenericWrapperPool<LoopBuffer, LoopBuffer>(
+                PoolStorageFactory.bounded(MpmcArrayQueue::new, context.getOption(OPTIONS.GlobalLoopBufferPool_Capacity)),
+                PoolStrategyFactory.failFast(context.getOption(OPTIONS.GlobalLoopBufferPool_Limit)),
+                owner -> new LoopBuffer(owner, ByteBuffer.allocateDirect(bufferCapacity))
         ).warmUp(context.getOption(OPTIONS.GlobalLoopBufferPool_PrefillRatio)));
-        localLoopBufferPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(SpscArrayQueue::new, context.getOption(OPTIONS.LocalLoopBufferPool_Capacity)),
-                PoolStrategy.skip(),
-                () -> new LoopBuffer(ByteBuffer.allocateDirect(bufferCapacity))
+        localLoopBufferPool = new GenericWrapperPool<LoopBuffer, LoopBuffer>(
+                PoolStorageFactory.bounded(SpscArrayQueue::new, context.getOption(OPTIONS.LocalLoopBufferPool_Capacity)),
+                PoolStrategyFactory.skip(),
+                owner -> new LoopBuffer(owner, ByteBuffer.allocateDirect(bufferCapacity))
         ).warmUp(context.getOption(OPTIONS.LocalLoopBufferPool_PrefillRatio));
     }
 
@@ -75,15 +74,5 @@ public class LoopThread extends Thread {
             loopBuffer = globalLoopBufferPool.acquire();
         }
         return loopBuffer;
-    }
-
-    public void productionProxyRecycler(ProxyRecycler<?> proxyRecycler) {
-        this.proxyRecycler = proxyRecycler;
-    }
-    @SuppressWarnings("unchecked")
-    public <R extends ProxyRecycler<?>> R consumeProxyRecycler() {
-        R r = (R) proxyRecycler;
-        proxyRecycler = null;
-        return r;
     }
 }

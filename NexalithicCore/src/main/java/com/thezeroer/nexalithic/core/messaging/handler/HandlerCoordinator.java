@@ -64,10 +64,9 @@ public abstract class HandlerCoordinator<
 
     protected HandlerCoordinator(NexalithicBuilderContext context, Options options, boolean shared) {
         handlerRegistry = context.getModule(Modules.HandlerRegistry);
-        wrapperPool = new TargetStaticWrapperPool<>(
-                PoolStorage.of(shared ? MpmcArrayQueue::new : MpscArrayQueue::new, context.getOption(options.HandlerContextPool_Capacity)),
-                PoolStrategy.alwaysCreate(),
-                this::createHandlerContext,
+        wrapperPool = new GenericWrapperPool<>(
+                PoolStorageFactory.bounded(shared ? MpmcArrayQueue::new : MpscArrayQueue::new, context.getOption(options.HandlerContextPool_Capacity)),
+                PoolStrategyFactory.alwaysCreate(),
                 this::createRecyclableWrapper
         );
         executor = createFixedTaskExecutor(context, shared);
@@ -107,8 +106,7 @@ public abstract class HandlerCoordinator<
     protected void init(NexalithicBuilderContext context, Options options) {
         wrapperPool.warmUp(context.getOption(options.HandlerContextPool_PrefillRatio));
     }
-    protected abstract HC createHandlerContext();
-    protected abstract HR createRecyclableWrapper(HC hc);
+    protected abstract HR createRecyclableWrapper(GenericWrapperPool<HC, HR> owner);
 
     public final void accept(S session, BusinessPacket packet) {
         if (packet.getWay().isResponse()) {

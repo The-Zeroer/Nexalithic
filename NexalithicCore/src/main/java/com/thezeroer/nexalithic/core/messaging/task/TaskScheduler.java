@@ -8,9 +8,9 @@ import com.thezeroer.nexalithic.core.infra.executor.BlockingTaskQueue;
 import com.thezeroer.nexalithic.core.infra.executor.FixedTaskExecutor;
 import com.thezeroer.nexalithic.core.infra.executor.RejectedTaskHandler;
 import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
 import com.thezeroer.nexalithic.core.infra.timer.DedicatedTimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
@@ -73,9 +73,9 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
                 context.getOption(OPTIONS.TimeWheel.Slot),
                 context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
                 context.getOption(OPTIONS.TimeWheel.WaitQueue_ChunkSize),
-                new SelfStaticWrapperPool<>(
-                        PoolStorage.of(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
-                        PoolStrategy.alwaysCreate(),
+                new GenericWrapperPool<>(
+                        PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
+                        PoolStrategyFactory.alwaysCreate(),
                         DedicatedTimeWheel.DedicatedScheduleWrapper<NexalithicTask>::new
                 ),
                 this,

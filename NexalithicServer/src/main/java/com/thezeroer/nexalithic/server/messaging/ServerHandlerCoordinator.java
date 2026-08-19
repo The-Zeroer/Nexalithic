@@ -1,6 +1,7 @@
 package com.thezeroer.nexalithic.server.messaging;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.messaging.handler.HandlerCoordinator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.server.NexalithicServer;
@@ -22,6 +23,7 @@ public class ServerHandlerCoordinator extends HandlerCoordinator<
         ServerHandlerContext.Recyclable
         > {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, ServerHandlerCoordinator.class);
+
     public static final class Options extends HandlerCoordinator.Options {
         public Options(Class<?> holder) {
             super(holder);
@@ -36,12 +38,7 @@ public class ServerHandlerCoordinator extends HandlerCoordinator<
     }
 
     @Override
-    protected ServerHandlerContext createHandlerContext() {
-        return new ServerHandlerContext(sessionsManager);
-    }
-
-    @Override
-    protected ServerHandlerContext.Recyclable createRecyclableWrapper(ServerHandlerContext context) {
-        return new ServerHandlerContext.Recyclable(context);
+    protected ServerHandlerContext.Recyclable createRecyclableWrapper(GenericWrapperPool<ServerHandlerContext, ServerHandlerContext.Recyclable> owner) {
+        return new ServerHandlerContext.Recyclable(owner, new ServerHandlerContext(sessionsManager));
     }
 }

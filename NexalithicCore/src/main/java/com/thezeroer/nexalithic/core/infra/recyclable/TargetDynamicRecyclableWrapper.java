@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.recyclable.next;
+package com.thezeroer.nexalithic.core.infra.recyclable;
 
 /**
  * 目标动态可回收包装器
@@ -10,7 +10,7 @@ package com.thezeroer.nexalithic.core.infra.recyclable.next;
 public abstract class TargetDynamicRecyclableWrapper<T, W extends TargetDynamicRecyclableWrapper<T, W>> extends GenericWrapperPool.AbstractRecyclableWrapper<T, W> {
     protected volatile T target;
 
-    protected TargetDynamicRecyclableWrapper(GenericWrapperPool<T, W> owner) {
+    public TargetDynamicRecyclableWrapper(GenericWrapperPool<T, W> owner) {
         super(owner);
     }
 

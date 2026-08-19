@@ -1,7 +1,8 @@
-package com.thezeroer.nexalithic.server.lifecycle.handshake;
+package com.thezeroer.nexalithic.server.lifecycle.accept;
 
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticRecyclableWrapper;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
@@ -22,7 +23,7 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
+public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
     public record Constant(long MaxWaitTime, int readBufferCapacity, int writeBufferCapacity) {}
     public enum State {
         STEP_1,
@@ -30,12 +31,12 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     private final Constant CONSTANT;
-    private volatile AbstractPacket.PacketType packetType;
+    private final ByteBuffer readBuffer;
+    private final ByteBuffer writeBuffer;
+    private volatile AbstractPacket.PacketType type;
     private volatile SelectionKey selectionKey;
     private volatile SocketChannel socketChannel;
     private volatile State state;
-    private final ByteBuffer readBuffer;
-    private final ByteBuffer writeBuffer;
     private volatile PrivateKey privateKey;
     private volatile MessageDigest transcriptHash;
     private volatile ServerSession session;
@@ -43,14 +44,15 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     private volatile SecretKeyContext signalingSecretContext, businessSecretContext;
     private volatile long lastActiveTime = -1;
 
-    public PendingChannel(Constant constant) {
+    public PendingChannel(GenericWrapperPool<PendingChannel, PendingChannel> owner, Constant constant) {
+        super(owner);
         CONSTANT = constant;
         readBuffer = ByteBuffer.allocate(constant.readBufferCapacity);
         writeBuffer = ByteBuffer.allocate(constant.writeBufferCapacity);
     }
 
     public PendingChannel init(AbstractPacket.PacketType packetType, SocketChannel socketChannel) {
-        this.packetType = packetType;
+        this.type = packetType;
         this.socketChannel = socketChannel;
         state = State.STEP_1;
         lastActiveTime = System.currentTimeMillis();
@@ -58,7 +60,7 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     public AbstractPacket.PacketType getType() {
-        return packetType;
+        return type;
     }
     public SocketChannel getSocketChannel() {
         return socketChannel;
@@ -138,16 +140,17 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
     }
 
     @Override
-    protected void onRecycle() {
+    protected void onReset() {
         readBuffer.clear();
         writeBuffer.clear();
-        packetType = null;
+        type = null;
         socketChannel = null;
         selectionKey = null;
+        state = null;
         privateKey = null;
         transcriptHash = null;
         session = null;
-        selectionKey = null;
+        sessionKey = null;
         signalingSecretContext = null;
         businessSecretContext = null;
         lastActiveTime = -1;
@@ -155,7 +158,7 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     public boolean closeChannel() {
-        if (isRecycled()) {
+        if (!isActive()) {
             return false;
         }
         try {
@@ -184,11 +187,11 @@ public class PendingChannel extends SelfStaticWrapperPool.InteriorRecyclableWrap
 
     @Override
     public boolean isCancelled() {
-        return isRecycled();
+        return !isActive();
     }
 
     @Override
     public String toString() {
-        return "PacketType: " + packetType + ", State: " + state + ", SocketChannel: " + socketChannel;
+        return "PacketType: " + type + ", State: " + state + ", SocketChannel: " + socketChannel;
     }
 }

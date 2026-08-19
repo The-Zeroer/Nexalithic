@@ -1,5 +1,6 @@
 package com.thezeroer.nexalithic.core.infra.timer;
 
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 
 /**
@@ -12,7 +13,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> {
     private final TimerExecutor<E> executor;
 
-    public DedicatedTimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> wrapperPool, TimerExecutor<E> executor, String name) {
+    public DedicatedTimeWheel(long tick, int slot, int tickQuotaShift, int waitQueueChunkSize, WrapperPool<DedicatedScheduleWrapper<E>> wrapperPool, TimerExecutor<E> executor, String name) {
         super(tick, slot, tickQuotaShift, waitQueueChunkSize, wrapperPool, name);
         this.executor = executor;
     }
@@ -36,28 +37,32 @@ public class DedicatedTimeWheel<E extends Expirable> extends TimeWheel<Dedicated
     public static class DedicatedScheduleWrapper<E extends Expirable> extends ScheduleWrapper<DedicatedTimeWheel.DedicatedScheduleWrapper<E>> {
         private volatile E expirable;
 
-        public DedicatedScheduleWrapper<E> wrap(E expirable) {
+        public DedicatedScheduleWrapper(GenericWrapperPool<DedicatedScheduleWrapper<E>, DedicatedScheduleWrapper<E>> owner) {
+            super(owner);
+        }
+
+        public final DedicatedScheduleWrapper<E> wrap(E expirable) {
             this.expirable = expirable;
             return this;
         }
 
-        public E getExpirable() {
+        public final E getExpirable() {
             return expirable;
         }
 
         @Override
-        public long getExpiryTime() {
+        public final long getExpiryTime() {
             return expirable.getExpiryTime();
         }
 
         @Override
-        public boolean isCancelled() {
+        public final boolean isCancelled() {
             return expirable.isCancelled();
         }
 
         @Override
-        public void onRecycle() {
-            super.onRecycle();
+        protected final void onReset() {
+            super.onReset();
             expirable = null;
         }
     }

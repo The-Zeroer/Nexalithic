@@ -1,22 +1,21 @@
 package com.thezeroer.nexalithic.server.lifecycle.accept;
 
 import com.thezeroer.nexalithic.core.builder.NexalithicBuilderContext;
+import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
+import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorage;
-import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategy;
-import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticWrapperPool;
-import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
-import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.jctools.queues.MpscArrayQueue;
@@ -80,15 +79,15 @@ public class AcceptorLoop extends AbstractLoop {
                         SecretKeyUtils.FINISHED_LENGTH + ServerSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH * 2)
         );
         handshakeLoopBalancer = context.getModule(ServerLifecycleManager.Modules.HandshakeLoopLoadBalancer);
-        pendingChannelPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(MpscArrayQueue::new, context.getOption(OPTIONS.PendingChannelPool_Capacity)),
-                PoolStrategy.blocking(context.getOption(OPTIONS.PendingChannelPool_Limit)),
-                () -> new PendingChannel(pendingChannelConstant)
+        pendingChannelPool = new GenericWrapperPool<PendingChannel, PendingChannel>(
+                PoolStorageFactory.bounded(MpscArrayQueue::new, context.getOption(OPTIONS.PendingChannelPool_Capacity)),
+                PoolStrategyFactory.blocking(context.getOption(OPTIONS.PendingChannelPool_Limit)),
+                owner -> new PendingChannel(owner, pendingChannelConstant)
         ).warmUp(context.getOption(OPTIONS.PendingChannelPool_PrefillRatio));
-        filtrationContextPool = new SelfStaticWrapperPool<>(
-                PoolStorage.of(MpscArrayQueue::new, context.getOption(OPTIONS.FiltrationContextPool_Capacity)),
-                PoolStrategy.blocking(context.getOption(OPTIONS.FiltrationContextPool_Limit)),
-                () -> new FiltrationContext(handshakeLoopBalancer, pendingChannelPool)
+        filtrationContextPool = new GenericWrapperPool<FiltrationContext, FiltrationContext>(
+                PoolStorageFactory.bounded(MpscArrayQueue::new, context.getOption(OPTIONS.FiltrationContextPool_Capacity)),
+                PoolStrategyFactory.blocking(context.getOption(OPTIONS.FiltrationContextPool_Limit)),
+                owner -> new FiltrationContext(owner, handshakeLoopBalancer, pendingChannelPool)
         ).warmUp(context.getOption(OPTIONS.FiltrationContextPool_PrefillRatio));
     }
 
