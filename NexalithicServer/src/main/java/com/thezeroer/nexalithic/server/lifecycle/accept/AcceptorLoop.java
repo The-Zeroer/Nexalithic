@@ -16,6 +16,7 @@ import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
 import com.thezeroer.nexalithic.server.lifecycle.accept.filter.FiltrationContext;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.security.ServerSecurityPolicy;
 import org.jctools.queues.MpscArrayQueue;
@@ -29,6 +30,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 接收器选择器
@@ -73,7 +75,7 @@ public class AcceptorLoop extends AbstractLoop {
         super(context, OPTIONS);
         ServerSecurityPolicy securityPolicy = context.getModule(NexalithicServer.Modules.SecurityPolicy);
         PendingChannel.Constant pendingChannelConstant = new PendingChannel.Constant(
-                context.getOption(HandshakeLoop.OPTIONS.MaxWaitTime),
+                TimeUnit.NANOSECONDS.convert(context.getOption(HandshakeLoop.OPTIONS.MaxWaitMilliTime), TimeUnit.MILLISECONDS),
                 SecretKeyUtils.ECDH_LENGTH + SecretKeyUtils.FINISHED_LENGTH + SecretKeyContext.TAG_LENGTH,
                 Math.max(securityPolicy.certificatesLength() + SecretKeyUtils.ECDH_LENGTH + securityPolicy.signatureLength(),
                         SecretKeyUtils.FINISHED_LENGTH + ServerSession.SESSION_KEY_LENGTH + SecretKeyContext.TAG_LENGTH * 2)

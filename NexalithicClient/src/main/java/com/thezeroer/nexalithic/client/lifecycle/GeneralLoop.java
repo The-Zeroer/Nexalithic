@@ -40,6 +40,7 @@ import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
@@ -53,14 +54,14 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, GeneralLoop.class);
     public static final class Options extends ChannelLoop.Options {
         public final DynamicRateController.Options DynamicRateController = new DynamicRateController.Options(holder) {};
-        public final NexalithicOption<Long> HeartBeat_Interval = NexalithicOption.create(
-                30000L, OptionValidator.positive()
+        public final NexalithicOption<Long> HeartBeat_MilliInterval = NexalithicOption.create(
+                30_000L, OptionValidator.positive()
         );
         public Options(Class<?> holder) {
             super(holder);
         }
     }
-    public record Constant(long HeartBeat_Interval, boolean DynamicRate_Enable, long DynamicRate_TickMs) {}
+    private record Constant(long HeartBeat_NanoInterval, boolean DynamicRate_Enable, long DynamicRate_NanoTick) {}
     private static final Logger logger = LoggerFactory.getLogger(GeneralLoop.class);
     private final Constant CONSTANT;
     private final Queue<Runnable> eventQueue;
@@ -70,15 +71,15 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
     private final NetworkRouter networkRouter;
     private final DynamicRateController dynamicRateController;
     private final Function<Object[], ClientSession> sessionFactory;
-    private long lastDynamicRateTickMs;
+    private long lastDynamicRateNanoTick;
     private volatile ClientSession session;
 
     public GeneralLoop(NexalithicBuilderContext context) throws IOException {
         super(context, OPTIONS);
         CONSTANT = new Constant(
-                context.getOption(OPTIONS.HeartBeat_Interval),
+                TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.HeartBeat_MilliInterval), TimeUnit.MILLISECONDS),
                 context.getOption(OPTIONS.DynamicRateController.Enable),
-                context.getOption(OPTIONS.DynamicRateController.TickMs)
+                TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.DynamicRateController.MilliTick), TimeUnit.MILLISECONDS)
         );
         linkStatusManager = context.getModule(NexalithicClient.Modules.LinkStatusManager);
         securityPolicy = context.getModule(NexalithicClient.Modules.SecurityPolicy);
@@ -92,7 +93,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
                 context.getOption(OPTIONS.DynamicRateController.EwmaAlpha),
                 context.getOption(OPTIONS.DynamicRateController.Headroom),
                 context.getOption(OPTIONS.DynamicRateController.ChangeThreshold),
-                context.getOption(OPTIONS.DynamicRateController.MinPublishIntervalMs),
+                TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.DynamicRateController.MinPublishMilliInterval), TimeUnit.MILLISECONDS),
                 context.getOption(OPTIONS.DynamicRateController.IncreaseStableTicks)
         );
         ClientSession.ClientChannelFactory channelFactory = new ClientSession.ClientChannelFactory(context, this);
@@ -105,7 +106,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
                 taskScheduler,
                 networkRouter
         );
-        lastDynamicRateTickMs = System.currentTimeMillis();
+        lastDynamicRateNanoTick = System.nanoTime();
     }
 
     public boolean link(AbstractPacket.PacketType packetType, SocketChannel socketChannel, byte[] token) throws IOException,
@@ -207,14 +208,14 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
             eventQueue.poll().run();
         }
         if (session != null) {
-            long now = System.currentTimeMillis();
-            if (now - session.getLastActiveTime() >= CONSTANT.HeartBeat_Interval) {
+            long now = System.nanoTime();
+            if (now - session.getLastActiveNanoTime() >= CONSTANT.HeartBeat_NanoInterval) {
                 session.pushSignalingPacket(BareSignal.HeartBeat);
-                session.updateLastActiveTime(now);
+                session.updateLastNanoActiveTime(now);
             }
-            if (CONSTANT.DynamicRate_Enable && now - lastDynamicRateTickMs >= CONSTANT.DynamicRate_TickMs) {
-                long interval = now - lastDynamicRateTickMs;
-                lastDynamicRateTickMs = now;
+            if (CONSTANT.DynamicRate_Enable && now - lastDynamicRateNanoTick >= CONSTANT.DynamicRate_NanoTick) {
+                long interval = now - lastDynamicRateNanoTick;
+                lastDynamicRateNanoTick = now;
                 ClientSessionChannel<?> businessChannel = session.getBusinessChannel();
                 if (businessChannel.getState() == NexalithicChannel.State.Connected) {
                     long targetRate = businessChannel.evaluateDynamicRate(interval, now, dynamicRateController);
@@ -224,7 +225,7 @@ public class GeneralLoop extends ChannelLoop<ClientSessionChannel<?>> {
                 }
             }
         } else {
-            lastDynamicRateTickMs = System.currentTimeMillis();
+            lastDynamicRateNanoTick = System.nanoTime();
         }
         return true;
     }

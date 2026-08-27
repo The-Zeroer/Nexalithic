@@ -11,9 +11,9 @@ import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
-import com.thezeroer.nexalithic.core.infra.timer.DedicatedTimeWheel;
 import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
+import com.thezeroer.nexalithic.core.infra.timer.TimerContext;
+import com.thezeroer.nexalithic.core.infra.timer.TimerCoordinator;
 import com.thezeroer.nexalithic.core.messaging.task.event.TaskEvent;
 import com.thezeroer.nexalithic.core.messaging.task.event.TaskMailbox;
 import com.thezeroer.nexalithic.core.messaging.task.visual.TransferListener;
@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @version 1.0.0
  * @since 2026/08/13
  */
-public class TaskScheduler implements TimerExecutor<NexalithicTask> {
+public class TaskScheduler implements TimerCoordinator<NexalithicTask> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, TaskScheduler.class);
     public static final class Options extends OptionsDefinition {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {};
@@ -53,7 +53,7 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
         }
     }
     private static final Logger logger = LoggerFactory.getLogger(TaskScheduler.class);
-    private final DedicatedTimeWheel<NexalithicTask> timeWheel;
+    private final TimeWheel<NexalithicTask> timeWheel;
     private final FixedTaskExecutor<NexalithicTask, ?> taskExecutor;
     private final ScheduledThreadPoolExecutor listenerExecutor;
     private final Set<TransferListener> activeListeners = ConcurrentHashMap.newKeySet();
@@ -67,8 +67,8 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
         taskExecutor = initTaskExecutor(context);
         listenerExecutor = initListenerExecutor();
     }
-    private DedicatedTimeWheel<NexalithicTask> initTimeWheel(NexalithicBuilderContext context) {
-        DedicatedTimeWheel<NexalithicTask> timeWheel = new DedicatedTimeWheel<>(
+    private TimeWheel<NexalithicTask> initTimeWheel(NexalithicBuilderContext context) {
+        TimeWheel<NexalithicTask> timeWheel = new TimeWheel<>(
                 context.getOption(OPTIONS.TimeWheel.Tick),
                 context.getOption(OPTIONS.TimeWheel.Slot),
                 context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
@@ -76,7 +76,7 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
                 new GenericWrapperPool<>(
                         PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
                         PoolStrategyFactory.alwaysCreate(),
-                        DedicatedTimeWheel.DedicatedScheduleWrapper<NexalithicTask>::new
+                        TimeWheel.ScheduleWrapper<NexalithicTask>::new
                 ),
                 this,
                 TaskScheduler.class.getSimpleName()
@@ -145,6 +145,7 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
     }
 
     public void activate(NexalithicTask task) {
+        task.updateLastActiveTime();
         timeWheel.schedule(task);
     }
 
@@ -202,8 +203,23 @@ public class TaskScheduler implements TimerExecutor<NexalithicTask> {
     }
 
     @Override
-    public void trigger(NexalithicTask task) {
-        schedule(task, TaskEvent.TIMEOUT());
+    public long getExpiryNanoTime(TimerContext<NexalithicTask> context) {
+        return context.target().getExpiryNanoTime();
+    }
+
+    @Override
+    public boolean isCancelled(TimerContext<NexalithicTask> context) {
+        return context.target().getFuture().isDone();
+    }
+
+    @Override
+    public boolean onExpiryTrigger(TimerContext<NexalithicTask> context) {
+        NexalithicTask target = context.target();
+        if (System.nanoTime() < target.getExpiryNanoTime()) {
+            return false;
+        }
+        schedule(target, TaskEvent.TIMEOUT());
+        return true;
     }
 
     private void execute(NexalithicTask task) {

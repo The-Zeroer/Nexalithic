@@ -7,7 +7,7 @@ import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.server.lifecycle.accept.FiltrationStrategy;
 import com.thezeroer.nexalithic.server.lifecycle.handshake.HandshakeLoop;
-import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;

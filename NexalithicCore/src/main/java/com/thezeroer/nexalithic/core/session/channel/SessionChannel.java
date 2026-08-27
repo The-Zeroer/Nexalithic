@@ -59,7 +59,7 @@ public abstract class SessionChannel<
     protected final LongAdder writeBytesWindow = new LongAdder();
     protected LoopBuffer readPlainBuffer, writeCipheBuffer;
     protected LoopBuffer readCipheBuffer, writePlainBuffer;
-    protected volatile long lastActiveTime = -1;
+    protected volatile long lastActiveNanoTime = -1;
 
     public SessionChannel(AbstractPacket.PacketType packetType, S session, ChannelLoop<?> loop, PacketsFragmenter<P> fragmenter, PacketsAssembler<P> assembler, SecretKeyContext secretKeyContext) {
         super(secretKeyContext);
@@ -154,8 +154,8 @@ public abstract class SessionChannel<
         rateLimiter.applyRate();
     }
 
-    public final long evaluateDynamicRate(long intervalMs, long nowMs, DynamicRateController controller) {
-        return controller.evaluateAndGetRate(readBytesWindow.sumThenReset(), intervalMs, nowMs, rateState);
+    public final long evaluateDynamicRate(long intervalNanos, long nowNanos, DynamicRateController controller) {
+        return controller.evaluateAndGetRate(readBytesWindow.sumThenReset(), intervalNanos, nowNanos, rateState);
     }
     public final void resetDynamicRateState() {
         rateState.reset();
@@ -280,13 +280,13 @@ public abstract class SessionChannel<
     }
 
     @Override
-    public final void updateLastActiveTime(long lastActiveTime) {
-        this.lastActiveTime = lastActiveTime;
-        session.updateLastActiveTime(lastActiveTime);
+    public final void updateLastActiveNanoTime(long lastActiveNanoTime) {
+        this.lastActiveNanoTime = lastActiveNanoTime;
+        session.updateLastNanoActiveTime(lastActiveNanoTime);
     }
     @Override
-    public final long getLastActiveTime() {
-        return lastActiveTime;
+    public final long getLastActiveNanoTime() {
+        return lastActiveNanoTime;
     }
 
     @Override
@@ -322,11 +322,11 @@ public abstract class SessionChannel<
             assembler.clear();
             remoteAddress = null;
             loop = null;
-            lastActiveTime = -1;
+            lastActiveNanoTime = -1;
             rateState.reset();
             return true;
         }
-        if (session.getLastActiveTime() < 0) {
+        if (session.getLastActiveNanoTime() < 0) {
             state.set(State.Closed);
         }
         return false;
@@ -334,6 +334,6 @@ public abstract class SessionChannel<
 
     @Override
     public String toString() {
-        return "Type: " + type + ", State: " + state + ", LastActiveTime: " + TimeUtils.format(lastActiveTime) + ", SocketChannel: " + socketChannel;
+        return "Type: " + type + ", State: " + state + ", SocketChannel: " + socketChannel;
     }
 }

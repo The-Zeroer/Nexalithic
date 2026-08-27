@@ -23,13 +23,13 @@ public class DynamicRateController {
     public static final class RateState {
         double ewmaBps = -1;
         long lastPublishedRate = -1;
-        long lastPublishedAt = -1;
+        long lastPublishedAtNanos = -1;
         int upStableTicks = 0;
 
         public void reset() {
             ewmaBps = -1;
             lastPublishedRate = -1;
-            lastPublishedAt = -1;
+            lastPublishedAtNanos = -1;
             upStableTicks = 0;
         }
     }
@@ -43,7 +43,7 @@ public class DynamicRateController {
                 true, OptionValidator.nonNull()
         );
         /** 控制周期（毫秒）。 */
-        public final NexalithicOption<Long> TickMs = NexalithicOption.create(
+        public final NexalithicOption<Long> MilliTick = NexalithicOption.create(
                 500L, OptionValidator.positive()
         );
         /** 最低下发速率（B/s）。 */
@@ -74,7 +74,7 @@ public class DynamicRateController {
                 0.1D, OptionValidator.unitInterval()
         );
         /** 最小发布间隔（毫秒），限制控制面信令频率。 */
-        public final NexalithicOption<Long> MinPublishIntervalMs = NexalithicOption.create(
+        public final NexalithicOption<Long> MinPublishMilliInterval = NexalithicOption.create(
                 500L, OptionValidator.positive()
         );
         /** 升速稳定周期数（慢升），降速始终立即生效（快降）。 */
@@ -93,26 +93,26 @@ public class DynamicRateController {
     private final double ewmaAlpha;
     private final double headroom;
     private final double changeThreshold;
-    private final long minPublishIntervalMs;
+    private final long minPublishNanoInterval;
     private final int increaseStableTicks;
 
     public DynamicRateController(long minRateBps, long maxRateBps, long initialRateBps, double ewmaAlpha, double headroom,
-                                 double changeThreshold, long minPublishIntervalMs, int increaseStableTicks) {
+                                 double changeThreshold, long minPublishNanoInterval, int increaseStableTicks) {
         this.minRateBps = minRateBps;
         this.maxRateBps = maxRateBps;
         this.initialRateBps = initialRateBps;
         this.ewmaAlpha = ewmaAlpha;
         this.headroom = headroom;
         this.changeThreshold = changeThreshold;
-        this.minPublishIntervalMs = minPublishIntervalMs;
+        this.minPublishNanoInterval = minPublishNanoInterval;
         this.increaseStableTicks = increaseStableTicks;
     }
 
-    public long evaluateAndGetRate(long bytes, long intervalMs, long nowMs, RateState state) {
-        if (intervalMs <= 0) {
+    public long evaluateAndGetRate(long bytes, long intervalNanos, long nowNanos, RateState state) {
+        if (intervalNanos <= 0) {
             return -1;
         }
-        double instantBps = bytes <= 0 ? 0D : (bytes * 1000D / intervalMs);
+        double instantBps = bytes <= 0 ? 0D : (bytes * 1_000_000_000D / intervalNanos);
         if (state.ewmaBps < 0) {
             state.ewmaBps = instantBps;
         } else {
@@ -120,11 +120,11 @@ public class DynamicRateController {
         }
         if (state.lastPublishedRate < 0) {
             state.lastPublishedRate = clamp(initialRateBps, minRateBps, maxRateBps);
-            state.lastPublishedAt = nowMs;
+            state.lastPublishedAtNanos = nowNanos;
             state.upStableTicks = 0;
             return state.lastPublishedRate;
         }
-        if (nowMs - state.lastPublishedAt < minPublishIntervalMs) {
+        if (nowNanos - state.lastPublishedAtNanos < minPublishNanoInterval) {
             return -1;
         }
         long target = clamp((long) (state.ewmaBps * headroom), minRateBps, maxRateBps);
@@ -134,13 +134,13 @@ public class DynamicRateController {
         }
         if (target < state.lastPublishedRate) {
             state.lastPublishedRate = target;
-            state.lastPublishedAt = nowMs;
+            state.lastPublishedAtNanos = nowNanos;
             state.upStableTicks = 0;
             return target;
         }
         if (++state.upStableTicks >= increaseStableTicks) {
             state.lastPublishedRate = target;
-            state.lastPublishedAt = nowMs;
+            state.lastPublishedAtNanos = nowNanos;
             state.upStableTicks = 0;
             return target;
         }

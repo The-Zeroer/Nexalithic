@@ -5,15 +5,15 @@ import com.thezeroer.nexalithic.core.builder.module.ModulesDefinition;
 import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.infra.buffer.LoopBuffer;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimerContext;
+import com.thezeroer.nexalithic.core.infra.timer.TimerCoordinator;
 import com.thezeroer.nexalithic.core.io.codec.PacketFrame;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.MpscArrayQueue;
 import org.slf4j.Logger;
@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
@@ -31,13 +32,13 @@ import java.util.function.Function;
  * @since 2026/02/10
  * @version 1.0.0
  */
-public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket>, TimerExecutor<BusinessPacketAssemblyWrapper> {
+public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket>, TimerCoordinator<BusinessPacketAssemblyWrapper> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, BusinessPacketsAssembler.class);
     public static final class Options extends OptionsDefinition {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
             protected NexalithicOption<Integer> Slot() {
                 return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
-                                Math.toIntExact(context.getOption(OPTIONS.MaxIdleTime) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                                Math.toIntExact(TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.MaxIdleMilliTime), TimeUnit.MILLISECONDS) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
                         , OptionValidator.positive()
                 );
             }
@@ -48,19 +49,19 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
         public final NexalithicOption<Integer> PacketQueue_Capacity = NexalithicOption.create(
                 64, OptionValidator.positive()
         );
-        public final NexalithicOption<Long> MaxIdleTime = NexalithicOption.create(
-                MaxIdleTime_DefaultValue(), OptionValidator.positive()
+        public final NexalithicOption<Long> MaxIdleMilliTime = NexalithicOption.create(
+                MaxIdleMilliTime_DefaultValue(), OptionValidator.positive()
         );
         private Options(Class<?> holder) {
             super(holder);
         }
-        private Long MaxIdleTime_DefaultValue() {
+        private Long MaxIdleMilliTime_DefaultValue() {
             return 3_0000L;
         }
     }
     public static final class Modules implements ModulesDefinition {
         public static final NexalithicModule<PayloadRegistry> PayloadRegistry = NexalithicModule.create("BusinessPacketsAssembler_PayloadRegistry", PayloadRegistry.class);
-        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", GenericTimeWheel.class);
+        public static final NexalithicModule<TimeWheel<BusinessPacketAssemblyWrapper>> TimeWheel = NexalithicModule.create("BusinessPacketsAssembler_TimeWheel", TimeWheel.class);
     }
     private static final Logger logger = LoggerFactory.getLogger(BusinessPacketsAssembler.class);
     private final NexalithicSession<?, ?, ?> owner;
@@ -69,9 +70,9 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     private BusinessPacket pendingPacket;
 
     private final WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool;
-    private final GenericTimeWheel timeWheel;
+    private final TimeWheel<BusinessPacketAssemblyWrapper> timeWheel;
 
-    public BusinessPacketsAssembler(NexalithicSession<?, ?, ?> owner, WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool, GenericTimeWheel timeWheel, int PacketQueue_Capacity_) {
+    public BusinessPacketsAssembler(NexalithicSession<?, ?, ?> owner, WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool, TimeWheel<BusinessPacketAssemblyWrapper> timeWheel, int PacketQueue_Capacity_) {
         this.owner = owner;
         this.wrapperPool = wrapperPool;
         this.timeWheel = timeWheel;
@@ -103,8 +104,9 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
             if (wrapper == null) {
                 wrapper = wrapperPool.acquire().setPacketId(packetId);
                 wrapper.getCodecCallback().bind(owner);
+                wrapper.updateLastActiveTime();
                 assemblingMap.put(packetId, wrapper);
-                timeWheel.schedule(wrapper, this);
+                timeWheel.schedule(wrapper, wrapper.stamp(), this);
             }
             read = wrapper.onFrame(source, payloadLength, PacketFrame.isStart(meta));
             if (!wrapper.hasFrame()) {
@@ -145,8 +147,26 @@ public class BusinessPacketsAssembler implements PacketsAssembler<BusinessPacket
     }
 
     @Override
-    public void trigger(BusinessPacketAssemblyWrapper wrapper) {
-        assemblingMap.remove(wrapper.getPacketId());
-        wrapper.recycle();
+    public long getExpiryNanoTime(TimerContext<BusinessPacketAssemblyWrapper> context) {
+        return context.target().getExpiryNanoTime();
+    }
+
+    @Override
+    public boolean isCancelled(TimerContext<BusinessPacketAssemblyWrapper> context) {
+        return !context.target().isActive(context.targetStamp());
+    }
+
+    @Override
+    public boolean onExpiryTrigger(TimerContext<BusinessPacketAssemblyWrapper> context) {
+        BusinessPacketAssemblyWrapper target = context.target();
+        if (!target.isActive(context.targetStamp())) {
+            return true;
+        }
+        if (System.nanoTime() < target.getExpiryNanoTime()) {
+            return false;
+        }
+        assemblingMap.remove(target.getPacketId());
+        target.recycle();
+        return true;
     }
 }

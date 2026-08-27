@@ -9,6 +9,9 @@ import com.thezeroer.nexalithic.core.infra.executor.TypedThreadFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimerContext;
+import com.thezeroer.nexalithic.core.infra.timer.TimerCoordinator;
 import com.thezeroer.nexalithic.core.io.loop.AbstractLoop;
 import com.thezeroer.nexalithic.core.infra.loadbalance.LoadBalancer;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
@@ -18,13 +21,9 @@ import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.security.SecretKeyUtils;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.security.SecurityPolicy;
-import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
 import com.thezeroer.nexalithic.server.lifecycle.ServerLifecycleManager;
-import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.manager.SessionsManager;
@@ -45,6 +44,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
@@ -55,13 +55,13 @@ import java.util.function.Function;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class HandshakeLoop extends AbstractLoop implements TimerExecutor<PendingChannel> {
+public class HandshakeLoop extends AbstractLoop implements TimerCoordinator<PendingChannel> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, HandshakeLoop.class);
     public static final class Options extends AbstractLoop.Options {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
             protected NexalithicOption<Integer> Slot() {
                 return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
-                                Math.toIntExact(context.getOption(OPTIONS.MaxWaitTime) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                                Math.toIntExact(TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.MaxWaitMilliTime), TimeUnit.MILLISECONDS) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
                         , OptionValidator.positive()
                 );
             }
@@ -74,7 +74,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         public final NexalithicOption<Integer> DispatchQueue_DrainLimit = NexalithicOption.create(
                 256, OptionValidator.positive()
         );
-        public final NexalithicOption<Long> MaxWaitTime = NexalithicOption.create(
+        public final NexalithicOption<Long> MaxWaitMilliTime = NexalithicOption.create(
                 3_000L, OptionValidator.positive()
         );
         public final NexalithicOption<Boolean> SharedFixedTaskExecutor = NexalithicOption.create(
@@ -85,7 +85,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         }
     }
     public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("HandshakeLoop_TimeWheel", GenericTimeWheel.class);
+        public static final NexalithicModule<TimeWheel<PendingChannel>> TimeWheel = NexalithicModule.create("HandshakeLoop_TimeWheel", TimeWheel.class);
         public static final NexalithicModule<FixedTaskExecutor<PendingChannel, ExecutorThread>> FixedTaskExecutor = NexalithicModule.create("HandshakeLoop_FixedTaskExecutor", FixedTaskExecutor.class);
     }
     public record Constant(int DrainLimit) {}
@@ -94,7 +94,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     private final SessionsManager sessionsManager;
     private final ServerSecurityPolicy securityPolicy;
     private final LoadBalancer<Void, ServiceUnit> serviceUnitLoadBalancer;
-    private final GenericTimeWheel timeWheel;
+    private final TimeWheel<PendingChannel> timeWheel;
     private final FixedTaskExecutor<PendingChannel, ExecutorThread> executor;
     private final MpscArrayQueue<PendingChannel> dispatchQueue;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -108,7 +108,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
         securityPolicy = context.getModule(NexalithicServer.Modules.SecurityPolicy);
         serviceUnitLoadBalancer = context.getModule(ServerLifecycleManager.Modules.ServiceUnitLoadBalancer);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
-            GenericTimeWheel timeWheel = new GenericTimeWheel(
+            TimeWheel<PendingChannel> timeWheel = new TimeWheel<>(
                     context.getOption(OPTIONS.TimeWheel.Tick),
                     context.getOption(OPTIONS.TimeWheel.Slot),
                     context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
@@ -116,7 +116,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
                     new GenericWrapperPool<>(
                             PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
                             PoolStrategyFactory.alwaysCreate(),
-                            GenericTimeWheel.GenericScheduleWrapper<PendingChannel>::new
+                            TimeWheel.ScheduleWrapper<PendingChannel>::new
                     ),
                     HandshakeLoop.class.getSimpleName()
             );
@@ -227,7 +227,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     public void dispatch(PendingChannel pendingChannel) {
         if (dispatchQueue.offer(pendingChannel)) {
             loadScore.increment();
-            timeWheel.schedule(pendingChannel, HandshakeLoop.this);
+            timeWheel.schedule(pendingChannel, pendingChannel.stamp(), HandshakeLoop.this);
             wakeupIfNeeded();
         } else {
             pendingChannel.closeChannel();
@@ -252,7 +252,7 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     @Override
     public void onReadyEvent(SelectionKey key) {
         PendingChannel channel = (PendingChannel) key.attachment();
-        channel.updateLastActiveTime(System.currentTimeMillis());
+        channel.updateLastActiveNanoTime(System.nanoTime());
         try {
             SocketChannel socketChannel = channel.getSocketChannel();
             if (key.isReadable()) {
@@ -323,9 +323,24 @@ public class HandshakeLoop extends AbstractLoop implements TimerExecutor<Pending
     }
 
     @Override
-    public void trigger(PendingChannel channel) {
-        logger.warn("[{}] handshake timeout", channel.toString());
-        closeChannel(channel);
+    public long getExpiryNanoTime(TimerContext<PendingChannel> context) {
+        return context.target().getExpiryNanoTime();
+    }
+
+    @Override
+    public boolean isCancelled(TimerContext<PendingChannel> context) {
+        return !context.target().isActive(context.targetStamp());
+    }
+
+    @Override
+    public boolean onExpiryTrigger(TimerContext<PendingChannel> context) {
+        PendingChannel target = context.target();
+        if (System.nanoTime() < target.getExpiryNanoTime()) {
+            return false;
+        }
+        logger.warn("[{}] handshake timeout", target.toString());
+        closeChannel(target);
+        return true;
     }
 
     private boolean verifyMagicNumber(PendingChannel channel) throws IOException {

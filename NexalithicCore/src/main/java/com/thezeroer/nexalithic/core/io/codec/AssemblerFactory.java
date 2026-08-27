@@ -6,15 +6,17 @@ import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.WrapperPool;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
 import com.thezeroer.nexalithic.core.io.codec.assembler.*;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
-import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.jctools.queues.SpmcArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 汇编器工厂
@@ -25,13 +27,13 @@ import org.jctools.queues.SpscArrayQueue;
  */
 public class AssemblerFactory {
     private final WrapperPool<BusinessPacketAssemblyWrapper> wrapperPool;
-    private final GenericTimeWheel timeWheel;
+    private final TimeWheel<BusinessPacketAssemblyWrapper> timeWheel;
     private final int PacketQueue_Capacity_;
 
     public AssemblerFactory(NexalithicBuilderContext context) {
         PacketQueue_Capacity_ = context.getOption(BusinessPacketsAssembler.OPTIONS.PacketQueue_Capacity);
         BusinessPacketAssemblyWrapper.Constant businessPacketAssemblyConstant = new BusinessPacketAssemblyWrapper.Constant(
-                context.getOption(BusinessPacketsAssembler.OPTIONS.MaxIdleTime)
+                TimeUnit.NANOSECONDS.convert(context.getOption(BusinessPacketsAssembler.OPTIONS.MaxIdleMilliTime), TimeUnit.MILLISECONDS)
         );
         PayloadRegistry payloadRegistry = context.getModule(BusinessPacketsAssembler.Modules.PayloadRegistry);
         TaskScheduler taskScheduler = context.getModule(NexalithicEndpoint.Modules.TaskScheduler);
@@ -42,7 +44,7 @@ public class AssemblerFactory {
                 owner -> new BusinessPacketAssemblyWrapper(owner, businessPacketAssemblyConstant, new AssemblyCallback(taskScheduler), payloadRegistry)
         );
         timeWheel = context.getModule(BusinessPacketsAssembler.Modules.TimeWheel, () -> {
-            GenericTimeWheel timeWheel = new GenericTimeWheel(
+            TimeWheel<BusinessPacketAssemblyWrapper> timeWheel = new TimeWheel<>(
                     context.getOption(BusinessPacketsAssembler.OPTIONS.TimeWheel.Tick),
                     context.getOption(BusinessPacketsAssembler.OPTIONS.TimeWheel.Slot),
                     context.getOption(BusinessPacketsAssembler.OPTIONS.TimeWheel.TickQuotaShift),
@@ -50,7 +52,7 @@ public class AssemblerFactory {
                     new GenericWrapperPool<>(
                             PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(BusinessPacketsAssembler.OPTIONS.TimeWheel.WrapperPool_Capacity)),
                             PoolStrategyFactory.alwaysCreate(),
-                            GenericTimeWheel.GenericScheduleWrapper<BusinessPacketAssemblyWrapper>::new
+                            TimeWheel.ScheduleWrapper<BusinessPacketAssemblyWrapper>::new
                     ),
                     BusinessPacketsAssembler.class.getSimpleName()
             );

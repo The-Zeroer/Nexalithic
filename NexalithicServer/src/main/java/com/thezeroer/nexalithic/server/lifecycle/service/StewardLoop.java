@@ -6,6 +6,9 @@ import com.thezeroer.nexalithic.core.builder.module.NexalithicModule;
 import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStorageFactory;
 import com.thezeroer.nexalithic.core.infra.recyclable.PoolStrategyFactory;
+import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
+import com.thezeroer.nexalithic.core.infra.timer.TimerContext;
+import com.thezeroer.nexalithic.core.infra.timer.TimerCoordinator;
 import com.thezeroer.nexalithic.core.messaging.task.TaskScheduler;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.model.packet.signaling.ScalarSignal;
@@ -13,13 +16,10 @@ import com.thezeroer.nexalithic.core.model.packet.signaling.SignalingPacket;
 import com.thezeroer.nexalithic.core.builder.option.NexalithicOption;
 import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
-import com.thezeroer.nexalithic.core.infra.timer.GenericTimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimeWheel;
-import com.thezeroer.nexalithic.core.infra.timer.TimerExecutor;
 import com.thezeroer.nexalithic.core.model.packet.signaling.TokenSignal;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.server.NexalithicServer;
-import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import com.thezeroer.nexalithic.server.manager.NetworkRouter;
@@ -35,6 +35,7 @@ import java.nio.channels.SelectionKey;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.SecureRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
@@ -44,18 +45,18 @@ import java.util.function.Function;
  * @since 2026/02/06
  * @version 1.0.0
  */
-public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerExecutor<ServerSession> {
+public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerCoordinator<ServerSession> {
     public static final Options OPTIONS = OptionsDefinition.initOptions(Options.class, StewardLoop.class);
     public static final class Options extends ServiceLoop.Options {
         public final TimeWheel.Options TimeWheel = new TimeWheel.Options(holder) {
             protected NexalithicOption<Integer> Slot() {
                 return NexalithicOption.create((Function<NexalithicBuilderContext, Integer>) context ->
-                                Math.toIntExact(context.getOption(OPTIONS.HeartBeat_MaxInterval) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
+                                Math.toIntExact(TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.HeartBeat_MaxMilliInterval), TimeUnit.MILLISECONDS) / context.getOption(OPTIONS.TimeWheel.Tick)) + 1
                         , OptionValidator.positive()
                 );
             }
         };
-        public final NexalithicOption<Long> HeartBeat_MaxInterval = NexalithicOption.create(
+        public final NexalithicOption<Long> HeartBeat_MaxMilliInterval = NexalithicOption.create(
                 60_000L, OptionValidator.positive()
         );
         private Options(Class<?> holder) {
@@ -63,11 +64,11 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
         }
     }
     public static final class Modules implements ModulesDefinition {
-        public static final NexalithicModule<GenericTimeWheel> TimeWheel = NexalithicModule.create("StewardLoop_TimeWheel", GenericTimeWheel.class);
+        public static final NexalithicModule<TimeWheel<ServerSession>> TimeWheel = NexalithicModule.create("StewardLoop_TimeWheel", TimeWheel.class);
     }
     private final SessionsManager sessionsManager;
     private final NetworkRouter networkRouter;
-    private final GenericTimeWheel timeWheel;
+    private final TimeWheel<ServerSession> timeWheel;
     private final SecureRandom secureRandom = new SecureRandom();
     private final Function<PendingChannel, ServerSession> sessionFactory;
 
@@ -76,7 +77,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
         sessionsManager = context.getModule(NexalithicServer.Modules.SessionsManager);
         networkRouter = context.getModule(NexalithicServer.Modules.NetworkRouter);
         timeWheel = context.getModule(Modules.TimeWheel, () -> {
-            GenericTimeWheel timeWheel = new GenericTimeWheel(
+            TimeWheel<ServerSession> timeWheel = new TimeWheel<>(
                     context.getOption(OPTIONS.TimeWheel.Tick),
                     context.getOption(OPTIONS.TimeWheel.Slot),
                     context.getOption(OPTIONS.TimeWheel.TickQuotaShift),
@@ -84,7 +85,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
                     new GenericWrapperPool<>(
                             PoolStorageFactory.bounded(SpmcArrayQueue::new, context.getOption(OPTIONS.TimeWheel.WrapperPool_Capacity)),
                             PoolStrategyFactory.alwaysCreate(),
-                            GenericTimeWheel.GenericScheduleWrapper<ServerSession>::new
+                            TimeWheel.ScheduleWrapper<ServerSession>::new
                     ),
                     StewardLoop.class.getSimpleName()
             );
@@ -94,7 +95,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
         ServerSession.ServerChannelFactory channelFactory = new ServerSession.ServerChannelFactory(context, this);
         TaskScheduler taskScheduler = context.getModule(NexalithicServer.Modules.TaskScheduler);
         ServerSession.Constant sessionConstant = context.getConstant(ServerSession.class, ServerSession.Constant.class, () -> new ServerSession.Constant(
-                context.getOption(OPTIONS.HeartBeat_MaxInterval)
+                TimeUnit.NANOSECONDS.convert(context.getOption(OPTIONS.HeartBeat_MaxMilliInterval), TimeUnit.MILLISECONDS)
         ));
         sessionFactory = channel -> new ServerSession(
                 channel.getSessionKey(),
@@ -127,6 +128,7 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
                     closeChannel(session.getSignalingChannel());
                     return;
                 }
+                session.updateLastNanoActiveTime(System.nanoTime());
                 timeWheel.schedule(session, this);
             } catch (IOException ignored) {
             } finally {
@@ -166,6 +168,29 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
         }
     }
 
+    @Override
+    public long getExpiryNanoTime(TimerContext<ServerSession> context) {
+        return context.target().getExpiryNanoTime();
+    }
+
+    @Override
+    public boolean isCancelled(TimerContext<ServerSession> context) {
+        return context.target().getLastActiveNanoTime() == -1;
+    }
+
+    @Override
+    public boolean onExpiryTrigger(TimerContext<ServerSession> context) {
+        ServerSession target = context.target();
+        if (System.nanoTime() < target.getExpiryNanoTime()) {
+            return false;
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("heartbeat timeout [{}]", target.toString());
+        }
+        closeChannel(target.getSignalingChannel());
+        return true;
+    }
+
     private void handleSignalPacket(ServerSessionChannel<SignalingPacket> channel, SignalingPacket packet) {
         if (!switch (packet.getSignal()) {
             case SignalingPacket.Signal.BusinessChannelPort_Request -> channel.session().pushSignalingPacket(
@@ -195,13 +220,5 @@ public class StewardLoop extends ServiceLoop<SignalingPacket> implements TimerEx
             sessionsManager.removeSession(session);
         }
         session.close();
-    }
-
-    @Override
-    public void trigger(ServerSession session) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("heartbeat timeout [{}]", session.toString());
-        }
-        closeChannel(session.getSignalingChannel());
     }
 }

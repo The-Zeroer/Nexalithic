@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.server.lifecycle.accept;
+package com.thezeroer.nexalithic.server.lifecycle.handshake;
 
 import com.thezeroer.nexalithic.core.infra.recyclable.GenericWrapperPool;
 import com.thezeroer.nexalithic.core.infra.recyclable.SelfStaticRecyclableWrapper;
@@ -6,7 +6,6 @@ import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.NexalithicChannel;
-import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSession;
 
 import java.io.IOException;
@@ -23,8 +22,8 @@ import java.security.PrivateKey;
  * @since 2026/02/07
  * @version 1.0.0
  */
-public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> implements NexalithicChannel, Expirable {
-    public record Constant(long MaxWaitTime, int readBufferCapacity, int writeBufferCapacity) {}
+public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> implements NexalithicChannel {
+    public record Constant(long MaxWaitNanoTime, int readBufferCapacity, int writeBufferCapacity) {}
     public enum State {
         STEP_1,
         STEP_2,
@@ -42,7 +41,7 @@ public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> 
     private volatile ServerSession session;
     private volatile SessionKey sessionKey;
     private volatile SecretKeyContext signalingSecretContext, businessSecretContext;
-    private volatile long lastActiveTime = -1;
+    private volatile long lastActiveNanoTime = -1;
 
     public PendingChannel(GenericWrapperPool<PendingChannel, PendingChannel> owner, Constant constant) {
         super(owner);
@@ -55,7 +54,7 @@ public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> 
         this.type = packetType;
         this.socketChannel = socketChannel;
         state = State.STEP_1;
-        lastActiveTime = System.currentTimeMillis();
+        lastActiveNanoTime = System.nanoTime();
         return this;
     }
 
@@ -130,30 +129,17 @@ public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> 
         return businessSecretContext;
     }
 
-    @Override
-    public void updateLastActiveTime(long lastActiveTime) {
-        this.lastActiveTime = lastActiveTime;
-    }
-    @Override
-    public long getLastActiveTime() {
-        return lastActiveTime;
+    public long getExpiryNanoTime() {
+        return lastActiveNanoTime + CONSTANT.MaxWaitNanoTime;
     }
 
     @Override
-    protected void onReset() {
-        readBuffer.clear();
-        writeBuffer.clear();
-        type = null;
-        socketChannel = null;
-        selectionKey = null;
-        state = null;
-        privateKey = null;
-        transcriptHash = null;
-        session = null;
-        sessionKey = null;
-        signalingSecretContext = null;
-        businessSecretContext = null;
-        lastActiveTime = -1;
+    public void updateLastActiveNanoTime(long lastActiveNanoTime) {
+        this.lastActiveNanoTime = lastActiveNanoTime;
+    }
+    @Override
+    public long getLastActiveNanoTime() {
+        return lastActiveNanoTime;
     }
 
     @Override
@@ -176,18 +162,20 @@ public class PendingChannel extends SelfStaticRecyclableWrapper<PendingChannel> 
     }
 
     @Override
-    public long getExpiryTime() {
-        return lastActiveTime + CONSTANT.MaxWaitTime;
-    }
-
-    @Override
-    public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() > lastActiveTime + CONSTANT.MaxWaitTime;
-    }
-
-    @Override
-    public boolean isCancelled() {
-        return !isActive();
+    protected void onReset() {
+        readBuffer.clear();
+        writeBuffer.clear();
+        type = null;
+        socketChannel = null;
+        selectionKey = null;
+        state = null;
+        privateKey = null;
+        transcriptHash = null;
+        session = null;
+        sessionKey = null;
+        signalingSecretContext = null;
+        businessSecretContext = null;
+        lastActiveNanoTime = -1;
     }
 
     @Override

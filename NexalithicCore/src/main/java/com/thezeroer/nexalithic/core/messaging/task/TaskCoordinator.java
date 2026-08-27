@@ -54,7 +54,7 @@ public class TaskCoordinator {
         if (activeTask == null) {
             return;
         }
-        activeTask.updateLastResponseTime();
+        activeTask.updateLastActiveTime();
         scheduler.schedule(activeTask, TaskEvent.RESPONSE(packet));
     }
 

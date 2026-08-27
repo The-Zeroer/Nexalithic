@@ -6,7 +6,7 @@ import com.thezeroer.nexalithic.core.builder.option.OptionValidator;
 import com.thezeroer.nexalithic.core.builder.option.OptionsDefinition;
 import com.thezeroer.nexalithic.core.io.loop.ChannelLoop;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
-import com.thezeroer.nexalithic.server.lifecycle.accept.PendingChannel;
+import com.thezeroer.nexalithic.server.lifecycle.handshake.PendingChannel;
 import com.thezeroer.nexalithic.server.lifecycle.service.session.ServerSessionChannel;
 import org.jctools.queues.MpscArrayQueue;
 
@@ -32,7 +32,7 @@ public abstract class ServiceLoop<P extends AbstractPacket> extends ChannelLoop<
             super(holder);
         }
     }
-    public record Constant(int DrainLimit) {}
+    protected record Constant(int DrainLimit) {}
     protected final Constant CONSTANT;
     protected final MpscArrayQueue<PendingChannel> dispatchQueue;
 

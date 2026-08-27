@@ -7,7 +7,6 @@ import com.thezeroer.nexalithic.core.io.codec.CodecCallback;
 import com.thezeroer.nexalithic.core.messaging.payload.PayloadRegistry;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
 import com.thezeroer.nexalithic.core.model.packet.business.payload.AbstractPayload;
-import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -20,8 +19,8 @@ import java.util.List;
  * @since 2026/03/15
  * @version 1.0.0
  */
-public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<BusinessPacketAssemblyWrapper> implements Expirable {
-    public record Constant(long MaxIdleTime) {}
+public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<BusinessPacketAssemblyWrapper> {
+    public record Constant(long MaxIdleNanoTime) {}
     private final Constant CONSTANT;
     private final CodecCallback codecCallback;
     private final PacketBuilder packetBuilder = new PacketBuilder();
@@ -31,7 +30,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<B
     private int packetId;
     private int payloadIndex;
     private boolean headerRead;
-    private long lastActiveTime;
+    private long lastActiveNanoTime;
 
     public BusinessPacketAssemblyWrapper(GenericWrapperPool<BusinessPacketAssemblyWrapper, BusinessPacketAssemblyWrapper> owner,
                                          Constant constant, CodecCallback codecCallback, PayloadRegistry payloadRegistry) {
@@ -52,7 +51,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<B
     }
 
     public int onFrame(LoopBuffer input, int quota, boolean isStartFrame) throws IOException {
-        lastActiveTime = System.currentTimeMillis();
+        updateLastActiveTime();
         int total = 0;
         if (!headerRead) {
             if (!isStartFrame) {
@@ -154,6 +153,14 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<B
         return codecCallback;
     }
 
+    public long getExpiryNanoTime() {
+        return lastActiveNanoTime + CONSTANT.MaxIdleNanoTime;
+    }
+
+    void updateLastActiveTime() {
+        lastActiveNanoTime = System.nanoTime();
+    }
+
     @Override
     protected void onReset() {
         codecCallback.clear();
@@ -163,22 +170,7 @@ public class BusinessPacketAssemblyWrapper extends SelfStaticRecyclableWrapper<B
         packetId = 0;
         headerRead = false;
         payloadIndex = 0;
-        lastActiveTime = -1;
-    }
-
-    @Override
-    public long getExpiryTime() {
-        return lastActiveTime + CONSTANT.MaxIdleTime;
-    }
-
-    @Override
-    public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() > lastActiveTime + CONSTANT.MaxIdleTime;
-    }
-
-    @Override
-    public boolean isCancelled() {
-        return !isActive();
+        lastActiveNanoTime = -1;
     }
 
     private static class PacketBuilder {

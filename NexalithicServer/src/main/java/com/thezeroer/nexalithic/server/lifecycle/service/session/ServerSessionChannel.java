@@ -5,7 +5,6 @@ import com.thezeroer.nexalithic.core.io.codec.fragmenter.PacketsFragmenter;
 import com.thezeroer.nexalithic.core.model.packet.AbstractPacket;
 import com.thezeroer.nexalithic.core.security.SecretKeyContext;
 import com.thezeroer.nexalithic.core.session.channel.SessionChannel;
-import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
 
 /**
@@ -15,8 +14,8 @@ import com.thezeroer.nexalithic.server.lifecycle.service.ServiceLoop;
  * @since 2026/03/09
  * @version 1.0.0
  */
-public class ServerSessionChannel<P extends AbstractPacket> extends SessionChannel<P, ServerSession> implements Expirable {
-    public record Constant(long MaxIdleTime) {}
+public class ServerSessionChannel<P extends AbstractPacket> extends SessionChannel<P, ServerSession> {
+    public record Constant(long MaxIdleNanoTime) {}
     private final Constant CONSTANT;
 
     public ServerSessionChannel(AbstractPacket.PacketType packetType, ServerSession session, ServiceLoop<P> loop, PacketsFragmenter<P> fragmenter,
@@ -25,18 +24,7 @@ public class ServerSessionChannel<P extends AbstractPacket> extends SessionChann
         CONSTANT = constant;
     }
 
-    @Override
-    public long getExpiryTime() {
-        return lastActiveTime + CONSTANT.MaxIdleTime;
-    }
-
-    @Override
-    public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() - lastActiveTime > CONSTANT.MaxIdleTime;
-    }
-
-    @Override
-    public boolean isCancelled() {
-        return lastActiveTime == -1;
+    public long getExpiryNanoTime() {
+        return lastActiveNanoTime + CONSTANT.MaxIdleNanoTime;
     }
 }

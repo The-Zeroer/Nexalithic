@@ -12,10 +12,11 @@ import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import com.thezeroer.nexalithic.core.session.SessionAttachment;
 import com.thezeroer.nexalithic.core.session.SessionKey;
 import com.thezeroer.nexalithic.core.session.channel.ChannelFactory;
-import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.server.lifecycle.service.ServiceUnit;
 import com.thezeroer.nexalithic.server.lifecycle.service.StewardLoop;
 import com.thezeroer.nexalithic.server.lifecycle.service.WorkerLoop;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 服务器会话
@@ -28,15 +29,14 @@ public class ServerSession extends NexalithicSession<
         ServerSession,
         ServerSessionChannel<SignalingPacket>,
         ServerSessionChannel<BusinessPacket>
-    > implements Expirable {
-    public record Constant(long HeartBeat_MaxInterval) {}
+    > {
+    public record Constant(long HeartBeat_MaxNanoInterval) {}
     private final Constant CONSTANT;
     private final ServiceUnit serviceUnit;
     private volatile SessionAttachment attachment;
 
     public ServerSession(SessionKey sessionKey, SecretKeyContext signalingSecretKey, SecretKeyContext businessSecretKey,
-                         ServerChannelFactory factory, TaskScheduler scheduler,
-                         Constant constant, ServiceUnit serviceUnit) {
+                         ServerChannelFactory factory, TaskScheduler scheduler, Constant constant, ServiceUnit serviceUnit) {
         super(sessionKey, signalingSecretKey, businessSecretKey, factory, scheduler);
         this.CONSTANT = constant;
         this.serviceUnit = serviceUnit;
@@ -52,6 +52,10 @@ public class ServerSession extends NexalithicSession<
 
     public ServiceUnit getServiceUnit() {
         return serviceUnit;
+    }
+
+    public long getExpiryNanoTime() {
+        return lastActiveNanoTime + CONSTANT.HeartBeat_MaxNanoInterval;
     }
 
     public void attach(SessionAttachment attachment) {
@@ -71,21 +75,6 @@ public class ServerSession extends NexalithicSession<
         }
     }
 
-    @Override
-    public long getExpiryTime() {
-        return lastActiveTime + CONSTANT.HeartBeat_MaxInterval;
-    }
-
-    @Override
-    public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() - lastActiveTime > CONSTANT.HeartBeat_MaxInterval;
-    }
-
-    @Override
-    public boolean isCancelled() {
-        return lastActiveTime == -1;
-    }
-
     public static class ServerChannelFactory implements ChannelFactory <
             ServerSession,
             ServerSessionChannel<SignalingPacket>,
@@ -102,7 +91,7 @@ public class ServerSession extends NexalithicSession<
             this.assemblerFactory = new AssemblerFactory(context);
             this.loop = loop;
             serverSessionChannelConstant = context.getConstant(ServerSessionChannel.class, ServerSessionChannel.Constant.class, () -> new ServerSessionChannel.Constant(
-                    context.getOption(WorkerLoop.OPTIONS.MaxIdleTime))
+                    TimeUnit.NANOSECONDS.convert(context.getOption(WorkerLoop.OPTIONS.MaxIdleMilliTime), TimeUnit.MILLISECONDS))
             );
         }
 

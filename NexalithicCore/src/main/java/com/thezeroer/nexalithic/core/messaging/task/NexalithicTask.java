@@ -5,11 +5,11 @@ import com.thezeroer.nexalithic.core.messaging.task.event.TaskMailbox;
 import com.thezeroer.nexalithic.core.messaging.task.future.TaskFuture;
 import com.thezeroer.nexalithic.core.messaging.task.visual.TransferListener;
 import com.thezeroer.nexalithic.core.model.packet.business.BusinessPacket;
-import com.thezeroer.nexalithic.core.infra.timer.Expirable;
 import com.thezeroer.nexalithic.core.session.NexalithicSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026/03/15
  * @see NexalithicHandler
  */
-public class NexalithicTask implements Expirable {
+public class NexalithicTask {
     public enum Pattern {
         /** 只有请求，无回执。发送完即销毁。 */
         ONE_WAY,
@@ -101,17 +101,17 @@ public class NexalithicTask implements Expirable {
     private final TransferListener responseListener;
     private final Pattern pattern;
     private final Strategy strategy;
-    private final long waitTime;
+    private final long waitNanoTime;
 
     private final TaskFuture future;
     private final TaskMailbox mailbox;
     private final NexalithicSession<?, ?, ?> owner;
-    private volatile long lastResponseTime = -1;
+    private volatile long lastActiveNanoTime = -1;
 
     private NexalithicTask(TaskFunction.RequestAction requestAction, TaskFunction.ResponseAction responseAction, TaskFunction.CompleteAction completeAction,
                            TaskFunction.TimeoutAction timeoutAction, TaskFunction.FailedAction failedAction, TaskFunction.CancelAction cancelAction,
                            TaskFunction.FinishAction finishAction, TransferListener requestListener, TransferListener responseListener,
-                           Pattern pattern, Strategy strategy, long waitTime, NexalithicSession<?, ?, ?> owner) {
+                           Pattern pattern, Strategy strategy, long waitNanoTime, NexalithicSession<?, ?, ?> owner) {
         this.taskId = COUNTER.getAndIncrement();
         this.requestAction = requestAction;
         this.responseAction = responseAction;
@@ -124,7 +124,7 @@ public class NexalithicTask implements Expirable {
         this.responseListener = responseListener;
         this.pattern = pattern;
         this.strategy = strategy;
-        this.waitTime = waitTime;
+        this.waitNanoTime = waitNanoTime;
         this.owner = owner;
         future = new TaskFuture(this);
         mailbox = new TaskMailbox();
@@ -235,28 +235,12 @@ public class NexalithicTask implements Expirable {
     public State getState() {
         return state.get();
     }
-
-    @Override
-    public long getExpiryTime() {
-        if (lastResponseTime == -1) {
-            return System.currentTimeMillis() + waitTime;
-        } else {
-            return lastResponseTime + waitTime;
-        }
+    public long getExpiryNanoTime() {
+        return lastActiveNanoTime + waitNanoTime;
     }
 
-    @Override
-    public boolean onExpiryTriggered() {
-        return System.currentTimeMillis() > lastResponseTime + waitTime;
-    }
-
-    @Override
-    public boolean isCancelled() {
-        return future.isDone();
-    }
-
-    void updateLastResponseTime() {
-        lastResponseTime = System.currentTimeMillis();
+    void updateLastActiveTime() {
+        lastActiveNanoTime = System.nanoTime();
     }
 
     NexalithicTask awaitRequest() {
@@ -277,32 +261,21 @@ public class NexalithicTask implements Expirable {
 
     public static class Builder {
         private TaskFunction.RequestAction requestAction;
-        private TaskFunction.ResponseAction responseAction;
-        private TaskFunction.CompleteAction completeAction;
-        private TaskFunction.TimeoutAction timeoutAction;
-        private TaskFunction.FailedAction failedAction;
-        private TaskFunction.CancelAction cancelAction;
-        private TaskFunction.FinishAction finishAction;
+        private TaskFunction.ResponseAction responseAction = (packet, future) -> {};
+        private TaskFunction.CompleteAction completeAction = () -> {};
+        private TaskFunction.TimeoutAction timeoutAction = () -> {};
+        private TaskFunction.FailedAction failedAction = exception -> {
+            if (exception != null) {
+                logger.warn("Exception in NexalithicTask", exception);
+            }
+        };
+        private TaskFunction.CancelAction cancelAction = () -> {};
+        private TaskFunction.FinishAction finishAction = () -> {};
         private TransferListener requestListener;
         private TransferListener responseListener;
-        private Pattern pattern;
-        private Strategy strategy;
-        private long waitTime = 3000;
-
-        public Builder() {
-            pattern = Pattern.REQUEST_RESPONSE;
-            strategy = Strategy.IMMEDIATE;
-            responseAction = (packet, future) -> {};
-            completeAction = () -> {};
-            timeoutAction = () -> {};
-            failedAction = exception -> {
-                if (exception != null) {
-                    logger.warn("Exception in NexalithicTask", exception);
-                }
-            };
-            cancelAction = () -> {};
-            finishAction = () -> {};
-        }
+        private Pattern pattern = Pattern.REQUEST_RESPONSE;
+        private Strategy strategy = Strategy.IMMEDIATE;
+        private long waitNanoTime = TimeUnit.SECONDS.toNanos(3);
 
         public Builder onRequest(TaskFunction.RequestAction requestAction) {
             this.requestAction = requestAction;
@@ -359,7 +332,7 @@ public class NexalithicTask implements Expirable {
             return this;
         }
         public Builder waitTime(int seconds) {
-            this.waitTime = seconds * 1000L;
+            this.waitNanoTime = TimeUnit.NANOSECONDS.convert(seconds, TimeUnit.SECONDS);
             return this;
         }
 
@@ -374,7 +347,7 @@ public class NexalithicTask implements Expirable {
                 throw new IllegalArgumentException("strategy is required");
             }
             return new NexalithicTask(requestAction, responseAction, completeAction, timeoutAction, failedAction, cancelAction, finishAction,
-                    requestListener, responseListener, pattern, strategy, waitTime, targetSession);
+                    requestListener, responseListener, pattern, strategy, waitNanoTime, targetSession);
         }
     }
 }

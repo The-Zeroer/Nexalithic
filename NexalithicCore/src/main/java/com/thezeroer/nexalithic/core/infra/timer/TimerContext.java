@@ -1,4 +1,4 @@
-package com.thezeroer.nexalithic.core.infra.timer.next;
+package com.thezeroer.nexalithic.core.infra.timer;
 
 /**
  * 定时器协调器可读取的调度上下文。
@@ -16,7 +16,7 @@ public interface TimerContext<T> {
     /**
      * 获取本次调度携带的不透明标识。
      *
-     * <p>该值由调用方在 {@link TimeWheel#schedule(Object, long)} 或对应重载中传入，
+     * <p>该值由调用方在 {@code TimeWheel.schedule(T, long)} 或对应重载中传入，
      * 时间轮只负责原样保存和返回，不解释其业务含义。调用方可将其用作版本号或租约标识，
      * 通过与目标当前标识比较来拒绝已经过期的旧注册。未显式提供时，该值为 {@code 0}。</p>
      *
